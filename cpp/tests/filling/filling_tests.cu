@@ -71,6 +71,7 @@ void FillTest(gdf_index_type begin, gdf_index_type end,
 
 TYPED_TEST(FillingTest, SetRangeNullCount)
 {
+  // all nulls
   std::vector<gdf_valid_type> all_nulls(gdf_valid_allocation_size(5), 0x00);
   std::vector<int32_t> values = {0, 0, 0, 0, 0};
   column_wrapper<int32_t> null_col(values,  all_nulls);
@@ -78,14 +79,31 @@ TYPED_TEST(FillingTest, SetRangeNullCount)
   std::cout << "null source vector = "; 
   null_col.print();
   std::cout << " null_count " << null_col.get()->null_count << std::endl;
-
-  cudf::fill(null_col.get(), scalar_wrapper<int32_t>(3, true), 0, 3); // should get {3, 3, 3, \0, \0}, null count 3
+  cudf::fill(null_col.get(), scalar_wrapper<int32_t>(3, true), 0, 3); 
+  // should get {3, 3, 3, \0, \0}, null count 2
 
   std::cout << "filled vector = ";
   null_col.print();
   std::cout << " filled null_count " << null_col.get()->null_count << std::endl;
 
-  EXPECT_TRUE(null_col.get()->null_count == 3);
+  // some nulls
+  column_wrapper<int32_t> col_with_nulls(5,
+    [&](gdf_index_type row) { return 0; },
+    [&](gdf_index_type row) { return row >= 2 ? false : true; });
+
+  std::cout << "some null source vector = "; 
+  col_with_nulls.print();
+  std::cout << " null_count " << col_with_nulls.get()->null_count << std::endl;
+  cudf::fill(col_with_nulls.get(), scalar_wrapper<int32_t>(5, true), 0, 4); 
+  // should get {5, 5, 5, \0, \0}, null count 3
+
+  std::cout << "filled vector 2 = ";
+  col_with_nulls.print();
+  std::cout << " filled null_count 2 " << col_with_nulls.get()->null_count << std::endl;
+  // should get {5, 5, 5, 5, \0}, null count 1
+
+  EXPECT_TRUE(null_col.get()->null_count == 2);
+  EXPECT_TRUE(col_with_nulls.get()->null_count == 1);
 
 /*
 Sample output:
@@ -94,6 +112,21 @@ null source vector = @ @ @ @ @
  null_count 5
 filled vector = 3 3 3 @ @
  filled null_count 84215042
+
+some null source vector = 0 0 @ @ @
+ null_count 3
+filled vector 2 = 5 5 5 5 @
+ filled null_count 2 50529025
+
+/home/abellina/work/cudf/cpp/tests/filling/filling_tests.cu:105: Failure
+Value of: null_col.get()->null_count == 2
+  Actual: false
+Expected: true
+
+/home/abellina/work/cudf/cpp/tests/filling/filling_tests.cu:106: Failure
+Value of: col_with_nulls.get()->null_count == 1
+  Actual: false
+Expected: true
 
 */
 
