@@ -69,6 +69,37 @@ void FillTest(gdf_index_type begin, gdf_index_type end,
   }
 }
 
+TYPED_TEST(FillingTest, SetRangeNullCount)
+{
+  std::vector<gdf_valid_type> all_nulls(gdf_valid_allocation_size(5), 0x00);
+  std::vector<int32_t> values = {0, 0, 0, 0, 0};
+  column_wrapper<int32_t> null_col(values,  all_nulls);
+
+  std::cout << "null source vector = "; 
+  null_col.print();
+  std::cout << " null_count " << null_col.get()->null_count << std::endl;
+
+  cudf::fill(null_col.get(), scalar_wrapper<int32_t>(3, true), 0, 3); // should get {3, 3, 3, \0, \0}, null count 3
+
+  std::cout << "filled vector = ";
+  null_col.print();
+  std::cout << " filled null_count " << null_col.get()->null_count << std::endl;
+
+  EXPECT_TRUE(null_col.get()->null_count == 3);
+
+/*
+Sample output:
+
+null source vector = @ @ @ @ @
+ null_count 5
+filled vector = 3 3 3 @ @
+ filled null_count 84215042
+
+*/
+
+}
+
+
 TYPED_TEST(FillingTest, SetSingle)
 {
   gdf_index_type index = 9;
