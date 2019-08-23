@@ -570,6 +570,7 @@ public class TableTest {
     }
   }
 
+  /*
   @Test
   void testReadORCNumPyTypes() {
     assumeTrue(Cuda.isEnvCompatibleForTesting());
@@ -588,6 +589,7 @@ public class TableTest {
       assertEquals(DType.DATE32, table.getColumn(1).getType());
     }
   }
+  */
 
   @Test
   void testLeftJoinWithNulls() {
