@@ -78,6 +78,50 @@ TEST_F(SliceStringTest, StringWithNulls) {
     }
 }
 
+
+TEST_F(SliceStringTest, StringWithNulls2) {
+    std::vector<std::string> strings{
+      "foo", "bar", "", "", "baz", "hello", "world"};
+
+    auto valids = cudf::test::make_counting_transform_iterator(0, [](auto i) { 
+        return (i != 2 && i != 3);
+    });
+
+    cudf::test::strings_column_wrapper s(strings.begin(), strings.end(), valids);
+
+    std::vector<cudf::size_type> indices{0, 2, 2, 5, 3, 6};
+
+    std::vector<cudf::test::strings_column_wrapper> expected;
+
+    // first partition (0, 2), both valid
+    std::vector<std::string> part_0{"foo", "bar"};
+    auto valids_0 = cudf::test::make_counting_transform_iterator(0, [](auto i) { return true; });
+    expected.push_back(cudf::test::strings_column_wrapper(part_0.begin(), part_0.end(), valids_0));
+
+    // second partition (2, 5), two nulls and a valid
+    std::vector<std::string> part_1{"", "", "baz"};
+    auto valids_1 = cudf::test::make_counting_transform_iterator(0, [](auto i) { return i > 1; });
+    expected.push_back(cudf::test::strings_column_wrapper(part_1.begin(), part_1.end(), valids_1));
+
+    // third partition (3 6), one nulls and two valids
+    std::vector<std::string> part_2{"", "baz", "hello"};
+    auto valids_2 = cudf::test::make_counting_transform_iterator(0, [](auto i) { return i != 0; });
+    expected.push_back(cudf::test::strings_column_wrapper(part_2.begin(), part_2.end(), valids_2));
+
+    std::vector<cudf::column_view> result = cudf::experimental::slice(s, indices);
+
+    EXPECT_EQ(expected.size(), result.size());
+
+    for (unsigned long index = 0; index < result.size(); index++) {
+        std::cerr << "comparing partition: " << index << " " << result[index].size() << " " << result[index].null_count() <<  std::endl;
+        cudf::test::expect_column_properties_equal(expected[index], result[index]);
+        auto col = new cudf::column(result[index]);
+        std::cerr << "comparing COL partition: " << index << " " << col->size() << " " <<  col->null_count() <<  std::endl;
+        delete col;
+    }
+}
+
+
 struct SliceCornerCases : public SliceTest <int8_t>{};
 
 TEST_F(SliceCornerCases, EmptyColumn) {

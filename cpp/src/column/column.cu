@@ -178,6 +178,7 @@ struct create_column_from_view {
  std::unique_ptr<column> operator()() {
    cudf::strings_column_view sview(view);
    auto col = cudf::strings::detail::slice(sview, view.offset(), -1, 1, stream, mr);
+   //auto col = cudf::strings::detail::slice(sview, 0, view.size(), 1, stream, mr); 
    return col;
  }
 
