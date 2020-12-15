@@ -1297,7 +1297,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_makeCudfColumnView(JNIEnv
     cudf::data_type n_data_type = cudf::jni::make_data_type(j_type, scale);
 
     std::unique_ptr<cudf::column_view> ret;
-    void *data = reinterpret_cast<void *>(j_data);
+    void *data = j_data_size == 0 ? nullptr : reinterpret_cast<void *>(j_data);
     cudf::bitmask_type *valid = reinterpret_cast<cudf::bitmask_type *>(j_valid);
     if (valid == nullptr) {
       j_null_count = 0;
@@ -1314,7 +1314,14 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_makeCudfColumnView(JNIEnv
 
         cudf::size_type *offsets = reinterpret_cast<cudf::size_type *>(j_offset);
         cudf::column_view offsets_column(cudf::data_type{cudf::type_id::INT32}, size + 1, offsets);
+        if (j_data_size == 0) {
+          // This is a 0-sized chars column. In some cases, cudf handles a 0-sized chars child correctly,
+          // but this has lead to some bugs in the past (contig_split). Setting the chars child in the string column
+          // to a column_view pointing to nullptr because it has size 0, as that is preferred.
+          data = nullptr;
+        }
         cudf::column_view data_column(cudf::data_type{cudf::type_id::INT8}, j_data_size, data);
+
         ret.reset(new cudf::column_view(cudf::data_type{cudf::type_id::STRING}, size, nullptr,
                                         valid, j_null_count, 0, {offsets_column, data_column}));
       }
