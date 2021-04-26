@@ -83,12 +83,16 @@ __device__ void snappy_prefetch_bytestream(unsnap_state_s *s, int t)
   int32_t pos          = min(align_bytes, end);
   int32_t blen;
   // Start by prefetching up to the next a 32B-aligned location
-  if (t < pos) { s->q.buf[t] = base[t]; }
+  if (t < pos) { 
+    __threadfence_block();
+    s->q.buf[t] = base[t];
+  }
   blen = 0;
   do {
     __syncwarp();
     if (!t) {
       uint32_t minrdpos;
+      __threadfence_block();
       s->q.prefetch_wrpos = pos;
       minrdpos            = pos - min(pos, prefetch_size - 32u);
       blen                = (int)min(32u, end - pos);
@@ -278,6 +282,7 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
 
     // Wait for prefetcher
     if (t == 0) {
+      __threadfence_block();
       s->q.prefetch_rdpos = cur;
 #pragma unroll(1)  // We don't want unrolling here
       while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) {}
@@ -438,6 +443,7 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
           offset = -(int32_t)cur;
           cur += blen;
           // Wait for prefetcher
+          __threadfence_block();
           s->q.prefetch_rdpos = cur;
 #pragma unroll(1)  // We don't want unrolling here
           while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) {}
@@ -450,6 +456,7 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
         batch_len++;
       }
       if (batch_len != 0) {
+        __threadfence_block();
         s->q.batch_len[batch] = batch_len;
         batch                 = (batch + 1) & (batch_count - 1);
       }
@@ -461,6 +468,7 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
     if (batch_len != batch_size) { break; }
   }
   if (!t) {
+    __threadfence_block();
     s->q.prefetch_end     = 1;
     s->q.batch_len[batch] = -1;
     s->bytes_left         = bytes_left;
@@ -589,6 +597,7 @@ __device__ void snappy_process_symbols(unsnap_state_s *s, int t, Storage &temp_s
       out += blen;
     }
     __syncwarp();
+    __threadfence_block();
     if (t == 0) { s->q.batch_len[batch] = 0; }
     batch = (batch + 1) & (batch_count - 1);
   } while (1);
@@ -618,6 +627,7 @@ __global__ void __launch_bounds__(block_size)
       reinterpret_cast<const uint32_t *>(&inputs[strm_id])[t];
     __threadfence_block();
   }
+  __threadfence_block();
   if (t < batch_count) { s->q.batch_len[t] = 0; }
   __syncthreads();
   if (!t) {
@@ -660,6 +670,7 @@ __global__ void __launch_bounds__(block_size)
     } else {
       s->error = -1;
     }
+    __threadfence_block();
     s->q.prefetch_end   = 0;
     s->q.prefetch_wrpos = 0;
     s->q.prefetch_rdpos = 0;
