@@ -69,6 +69,28 @@ inline __device__ volatile uint8_t &byte_access(unsnap_state_s *s, uint32_t pos)
   return s->q.buf[pos & (prefetch_size - 1)];
 }
 
+__device__ void debug_log(unsnap_state_s *s, int t, uint32_t lcnt)
+{
+  if (t == 0 && (lcnt >= 10000000) && (lcnt % 10000000 == 0)) {
+    printf(
+      "B#%05u.W%u: \tus:%9u \tbl:%9u \terr:%d \tt:%9u \tq.pwrpos:%9u \tq.prdpos:%9u \tq.pend:%9d "
+      "\tq.blen0: %9d \tq.blen1: %9d \tq.blen2: %9d \tq.blen3: %9d\n",
+      blockIdx.x,
+      threadIdx.x / 32,
+      s->uncompressed_size,
+      s->bytes_left,
+      s->error,
+      clock() - s->tstart,
+      s->q.prefetch_wrpos,
+      s->q.prefetch_rdpos,
+      s->q.prefetch_end,
+      s->q.batch_len[0],
+      s->q.batch_len[1],
+      s->q.batch_len[2],
+      s->q.batch_len[3]);
+  }
+}
+
 /**
  * @brief prefetches data for the symbol decoding stage
  *
@@ -92,6 +114,7 @@ __device__ void snappy_prefetch_bytestream(unsnap_state_s *s, int t)
       s->q.prefetch_wrpos = pos;
       minrdpos            = pos - min(pos, prefetch_size - 32u);
       blen                = (int)min(32u, end - pos);
+      uint32_t lcnt       = 0;
       for (;;) {
         uint32_t rdpos = s->q.prefetch_rdpos;
         if (rdpos >= minrdpos) break;
@@ -99,7 +122,7 @@ __device__ void snappy_prefetch_bytestream(unsnap_state_s *s, int t)
           blen = 0;
           break;
         }
-        nanosleep(100);
+        debug_log(s, t, lcnt++);
       }
     }
     blen = shuffle(blen);
@@ -280,8 +303,9 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
     // Wait for prefetcher
     if (t == 0) {
       s->q.prefetch_rdpos = cur;
+      uint32_t lcnt       = 0;
 #pragma unroll(1)  // We don't want unrolling here
-      while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) { nanosleep(50); }
+      while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) { debug_log(s, t, lcnt++); }
       b = &s->q.batch[batch * batch_size];
     }
     // Process small symbols in parallel: for data that does not get good compression,
@@ -440,8 +464,9 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
           cur += blen;
           // Wait for prefetcher
           s->q.prefetch_rdpos = cur;
+          uint32_t lcnt       = 0;
 #pragma unroll(1)  // We don't want unrolling here
-          while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) { nanosleep(50); }
+          while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) { debug_log(s, t, lcnt++); }
           dst_pos += blen;
           if (bytes_left < blen) break;
           bytes_left -= blen;
@@ -456,8 +481,9 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
       }
     }
     batch_len = shuffle(batch_len);
+    uint32_t lcnt = 0;
     if (t == 0) {
-      while (s->q.batch_len[batch] != 0) { nanosleep(100); }
+      while (s->q.batch_len[batch] != 0) { debug_log(s, t, lcnt++); }
     }
     if (batch_len != batch_size) { break; }
   }
@@ -490,7 +516,8 @@ __device__ void snappy_process_symbols(unsnap_state_s *s, int t, Storage &temp_s
     int32_t batch_len, blen_t, dist_t;
 
     if (t == 0) {
-      while ((batch_len = s->q.batch_len[batch]) == 0) { nanosleep(100); }
+      uint32_t lcnt = 0;
+      while ((batch_len = s->q.batch_len[batch]) == 0) { debug_log(s, t, lcnt++); }
     } else {
       batch_len = 0;
     }
