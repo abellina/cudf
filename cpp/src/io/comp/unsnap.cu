@@ -133,7 +133,8 @@ __device__ void snappy_prefetch_bytestream(unsnap_state_s *s, int t)
           blen = 0;
           break;
         }
-        busy_wait(20);
+        //busy_wait(20);
+        nanosleep(100);
       }
     }
     blen = shuffle(blen);
