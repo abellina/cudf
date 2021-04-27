@@ -71,24 +71,25 @@ inline __device__ volatile uint8_t &byte_access(unsnap_state_s *s, uint32_t pos)
 
 __device__ void debug_log(unsnap_state_s *s, int t, uint32_t lcnt)
 {
-  if (t == 0 && (lcnt >= 10000000) && (lcnt % 10000000 == 0)) {
-    printf(
-      "B#%05u.W%u: \tus:%9u \tbl:%9u \terr:%d \tt:%9u \tq.pwrpos:%9u \tq.prdpos:%9u \tq.pend:%9d "
-      "\tq.blen0: %9d \tq.blen1: %9d \tq.blen2: %9d \tq.blen3: %9d\n",
-      blockIdx.x,
-      threadIdx.x / 32,
-      s->uncompressed_size,
-      s->bytes_left,
-      s->error,
-      clock() - s->tstart,
-      s->q.prefetch_wrpos,
-      s->q.prefetch_rdpos,
-      s->q.prefetch_end,
-      s->q.batch_len[0],
-      s->q.batch_len[1],
-      s->q.batch_len[2],
-      s->q.batch_len[3]);
-  }
+  //atomicInc(&s->tstart, 1);
+ //if (t == 0 && (lcnt >= 10000000) && (lcnt % 10000000 == 0)) {
+ //  printf(
+ //    "B#%05u.W%u: \tus:%9u \tbl:%9u \terr:%d \tt:%9u \tq.pwrpos:%9u \tq.prdpos:%9u \tq.pend:%9d "
+ //    "\tq.blen0: %9d \tq.blen1: %9d \tq.blen2: %9d \tq.blen3: %9d\n",
+ //    blockIdx.x,
+ //    threadIdx.x / 32,
+ //    s->uncompressed_size,
+ //    s->bytes_left,
+ //    s->error,
+ //    clock() - s->tstart,
+ //    s->q.prefetch_wrpos,
+ //    s->q.prefetch_rdpos,
+ //    s->q.prefetch_end,
+ //    s->q.batch_len[0],
+ //    s->q.batch_len[1],
+ //    s->q.batch_len[2],
+ //    s->q.batch_len[3]);
+ //}
 }
 
 /**
