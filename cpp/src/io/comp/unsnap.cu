@@ -29,16 +29,6 @@ constexpr int32_t batch_count   = (1 << 2);
 constexpr int32_t prefetch_size = (1 << 9);  // 512B, in 32B chunks
 constexpr bool log_cyclecount   = false;
 
-void __device__ busy_wait(size_t cycles)
-{
-  clock_t start = clock();
-  for (;;) {
-    clock_t const now    = clock();
-    clock_t const passed = now > start ? now - start : now + (0xffffffff - start);
-    if (passed >= cycles) return;
-  }
-}
-
 /**
  * @brief Describes a single LZ77 symbol (single entry in batch)
  */
@@ -96,6 +86,8 @@ __device__ void snappy_prefetch_bytestream(unsnap_state_s *s, int t)
   if (t < pos) { s->q.buf[t] = base[t]; }
   blen = 0;
   do {
+    // ensure writes to prefetch buffer are observed before signaling
+    __threadfence_block();
     __syncwarp();
     if (!t) {
       uint32_t minrdpos;
@@ -109,7 +101,6 @@ __device__ void snappy_prefetch_bytestream(unsnap_state_s *s, int t)
           blen = 0;
           break;
         }
-        //busy_wait(20);
       }
     }
     blen = shuffle(blen);
@@ -287,11 +278,16 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
     int32_t batch_len;
     volatile unsnap_batch_s *b;
 
+    // ensure all the warp's threads have read from prefetch ring buffer before signaling to
+    // overwrite parts of it
+    __threadfence_block();
+    __syncwarp();
+
     // Wait for prefetcher
     if (t == 0) {
       s->q.prefetch_rdpos = cur;
 #pragma unroll(1)  // We don't want unrolling here
-      while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) { /*busy_wait(10);*/ }
+      while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) {}
       b = &s->q.batch[batch * batch_size];
     }
     // Process small symbols in parallel: for data that does not get good compression,
@@ -395,6 +391,10 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
         } while (batch_add >= 6 && batch_len < batch_size - 2);
       }
     }
+    // ensure the reads from the prefetch buffer are done before signaling that prefetcher may
+    // overwrite the prefetch buffer
+    __threadfence_block();
+    __syncwarp();
     if (t == 0) {
       while (bytes_left > 0 && batch_len < batch_size) {
         uint32_t blen, offset;
@@ -448,10 +448,13 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
           blen += 1;
           offset = -(int32_t)cur;
           cur += blen;
+          // ensure reads from the prefetch buffer are done
+          __threadfence_block();
           // Wait for prefetcher
           s->q.prefetch_rdpos = cur;
 #pragma unroll(1)  // We don't want unrolling here
-          while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) { /*busy_wait(10);*/ }
+          while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) {}
+          __threadfence_block();
           dst_pos += blen;
           if (bytes_left < blen) break;
           bytes_left -= blen;
@@ -461,13 +464,16 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
         batch_len++;
       }
       if (batch_len != 0) {
+        // ensure writes to current batch have been written before signaling
+        __threadfence_block();
         s->q.batch_len[batch] = batch_len;
         batch                 = (batch + 1) & (batch_count - 1);
       }
     }
     batch_len = shuffle(batch_len);
     if (t == 0) {
-      while (s->q.batch_len[batch] != 0) { /*busy_wait(20);*/ }
+      while (s->q.batch_len[batch] != 0) {}
+      __threadfence_block();
     }
     if (batch_len != batch_size) { break; }
   }
@@ -500,7 +506,7 @@ __device__ void snappy_process_symbols(unsnap_state_s *s, int t, Storage &temp_s
     int32_t batch_len, blen_t, dist_t;
 
     if (t == 0) {
-      while ((batch_len = s->q.batch_len[batch]) == 0) { /*busy_wait(20);*/ }
+      while ((batch_len = s->q.batch_len[batch]) == 0) {}
     } else {
       batch_len = 0;
     }
@@ -599,6 +605,7 @@ __device__ void snappy_process_symbols(unsnap_state_s *s, int t, Storage &temp_s
       }
       out += blen;
     }
+    __threadfence_block();
     __syncwarp();
     if (t == 0) { s->q.batch_len[batch] = 0; }
     batch = (batch + 1) & (batch_count - 1);
