@@ -451,7 +451,7 @@ __device__ void snappy_decode_symbols(unsnap_state_s *s, uint32_t t)
           // Wait for prefetcher
           s->q.prefetch_rdpos = cur;
 #pragma unroll(1)  // We don't want unrolling here
-          while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) { busy_wait(10); }
+          while (s->q.prefetch_wrpos < min(cur + 5 * batch_size, end)) { /*busy_wait(10);*/ }
           dst_pos += blen;
           if (bytes_left < blen) break;
           bytes_left -= blen;
