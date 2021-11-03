@@ -2226,7 +2226,7 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
-  void testLeftSemiJoinHashVsAST25PCT() {
+  void testLeftSemiJoinHashVsAST75PCT() {
     BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
             new ColumnReference(0, TableReference.LEFT),
             new ColumnReference(0, TableReference.RIGHT));
