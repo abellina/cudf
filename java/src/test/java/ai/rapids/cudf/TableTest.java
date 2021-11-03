@@ -2202,6 +2202,54 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
+  void testLeftSemiJoinHashVsAST100PCTAllZeros() {
+    BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
+            new ColumnReference(0, TableReference.LEFT),
+            new ColumnReference(0, TableReference.RIGHT));
+    int numKeys = 1000000;
+    Integer[] left = new Integer[numKeys];
+    Integer[] right = new Integer[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+      left[i] = 0;
+      right[i] = 0;
+    }
+    try (Table leftKeys = new Table.TestBuilder().column(left).build();
+         Table rightKeys = new Table.TestBuilder().column(right).build();
+         CompiledExpression condition = expr.compile()) {
+      try(NvtxRange r1 = new NvtxRange("hash_100pct", NvtxColor.BLUE)) {
+        try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
+      }
+      try(NvtxRange r1 = new NvtxRange("ast_100pct", NvtxColor.RED)) {
+        try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+      }
+    }
+  }
+
+  @Test
+  void testLeftSemiJoinHashVsAST100PCTAllZerosAndOnes() {
+    BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
+            new ColumnReference(0, TableReference.LEFT),
+            new ColumnReference(0, TableReference.RIGHT));
+    int numKeys = 1000000;
+    Integer[] left = new Integer[numKeys];
+    Integer[] right = new Integer[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+      left[i] = 0;
+      right[i] = 1;
+    }
+    try (Table leftKeys = new Table.TestBuilder().column(left).build();
+         Table rightKeys = new Table.TestBuilder().column(right).build();
+         CompiledExpression condition = expr.compile()) {
+      try(NvtxRange r1 = new NvtxRange("hash_100pct", NvtxColor.BLUE)) {
+        try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
+      }
+      try(NvtxRange r1 = new NvtxRange("ast_100pct", NvtxColor.RED)) {
+        try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+      }
+    }
+  }
+
+  @Test
   void testLeftSemiJoinHashVsAST100PCT() {
     BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
             new ColumnReference(0, TableReference.LEFT),
