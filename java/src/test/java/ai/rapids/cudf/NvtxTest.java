@@ -67,6 +67,6 @@ public class NvtxTest {
     range.close();
     assertThrows(IllegalStateException.class, () -> {
       range.close();
-    })
+    });
   }
 }
