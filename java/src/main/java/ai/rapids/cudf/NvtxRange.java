@@ -43,9 +43,6 @@ package ai.rapids.cudf;
 public class NvtxRange implements AutoCloseable {
   private static final boolean isEnabled = Boolean.getBoolean("ai.rapids.cudf.nvtx.enabled");
 
-  // true if this range is already closed
-  private boolean closed;
-
   static {
     if (isEnabled) {
       NativeDepsLoader.loadNativeDeps();
@@ -65,10 +62,6 @@ public class NvtxRange implements AutoCloseable {
   @Override
   public void close() {
     if (isEnabled) {
-      if (closed) {
-        throw new IllegalStateException("Cannot call close on an already closed NvtxRange!");
-      }
-      closed = true;
       pop();
     }
   }
