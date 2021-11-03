@@ -2209,8 +2209,9 @@ public class TableTest extends CudfTestBase {
          Table expected = new Table.TestBuilder()
                  .column(2, 5, 7, 9) // left
                  .build();
+         CompiledExpression condition = expr.compile();
          GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false);
-         GatherMap mapAst = left.conditionalLeftSemiJoinGatherMap(right, condition)) {
+         GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {
       verifySemiJoinGatherMap(map, expected);
       verifySemiJoinGatherMap(mapAst, expected);
     }
