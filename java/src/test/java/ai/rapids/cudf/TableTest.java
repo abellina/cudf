@@ -2204,16 +2204,18 @@ public class TableTest extends CudfTestBase {
     BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
             new ColumnReference(0, TableReference.LEFT),
             new ColumnReference(0, TableReference.RIGHT));
-    try (Table leftKeys = new Table.TestBuilder().column(2, 3, 9, 0, 1, 7, 4, 6, 5, 8).build();
-         Table rightKeys = new Table.TestBuilder().column(6, 5, 9, 8, 10, 32).build();
-         Table expected = new Table.TestBuilder()
-                 .column(2, 7, 8, 9) // left
-                 .build();
+    int numKeys = 1000000;
+    int[] left = new int[numKeys];
+    int[] right = new int[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+      left[i] = i;
+      right[i] = i;
+    }
+    try (Table leftKeys = new Table.TestBuilder().column(left).build();
+         Table rightKeys = new Table.TestBuilder().column(right).build();
          CompiledExpression condition = expr.compile();
          GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false);
          GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {
-      verifySemiJoinGatherMap(map, expected);
-      verifySemiJoinGatherMap(mapAst, expected);
     }
   }
 
