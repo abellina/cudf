@@ -2205,8 +2205,8 @@ public class TableTest extends CudfTestBase {
             new ColumnReference(0, TableReference.LEFT),
             new ColumnReference(0, TableReference.RIGHT));
     int numKeys = 1000000;
-    int[] left = new int[numKeys];
-    int[] right = new int[numKeys];
+    Integer[] left = new Integer[numKeys];
+    Integer[] right = new Integer[numKeys];
     for (int i = 0; i < numKeys; i++) {
       left[i] = i;
       right[i] = i;
