@@ -2207,7 +2207,7 @@ public class TableTest extends CudfTestBase {
     try (Table leftKeys = new Table.TestBuilder().column(2, 3, 9, 0, 1, 7, 4, 6, 5, 8).build();
          Table rightKeys = new Table.TestBuilder().column(6, 5, 9, 8, 10, 32).build();
          Table expected = new Table.TestBuilder()
-                 .column(2, 5, 7, 9) // left
+                 .column(2, 7, 8, 9) // left
                  .build();
          CompiledExpression condition = expr.compile();
          GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false);
