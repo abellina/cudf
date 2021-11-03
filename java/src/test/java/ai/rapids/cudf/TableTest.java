@@ -2182,6 +2182,41 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
+  void testConditionalLeftSemiJoinGatherMap() {
+    BinaryOperation expr = new BinaryOperation(BinaryOperator.GREATER,
+            new ColumnReference(0, TableReference.LEFT),
+            new ColumnReference(0, TableReference.RIGHT));
+    try (Table left = new Table.TestBuilder().column(2, 3, 9, 0, 1, 7, 4, 6, 5, 8).build();
+         Table right = new Table.TestBuilder()
+                 .column(6, 5, 9, 8, 10, 32)
+                 .column(0, 1, 2, 3, 4, 5).build();
+         Table expected = new Table.TestBuilder()
+                 .column(2, 5, 7, 9) // left
+                 .build();
+         CompiledExpression condition = expr.compile();
+         GatherMap map = left.conditionalLeftSemiJoinGatherMap(right, condition)) {
+      verifySemiJoinGatherMap(map, expected);
+    }
+  }
+
+  @Test
+  void testLeftSemiJoinHashVsAST() {
+    BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
+            new ColumnReference(0, TableReference.LEFT),
+            new ColumnReference(0, TableReference.RIGHT));
+    try (Table leftKeys = new Table.TestBuilder().column(2, 3, 9, 0, 1, 7, 4, 6, 5, 8).build();
+         Table rightKeys = new Table.TestBuilder().column(6, 5, 9, 8, 10, 32).build();
+         Table expected = new Table.TestBuilder()
+                 .column(2, 5, 7, 9) // left
+                 .build();
+         GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false);
+         GatherMap mapAst = left.conditionalLeftSemiJoinGatherMap(right, condition)) {
+      verifySemiJoinGatherMap(map, expected);
+      verifySemiJoinGatherMap(mapAst, expected);
+    }
+  }
+
+  @Test
   void testLeftSemiJoinGatherMapNulls() {
     try (Table leftKeys = new Table.TestBuilder()
         .column(2, 3, 9, 0, 1, 7, 4, null, null, 8)
@@ -2197,23 +2232,6 @@ public class TableTest extends CudfTestBase {
     }
   }
 
-  @Test
-  void testConditionalLeftSemiJoinGatherMap() {
-    BinaryOperation expr = new BinaryOperation(BinaryOperator.GREATER,
-        new ColumnReference(0, TableReference.LEFT),
-        new ColumnReference(0, TableReference.RIGHT));
-    try (Table left = new Table.TestBuilder().column(2, 3, 9, 0, 1, 7, 4, 6, 5, 8).build();
-         Table right = new Table.TestBuilder()
-             .column(6, 5, 9, 8, 10, 32)
-             .column(0, 1, 2, 3, 4, 5).build();
-         Table expected = new Table.TestBuilder()
-             .column(2, 5, 7, 9) // left
-             .build();
-         CompiledExpression condition = expr.compile();
-         GatherMap map = left.conditionalLeftSemiJoinGatherMap(right, condition)) {
-      verifySemiJoinGatherMap(map, expected);
-    }
-  }
 
   @Test
   void testConditionalLeftSemiJoinGatherMapNulls() {
