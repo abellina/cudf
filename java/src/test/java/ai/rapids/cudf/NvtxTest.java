@@ -17,6 +17,7 @@
 package ai.rapids.cudf;
 
 import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class NvtxTest {
   @Test
@@ -58,5 +59,14 @@ public class NvtxTest {
       range2 = new NvtxUnscopedRange("start/end closes later", NvtxColor.BLUE);
     }
     range2.close();
+  }
+
+  @Test
+  public void testNvtxUnscopedCloseMultipleTimes() {
+    NvtxUnscopedRange range = new NvtxUnscopedRange("range", NvtxColor.RED);
+    range.close();
+    assertThrows(IllegalStateException.class, () -> {
+      range.close();
+    })
   }
 }
