@@ -2231,7 +2231,7 @@ public class TableTest extends CudfTestBase {
             new ColumnReference(0, TableReference.LEFT),
             new ColumnReference(0, TableReference.RIGHT));
     int numKeys = 1000000;
-    int offset = numKeys / 2;
+    int offset  = 500000;
 
     Integer[] left = new Integer[numKeys];
     Integer[] right = new Integer[numKeys];
@@ -2257,7 +2257,7 @@ public class TableTest extends CudfTestBase {
             new ColumnReference(0, TableReference.LEFT),
             new ColumnReference(0, TableReference.RIGHT));
     int numKeys = 1000000;
-    int offset = numKeys / 1.25;
+    int offset  = 750000;
 
     Integer[] left = new Integer[numKeys];
     Integer[] right = new Integer[numKeys];
