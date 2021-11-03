@@ -24,6 +24,8 @@ import ai.rapids.cudf.HostColumnVector.DataType;
 import ai.rapids.cudf.HostColumnVector.ListType;
 import ai.rapids.cudf.HostColumnVector.StructData;
 import ai.rapids.cudf.HostColumnVector.StructType;
+import ai.rapids.cudf.NvtxRange;
+import ai.rapids.cudf.NvtxColor;
 
 import ai.rapids.cudf.ast.BinaryOperation;
 import ai.rapids.cudf.ast.BinaryOperator;
@@ -2200,7 +2202,7 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
-  void testLeftSemiJoinHashVsAST() {
+  void testLeftSemiJoinHashVsAST100PCT() {
     BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
             new ColumnReference(0, TableReference.LEFT),
             new ColumnReference(0, TableReference.RIGHT));
@@ -2213,9 +2215,92 @@ public class TableTest extends CudfTestBase {
     }
     try (Table leftKeys = new Table.TestBuilder().column(left).build();
          Table rightKeys = new Table.TestBuilder().column(right).build();
-         CompiledExpression condition = expr.compile();
-         GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false);
-         GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {
+         CompiledExpression condition = expr.compile()) {
+      try(NvtxRange r1 = new NvtxRange("hash_100pct", NvtxColor.BLUE)) {
+        try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
+      }
+      try(NvtxRange r1 = new NvtxRange("ast_100pct", NvtxColor.RED)) {
+        try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+      }
+    }
+  }
+
+  @Test
+  void testLeftSemiJoinHashVsAST50PCT() {
+    BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
+            new ColumnReference(0, TableReference.LEFT),
+            new ColumnReference(0, TableReference.RIGHT));
+    int numKeys = 1000000;
+    int offset = numKeys / 2;
+
+    Integer[] left = new Integer[numKeys];
+    Integer[] right = new Integer[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+      left[i] = i;
+      right[i] = i + offset;
+    }
+    try (Table leftKeys = new Table.TestBuilder().column(left).build();
+         Table rightKeys = new Table.TestBuilder().column(right).build();
+         CompiledExpression condition = expr.compile()) {
+
+    }
+    try(NvtxRange r1 = new NvtxRange("hash_50pct", NvtxColor.BLUE)) {
+      try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
+    }
+    try(NvtxRange r1 = new NvtxRange("ast_50pct", NvtxColor.RED)) {
+      try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+    }
+  }
+
+  @Test
+  void testLeftSemiJoinHashVsAST25PCT() {
+    BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
+            new ColumnReference(0, TableReference.LEFT),
+            new ColumnReference(0, TableReference.RIGHT));
+    int numKeys = 1000000;
+    int offset = numKeys / 1.25;
+
+    Integer[] left = new Integer[numKeys];
+    Integer[] right = new Integer[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+      left[i] = i;
+      right[i] = i + offset;
+    }
+    try (Table leftKeys = new Table.TestBuilder().column(left).build();
+         Table rightKeys = new Table.TestBuilder().column(right).build();
+         CompiledExpression condition = expr.compile()) {
+      try(NvtxRange r1 = new NvtxRange("hash_25pct", NvtxColor.BLUE)) {
+        try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
+      }
+      try(NvtxRange r1 = new NvtxRange("ast_25pct", NvtxColor.RED)) {
+        try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+      }
+    }
+  }
+
+  @Test
+  void testLeftSemiJoinHashVsAST0PCT() {
+    BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
+            new ColumnReference(0, TableReference.LEFT),
+            new ColumnReference(0, TableReference.RIGHT));
+    int numKeys = 1000000;
+    int offset = numKeys;
+
+    Integer[] left = new Integer[numKeys];
+    Integer[] right = new Integer[numKeys];
+    for (int i = 0; i < numKeys; i++) {
+      left[i] = i;
+      right[i] = i + offset;
+    }
+    try (Table leftKeys = new Table.TestBuilder().column(left).build();
+         Table rightKeys = new Table.TestBuilder().column(right).build();
+         CompiledExpression condition = expr.compile()){
+      try(NvtxRange r1 = new NvtxRange("hash_0pct", NvtxColor.BLUE)) {
+        try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
+      }
+      try(NvtxRange r1 = new NvtxRange("ast_0pct", NvtxColor.RED)) {
+        try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+      }
     }
   }
 
