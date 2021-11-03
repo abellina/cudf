@@ -2242,13 +2242,12 @@ public class TableTest extends CudfTestBase {
     try (Table leftKeys = new Table.TestBuilder().column(left).build();
          Table rightKeys = new Table.TestBuilder().column(right).build();
          CompiledExpression condition = expr.compile()) {
-
-    }
-    try(NvtxRange r1 = new NvtxRange("hash_50pct", NvtxColor.BLUE)) {
-      try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
-    }
-    try(NvtxRange r1 = new NvtxRange("ast_50pct", NvtxColor.RED)) {
-      try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+      try (NvtxRange r1 = new NvtxRange("hash_50pct", NvtxColor.BLUE)) {
+        try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
+      }
+      try (NvtxRange r1 = new NvtxRange("ast_50pct", NvtxColor.RED)) {
+        try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+      }
     }
   }
 
