@@ -2300,6 +2300,34 @@ public class TableTest extends CudfTestBase {
     }
   }
 
+  @Test
+  void testLeftSemiJoinHashVsAST100PCTOneLessLeft() {
+    BinaryOperation expr = new BinaryOperation(BinaryOperator.EQUAL,
+            new ColumnReference(0, TableReference.LEFT),
+            new ColumnReference(0, TableReference.RIGHT));
+    int numKeysLeft = 999999;
+    int numKeysRight = 1000000;
+    Integer[] left = new Integer[numKeysLeft];
+    Integer[] right = new Integer[numKeysRight];
+    for (int i = 0; i < numKeysLeft; i++) {
+      left[i] = i;
+    }
+    for (int i = 0; i < numKeysRight; i++) {
+      right[i] = i;
+    }
+    try (Table leftKeys = new Table.TestBuilder().column(left).build();
+         Table rightKeys = new Table.TestBuilder().column(right).build();
+         CompiledExpression condition = expr.compile()) {
+      try(NvtxRange r1 = new NvtxRange("hash_100pct_ol_left", NvtxColor.BLUE)) {
+        try (GatherMap map = leftKeys.leftSemiJoinGatherMap(rightKeys, false)) {}
+      }
+      try(NvtxRange r1 = new NvtxRange("ast_100pct_ol_left", NvtxColor.RED)) {
+        try (GatherMap mapAst = leftKeys.conditionalLeftSemiJoinGatherMap(rightKeys, condition)) {}
+      }
+    }
+  }
+
+
 
   @Test
   void testLeftSemiJoinHashVsAST100PCTLargeLeft() {
