@@ -1086,17 +1086,6 @@ void snappy_decompress(device_span<gpu_inflate_input_s> comp_in,
                                                      stream.value());
   CUDF_EXPECTS(nvcomp_status == nvcompStatus_t::nvcompSuccess,
                "unable to perform snappy decompression");
-
-  CUDF_EXPECTS(thrust::equal(rmm::exec_policy(stream),
-                             uncompressed_data_sizes.begin(),
-                             uncompressed_data_sizes.end(),
-                             actual_uncompressed_data_sizes.begin()),
-               "Mismatch in expected and actual decompressed size during snappy decompression");
-  CUDF_EXPECTS(thrust::equal(rmm::exec_policy(stream),
-                             statuses.begin(),
-                             statuses.end(),
-                             thrust::make_constant_iterator(nvcompStatus_t::nvcompSuccess)),
-               "Error during snappy decompression");
 }
 
 /**
