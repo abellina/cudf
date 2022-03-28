@@ -126,7 +126,10 @@ struct ScanTest : public BaseScanTest<T> {
       switch (agg->kind) {
         case aggregation::MIN: return std::string{"\xF7\xBF\xBF\xBF"};
         case aggregation::MAX: return std::string{};
-        default: CUDF_FAIL("Unsupported aggregation");
+        default: {
+          CUDF_FAIL("Unsupported aggregation");
+          return HostType{};
+        }
       }
     } else {
       switch (agg->kind) {
@@ -134,7 +137,10 @@ struct ScanTest : public BaseScanTest<T> {
         case aggregation::PRODUCT: return HostType{1};
         case aggregation::MIN: return std::numeric_limits<HostType>::max();
         case aggregation::MAX: return std::numeric_limits<HostType>::lowest();
-        default: CUDF_FAIL("Unsupported aggregation");
+        default: {
+          CUDF_FAIL("Unsupported aggregation");
+          return HostType{};
+        }
       }
     }
   }

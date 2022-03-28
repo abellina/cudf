@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2022, NVIDIA CORPORATION.
+ * Copyright (c) 2021, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -103,7 +103,7 @@ struct value_expression_result
     if constexpr (std::is_same_v<Element, T>) {
       _obj = result;
     } else {
-      CUDF_UNREACHABLE("Output type does not match container type.");
+      cudf_assert(false && "Output type does not match container type.");
     }
   }
 
@@ -178,7 +178,9 @@ struct mutable_column_expression_result
   {
     // Not implemented since it would require modifying the API in the parent class to accept an
     // index.
-    CUDF_UNREACHABLE("This method is not implemented.");
+    cudf_assert(false && "This method is not implemented.");
+    // Unreachable return used to silence compiler warnings.
+    return {};
   }
 
   /**
@@ -188,7 +190,7 @@ struct mutable_column_expression_result
   {
     // Not implemented since it would require modifying the API in the parent class to accept an
     // index.
-    CUDF_UNREACHABLE("This method is not implemented.");
+    cudf_assert(false && "This method is not implemented.");
   }
 
   mutable_column_device_view& _obj;  ///< The column to which the data is written.
@@ -332,7 +334,9 @@ struct expression_evaluator {
     cudf::size_type left_row_index,
     thrust::optional<cudf::size_type> right_row_index = {}) const
   {
-    CUDF_UNREACHABLE("Unsupported type in resolve_input.");
+    cudf_assert(false && "Unsupported type in resolve_input.");
+    // Unreachable return used to silence compiler warnings.
+    return {};
   }
 
   /**
@@ -494,7 +498,7 @@ struct expression_evaluator {
                         op,
                         thread_intermediate_storage);
       } else {
-        CUDF_UNREACHABLE("Invalid operator arity.");
+        cudf_assert(false && "Invalid operator arity.");
       }
     }
   }
@@ -563,7 +567,7 @@ struct expression_evaluator {
       IntermediateDataType<has_nulls>* thread_intermediate_storage,
       possibly_null_value_t<Element, has_nulls> const& result) const
     {
-      CUDF_UNREACHABLE("Invalid type in resolve_output.");
+      cudf_assert(false && "Invalid type in resolve_output.");
     }
   };
 
@@ -626,7 +630,7 @@ struct expression_evaluator {
       detail::device_data_reference const& output,
       IntermediateDataType<has_nulls>* thread_intermediate_storage) const
     {
-      CUDF_UNREACHABLE("Invalid unary dispatch operator for the provided input.");
+      cudf_assert(false && "Invalid unary dispatch operator for the provided input.");
     }
   };
 
@@ -694,7 +698,7 @@ struct expression_evaluator {
       detail::device_data_reference const& output,
       IntermediateDataType<has_nulls>* thread_intermediate_storage) const
     {
-      CUDF_UNREACHABLE("Invalid binary dispatch operator for the provided input.");
+      cudf_assert(false && "Invalid binary dispatch operator for the provided input.");
     }
   };
 

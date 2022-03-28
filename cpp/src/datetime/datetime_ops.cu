@@ -105,8 +105,9 @@ struct RoundFunctor {
       case rounding_function::CEIL: return cuda::std::chrono::ceil<DurationType>(dt);
       case rounding_function::FLOOR: return cuda::std::chrono::floor<DurationType>(dt);
       case rounding_function::ROUND: return cuda::std::chrono::round<DurationType>(dt);
-      default: CUDF_UNREACHABLE("Unsupported rounding kind.");
+      default: cudf_assert(false && "Unsupported rounding kind.");
     }
+    __builtin_unreachable();
   }
 };
 
@@ -144,8 +145,9 @@ struct RoundingDispatcher {
       case rounding_frequency::NANOSECOND:
         return time_point_cast<typename Timestamp::duration>(
           RoundFunctor<duration_ns>{}(round_kind, ts));
-      default: CUDF_UNREACHABLE("Unsupported datetime rounding resolution.");
+      default: cudf_assert(false && "Unsupported datetime rounding resolution.");
     }
+    __builtin_unreachable();
   }
 };
 
