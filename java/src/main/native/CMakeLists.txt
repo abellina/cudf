@@ -73,11 +73,6 @@ set(CUDF_CUDA_DEFINITIONS "")
 rapids_find_package(CUDAToolkit REQUIRED)
 include(ConfigureCUDA) # set other CUDA compilation flags
 
-# Disable NVTX if necessary
-if(NOT USE_NVTX)
-  target_compile_definitions(cudfjni PUBLIC NVTX_DISABLE)
-endif()
-
 if(PER_THREAD_DEFAULT_STREAM)
   message(STATUS "Using per-thread default stream")
   add_compile_definitions(CUDA_API_PER_THREAD_DEFAULT_STREAM)
@@ -232,6 +227,11 @@ add_library(
   src/check_nvcomp_output_sizes.cu
 )
 
+# Disable NVTX if necessary
+if(NOT USE_NVTX)
+  target_compile_definitions(cudfjni PUBLIC NVTX_DISABLE)
+endif()
+
 if(CUDF_JNI_LIBCUDF_STATIC)
   # When linking against libcudf.a, the JNI library will include the old libcudf.so. For
   # backwards-compatibility for software that expects to find libcudf.so in the JVM environment
@@ -242,6 +242,7 @@ if(CUDF_JNI_LIBCUDF_STATIC)
   add_library(cudfjnistub SHARED src/emptyfile.cpp)
   set_target_properties(cudfjnistub PROPERTIES OUTPUT_NAME "cudfjni")
   target_link_libraries(cudfjnistub -Wl,--no-as-needed cudfjni -Wl,--as-needed)
+  target_compile_definitions(cudfjni PUBLIC RMM_STATIC_CUDART)
 endif()
 
 # ##################################################################################################

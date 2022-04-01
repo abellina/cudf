@@ -587,6 +587,8 @@ if(CUDA_STATIC_RUNTIME)
   set_target_properties(cudf PROPERTIES CUDA_RUNTIME_LIBRARY Static)
   # Make sure to export to consumers what runtime we used
   target_link_libraries(cudf PUBLIC CUDA::cudart_static)
+  # Tell RMM that we are linking against cudart statically 
+  target_compile_definitions(cudf PUBLIC RMM_STATIC_CUDART)
 else()
   # Tell CMake what CUDA language runtime to use
   set_target_properties(cudf PROPERTIES CUDA_RUNTIME_LIBRARY Shared)
