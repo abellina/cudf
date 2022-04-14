@@ -219,7 +219,8 @@ class element_equality_comparator {
             std::enable_if_t<not cudf::is_equality_comparable<Element, Element>()>* = nullptr>
   __device__ bool operator()(size_type lhs_element_index, size_type rhs_element_index)
   {
-    CUDF_UNREACHABLE("Attempted to compare elements of uncomparable types.");
+    cudf_assert(false && "Attempted to compare elements of uncomparable types.");
+    return false;
   }
 
  private:
@@ -324,7 +325,8 @@ class element_relational_comparator {
             std::enable_if_t<not cudf::is_relationally_comparable<Element, Element>()>* = nullptr>
   __device__ weak_ordering operator()(size_type lhs_element_index, size_type rhs_element_index)
   {
-    CUDF_UNREACHABLE("Attempted to compare elements of uncomparable types.");
+    cudf_assert(false && "Attempted to compare elements of uncomparable types.");
+    return weak_ordering::LESS;
   }
 
  private:
@@ -442,7 +444,8 @@ class element_hasher {
   template <typename T, CUDF_ENABLE_IF(not column_device_view::has_element_accessor<T>())>
   __device__ hash_value_type operator()(column_device_view col, size_type row_index) const
   {
-    CUDF_UNREACHABLE("Unsupported type in hash.");
+    cudf_assert(false && "Unsupported type in hash.");
+    return {};
   }
 
   Nullate has_nulls;
@@ -471,7 +474,8 @@ class element_hasher_with_seed {
   template <typename T, CUDF_ENABLE_IF(not column_device_view::has_element_accessor<T>())>
   __device__ hash_value_type operator()(column_device_view col, size_type row_index) const
   {
-    CUDF_UNREACHABLE("Unsupported type in hash.");
+    cudf_assert(false && "Unsupported type in hash.");
+    return {};
   }
 
  private:
