@@ -181,7 +181,7 @@ class device_row_comparator {
               typename... Args>
     __device__ cuda::std::pair<weak_ordering, int> operator()(Args...)
     {
-      CUDF_UNREACHABLE("Attempted to compare elements of uncomparable types.");
+      cudf_assert(false && "uncomparable types.");
     }
 
     template <typename Element, CUDF_ENABLE_IF(std::is_same_v<Element, cudf::struct_view>)>
@@ -529,7 +529,7 @@ class device_row_comparator {
               typename... Args>
     __device__ bool operator()(Args...)
     {
-      CUDF_UNREACHABLE("Attempted to compare elements of uncomparable types.");
+      cudf_assert(false && "uncomparable types.");
     }
 
     template <typename Element, CUDF_ENABLE_IF(cudf::is_nested<Element>())>
@@ -611,7 +611,7 @@ class device_row_comparator {
                 typename... Args>
       __device__ bool operator()(Args...) const noexcept
       {
-        CUDF_UNREACHABLE("Attempted to compare elements of uncomparable types.");
+        cudf_assert(false && "uncomparable types.");
       }
     };
 
