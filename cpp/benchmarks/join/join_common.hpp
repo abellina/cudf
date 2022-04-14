@@ -116,7 +116,7 @@ static void BM_join(state_type& state, Join JoinFunc)
   auto build_payload_column = cudf::sequence(build_table_size, *init);
   auto probe_payload_column = cudf::sequence(probe_table_size, *init);
 
-  CUDF_CHECK_CUDA(0);
+  CHECK_CUDA(0);
 
   cudf::table_view build_table({build_key_column->view(), *build_payload_column});
   cudf::table_view probe_table({probe_key_column->view(), *probe_payload_column});
