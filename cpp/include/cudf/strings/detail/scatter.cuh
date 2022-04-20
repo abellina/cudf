@@ -15,13 +15,14 @@
  */
 #pragma once
 
-#include <cudf/column/column_factories.hpp>
+#include <cudf/column/column.hpp>
+#include <cudf/column/column_device_view.cuh>
+#include <cudf/detail/null_mask.hpp>
+#include <cudf/strings/detail/utilities.cuh>
 #include <cudf/strings/detail/utilities.hpp>
 #include <cudf/strings/strings_column_view.hpp>
-#include <cudf/utilities/span.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
-#include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
 
 #include <thrust/scatter.h>
@@ -70,9 +71,17 @@ std::unique_ptr<column> scatter(
   // do the scatter
   thrust::scatter(rmm::exec_policy(stream), begin, end, scatter_map, target_vector.begin());
 
-  // build the output column
-  auto sv_span = cudf::device_span<string_view const>(target_vector);
-  return make_strings_column(sv_span, string_view{nullptr, 0}, stream, mr);
+  // build offsets column
+  auto offsets_column = child_offsets_from_string_vector(target_vector, stream, mr);
+  // build chars column
+  auto chars_column =
+    child_chars_from_string_vector(target_vector, offsets_column->view(), stream, mr);
+
+  return make_strings_column(target.size(),
+                             std::move(offsets_column),
+                             std::move(chars_column),
+                             UNKNOWN_NULL_COUNT,
+                             cudf::detail::copy_bitmask(target.parent(), stream, mr));
 }
 
 }  // namespace detail
