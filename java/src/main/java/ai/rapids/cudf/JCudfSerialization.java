@@ -331,27 +331,29 @@ public class JCudfSerialization {
     }
 
     static SerializedColumnHeader readFrom(DataInputStream din, long rowCount) throws IOException {
-      DType dtype = DType.fromNative(din.readInt(), din.readInt());
-      long nullCount = din.readInt();
-      SerializedColumnHeader[] children = null;
-      if (dtype.isNestedType()) {
-        int numChildren;
-        long childRowCount;
-        if (dtype.equals(DType.LIST)) {
-          numChildren = 1;
-          childRowCount = din.readInt();
-        } else if (dtype.equals(DType.STRUCT)) {
-          numChildren = din.readInt();
-          childRowCount = rowCount;
-        } else {
-          throw new IllegalStateException("Unexpected nested type: " + dtype);
+      try (NvtxRange range  = new NvtxRange("read header", NvtxColor.CYAN)) {
+        DType dtype = DType.fromNative(din.readInt(), din.readInt());
+        long nullCount = din.readInt();
+        SerializedColumnHeader[] children = null;
+        if (dtype.isNestedType()) {
+          int numChildren;
+          long childRowCount;
+          if (dtype.equals(DType.LIST)) {
+            numChildren = 1;
+            childRowCount = din.readInt();
+          } else if (dtype.equals(DType.STRUCT)) {
+            numChildren = din.readInt();
+            childRowCount = rowCount;
+          } else {
+            throw new IllegalStateException("Unexpected nested type: " + dtype);
+          }
+          children = new SerializedColumnHeader[numChildren];
+          for (int i = 0; i < numChildren; i++) {
+            children[i] = readFrom(din, childRowCount);
+          }
         }
-        children = new SerializedColumnHeader[numChildren];
-        for (int i = 0; i < numChildren; i++) {
-          children[i] = readFrom(din, childRowCount);
-        }
+        return new SerializedColumnHeader(dtype, rowCount, nullCount, children);
       }
-      return new SerializedColumnHeader(dtype, rowCount, nullCount, children);
     }
   }
 
