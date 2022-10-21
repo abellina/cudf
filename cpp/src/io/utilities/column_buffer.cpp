@@ -22,7 +22,6 @@
 #include "column_buffer.hpp"
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/strings/strings_column_view.hpp>
-#include <cudf/types.hpp>
 
 namespace cudf {
 namespace io {
@@ -79,19 +78,7 @@ std::unique_ptr<column> make_column(column_buffer& buffer,
         // convert to binary
         auto const string_col = make_strings_column(*buffer._strings, stream, mr);
         auto const num_rows   = string_col->size();
-        auto col_content      = string_col->release();
-
-        // convert to uint8 column, strings are currently stores as int8
-        auto contents =
-          col_content.children[strings_column_view::chars_column_index].release()->release();
-        auto data      = contents.data.release();
-        auto null_mask = contents.null_mask.release();
-
-        auto uint8_col = std::make_unique<column>(data_type{type_id::UINT8},
-                                                  data->size(),
-                                                  std::move(*data),
-                                                  std::move(*null_mask),
-                                                  UNKNOWN_NULL_COUNT);
+        auto col_contest      = string_col->release();
 
         if (schema_info != nullptr) {
           schema_info->children.push_back(column_name_info{"offsets"});
@@ -100,10 +87,10 @@ std::unique_ptr<column> make_column(column_buffer& buffer,
 
         return make_lists_column(
           num_rows,
-          std::move(col_content.children[strings_column_view::offsets_column_index]),
-          std::move(uint8_col),
+          std::move(col_contest.children[strings_column_view::offsets_column_index]),
+          std::move(col_contest.children[strings_column_view::chars_column_index]),
           UNKNOWN_NULL_COUNT,
-          std::move(*col_content.null_mask));
+          std::move(*col_contest.null_mask));
       }
 
     case type_id::LIST: {
