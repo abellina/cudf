@@ -22,6 +22,11 @@ package ai.rapids.cudf;
  * Base class for all MemoryBuffers that are in device memory.
  */
 public abstract class BaseDeviceMemoryBuffer extends MemoryBuffer {
+  public interface OnClosedListener {
+    void onClosed(MemoryBuffer buffer);
+  }
+  private OnClosedListener closedListener;
+
   protected BaseDeviceMemoryBuffer(long address, long length, MemoryBuffer parent) {
     super(address, length, parent);
   }
@@ -153,6 +158,18 @@ public abstract class BaseDeviceMemoryBuffer extends MemoryBuffer {
       if (!success && ret != null) {
         ret.close();
       }
+    }
+  }
+
+  public void setClosedListener(OnClosedListener closedListener) {
+    this.closedListener = closedListener;
+  }
+
+  @Override
+  public synchronized void close() {
+    super.close();
+    if (refCount == 0 && closedListener != null) {
+      closedListener.onClosed(this);
     }
   }
 }
