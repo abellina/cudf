@@ -93,7 +93,7 @@ std::size_t compute_join_output_size(table_device_view build_table,
   auto const empty_key_sentinel = hash_table.get_empty_key_sentinel();
   make_pair_function pair_func{hash_probe, empty_key_sentinel};
 
-  auto iter = cudf::detail::make_counting_transform_iterator(0, pair_func);
+  auto iter = thrust::make_transform_iterator(thrust::make_counting_iterator(int64_t{0}), pair_func);
 
   std::size_t size;
   if constexpr (JoinKind == join_kind::LEFT_JOIN) {
@@ -160,7 +160,7 @@ probe_join_hash_table(cudf::table_device_view build_table,
   auto const empty_key_sentinel = hash_table.get_empty_key_sentinel();
   make_pair_function pair_func{hash_probe, empty_key_sentinel};
 
-  auto iter = cudf::detail::make_counting_transform_iterator(0, pair_func);
+  auto iter = thrust::make_transform_iterator(thrust::make_counting_iterator(int64_t{0}), pair_func);
 
   const cudf::size_type probe_table_num_rows = probe_table.num_rows();
 

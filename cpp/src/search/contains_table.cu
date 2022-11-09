@@ -187,8 +187,8 @@ rmm::device_uvector<bool> contains_with_lists_or_nans(table_view const& haystack
 
   // Insert row indices of the haystack table as map keys.
   {
-    auto const haystack_it = cudf::detail::make_counting_transform_iterator(
-      size_type{0},
+    auto const haystack_it =
+      thrust::make_transform_iterator(thrust::make_counting_iterator(int64_t{0}),
       [] __device__(auto const idx) { return cuco::make_pair(lhs_index_type{idx}, 0); });
 
     auto const hasher = cudf::experimental::row::hash::row_hasher(haystack, stream);
@@ -211,7 +211,7 @@ rmm::device_uvector<bool> contains_with_lists_or_nans(table_view const& haystack
           comparator.equal_to(nullate::DYNAMIC{haystack_has_nulls}, compare_nulls, value_comp)};
         map.insert_if(haystack_it,
                       haystack_it + haystack.num_rows(),
-                      thrust::counting_iterator<size_type>(0),  // stencil
+                      thrust::counting_iterator<int64_t>(0),  // stencil
                       row_is_valid{row_bitmask_ptr},
                       d_hasher,
                       d_eqcomp,
@@ -237,8 +237,9 @@ rmm::device_uvector<bool> contains_with_lists_or_nans(table_view const& haystack
 
   // Check existence for each row of the needles table in the haystack table.
   {
-    auto const needles_it = cudf::detail::make_counting_transform_iterator(
-      size_type{0}, [] __device__(auto const idx) { return rhs_index_type{idx}; });
+    auto const needles_it = 
+      thrust::make_transform_iterator(thrust::make_counting_iterator(int64_t{0}),
+      [] __device__(auto const idx) { return rhs_index_type{idx}; });
 
     auto const hasher = cudf::experimental::row::hash::row_hasher(needles, stream);
     auto const d_hasher =
@@ -309,8 +310,8 @@ rmm::device_uvector<bool> contains_without_lists_or_nans(table_view const& hayst
 
   // Insert row indices of the haystack table as map keys.
   {
-    auto const haystack_it = cudf::detail::make_counting_transform_iterator(
-      size_type{0},
+    auto const haystack_it =
+      thrust::make_transform_iterator(thrust::make_counting_iterator(int64_t{0}),
       [] __device__(auto const idx) { return cuco::make_pair(lhs_index_type{idx}, 0); });
 
     auto const d_hasher = strong_index_hasher_adapter{
@@ -332,7 +333,7 @@ rmm::device_uvector<bool> contains_without_lists_or_nans(table_view const& hayst
       // Insert only rows that do not have any null at any level.
       map.insert_if(haystack_it,
                     haystack_it + haystack.num_rows(),
-                    thrust::counting_iterator<size_type>(0),  // stencil
+                    thrust::counting_iterator<int64_t>(0),  // stencil
                     row_is_valid{row_bitmask_ptr},
                     d_hasher,
                     d_eqcomp,
@@ -349,8 +350,9 @@ rmm::device_uvector<bool> contains_without_lists_or_nans(table_view const& hayst
 
   // Check existence for each row of the needles table in the haystack table.
   {
-    auto const needles_it = cudf::detail::make_counting_transform_iterator(
-      size_type{0}, [] __device__(auto const idx) { return rhs_index_type{idx}; });
+    auto const needles_it = 
+      thrust::make_transform_iterator(thrust::make_counting_iterator(int64_t{0}),
+      [] __device__(auto const idx) { return rhs_index_type{idx}; });
 
     auto const d_hasher = strong_index_hasher_adapter{
       row_hash{cudf::nullate::DYNAMIC{has_any_nulls}, *needles_tdv_ptr}};
