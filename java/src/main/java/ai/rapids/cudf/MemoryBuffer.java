@@ -91,6 +91,13 @@ abstract public class MemoryBuffer implements AutoCloseable {
   }
 
   /**
+   * Get this buffer's ID.
+   */
+  public long getId() {
+    return this.id;
+  }
+
+  /**
    * This is a really ugly API, but it is possible that the lifecycle of a column of
    * data may not have a clear lifecycle thanks to java and GC. This API informs the leak
    * tracking code that this is expected for this column, and big scary warnings should
