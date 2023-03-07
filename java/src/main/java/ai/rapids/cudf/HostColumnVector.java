@@ -1993,10 +1993,23 @@ public final class HostColumnVector extends HostColumnVectorCore {
       return this;
     }
 
+    private void incRefCounts() {
+      if (data != null) {
+        data.incRefCount();
+      }
+      if (valid != null) {
+        valid.incRefCount();
+      }
+      if (offsets != null) {
+        offsets.incRefCount();
+      }
+    }
+
     /**
      * Finish and create the immutable CudfColumn.
      */
     public final HostColumnVector build() {
+      incRefCounts();
       return new HostColumnVector(type,
           currentIndex, Optional.of(nullCount), data, valid, offsets);
     }
