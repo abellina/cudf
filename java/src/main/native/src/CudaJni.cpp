@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cub/device/device_memcpy.cuh>
 #include <cudf/utilities/error.hpp>
 #include <rmm/device_buffer.hpp>
 
@@ -375,6 +376,47 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_asyncMemcpyOnStream(JNIEnv *env,
     auto kind = static_cast<cudaMemcpyKind>(jkind);
     auto stream = reinterpret_cast<cudaStream_t>(jstream);
     CUDF_CUDA_TRY(cudaMemcpyAsync(dst, src, count, kind, stream));
+  }
+  CATCH_STD(env, );
+}
+
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_deviceMemcpyBatched(JNIEnv * env, jclass, jlongArray j_dest_addrs,
+                                                                    jlongArray j_src_addrs, jlongArray j_copy_sizes,
+                                                                    jlong stream) {
+  try {
+    cudf::jni::auto_set_device(env);
+
+    cudf::jni::native_jlongArray src_addrs {env, j_src_addrs};
+    cudf::jni::native_jlongArray dest_addrs {env, j_dest_addrs};
+    cudf::jni::native_jlongArray copy_sizes {env, j_copy_sizes};
+
+    thrust::device_vector<long> input_buffers(src_addrs, src_addrs + num_buffers);
+    thrust::device_vector<long> output_buffers(dest_addrs, dest_addrs + num_buffers);
+    thrust::device_vector<long> buffer_sizes(copy_sizes, copy_sizes + num_buffers);
+
+    // find out how much temporary memory is required
+    size_t temp_memory_required;
+    CUDF_CUDA_TRY(cub::DeviceMemcpy::Batched(
+      nullptr,
+      temp_memory_required,
+      input_buffers.cbegin(),
+      output_buffers.begin(),
+      buffer_sizes.cbegin(),
+      num_buffers,
+      stream));
+
+    void* temp_buffer; // hopefully it is small
+    cudaMalloc(&temp_buffer, temp_memory_required);
+
+    // actually carry this out
+    CUDF_CUDA_TRY(cub::DeviceMemcpy::Batched(
+      temp_buffer,
+      temp_memory_required,
+      input_buffers.cbegin(),
+      output_buffers.begin(),
+      buffer_sizes.cbegin(),
+      num_buffers,
+      stream));
   }
   CATCH_STD(env, );
 }

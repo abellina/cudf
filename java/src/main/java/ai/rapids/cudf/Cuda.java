@@ -578,9 +578,7 @@ public class Cuda {
     assert(destAddrs.length == srcAddrs.length);
     assert(copySizes.length == destAddrs.length);
     try (NvtxRange copyRange = new NvtxRange("multiBufferCopyAsync", NvtxColor.CYAN)){
-      for (int i = 0; i < destAddrs.length; i++) {
-        asyncMemcpy(destAddrs[i], srcAddrs[i], copySizes[i], CudaMemcpyKind.DEVICE_TO_DEVICE, stream);
-      }
+      deviceMemcpyBatched(destAddrs, srcAddrs, copySizes, stream.getStream());
     }
   }
   /**
@@ -602,4 +600,7 @@ public class Cuda {
    * @note this is very expensive and should almost never be used
    */
   public static native void deviceSynchronize();
+
+  public static native void deviceMemcpyBatched(
+      long[] destAddrs, long[] srcAddrs, long[] copySizes, long stream);
 }
