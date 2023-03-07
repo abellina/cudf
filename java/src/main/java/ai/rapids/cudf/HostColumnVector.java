@@ -871,7 +871,6 @@ public final class HostColumnVector extends HostColumnVectorCore {
     private long estimatedRows;
     private long rowCapacity = 0L;
     private long validCapacity = 0L;
-    private boolean built = false;
     private List<ColumnBuilder> childBuilders = new ArrayList<>();
     private Runnable nullHandler;
 
@@ -932,6 +931,18 @@ public final class HostColumnVector extends HostColumnVectorCore {
       }
     }
 
+    private void incRefCounts() {
+      if (data != null) {
+        data.incRefCount();
+      }
+      if (valid != null) {
+        valid.incRefCount();
+      }
+      if (offsets != null) {
+        offsets.incRefCount();
+      }
+    }
+
     public HostColumnVector build() {
       List<HostColumnVectorCore> hostColumnVectorCoreList = new ArrayList<>();
       for (ColumnBuilder childBuilder : childBuilders) {
@@ -941,10 +952,9 @@ public final class HostColumnVector extends HostColumnVectorCore {
       if (valid != null) {
         growValidBuffer();
       }
-      HostColumnVector hostColumnVector = new HostColumnVector(type, rows, Optional.of(nullCount), data, valid, offsets,
+      incRefCounts();
+      return new HostColumnVector(type, rows, Optional.of(nullCount), data, valid, offsets,
           hostColumnVectorCoreList);
-      built = true;
-      return hostColumnVector;
     }
 
     private HostColumnVectorCore buildNestedInternal() {
@@ -956,6 +966,7 @@ public final class HostColumnVector extends HostColumnVectorCore {
       if (valid != null) {
         growValidBuffer();
       }
+      incRefCounts();
       return new HostColumnVectorCore(type, rows, Optional.of(nullCount), data, valid, offsets, hostColumnVectorCoreList);
     }
 
@@ -1415,30 +1426,35 @@ public final class HostColumnVector extends HostColumnVectorCore {
      * Finish and create the immutable ColumnVector, copied to the device.
      */
     public final ColumnVector buildAndPutOnDevice() {
-      try (HostColumnVector tmp = build()) {
-        return tmp.copyToDevice();
+      HostColumnVector tmp = null;
+      ColumnVector deviceColumn = null;
+      try {
+        tmp = build();
+        deviceColumn = tmp.copyToDevice();
+        return deviceColumn;
+      } finally {
+        if (deviceColumn != null) {
+          tmp.close();
+        }
       }
     }
 
     @Override
     public void close() {
-      if (!built) {
-        if (data != null) {
-          data.close();
-          data = null;
-        }
-        if (valid != null) {
-          valid.close();
-          valid = null;
-        }
-        if (offsets != null) {
-          offsets.close();
-          offsets = null;
-        }
-        for (ColumnBuilder childBuilder : childBuilders) {
-          childBuilder.close();
-        }
-        built = true;
+      if (data != null) {
+        data.close();
+        data = null;
+      }
+      if (valid != null) {
+        valid.close();
+        valid = null;
+      }
+      if (offsets != null) {
+        offsets.close();
+        offsets = null;
+      }
+      for (ColumnBuilder childBuilder : childBuilders) {
+        childBuilder.close();
       }
     }
 
@@ -1457,7 +1473,6 @@ public final class HostColumnVector extends HostColumnVectorCore {
           ", nullCount=" + nullCount +
           ", estimatedRows=" + estimatedRows +
           ", populatedRows=" + rows +
-          ", built=" + built +
           '}';
     }
   }
@@ -1471,7 +1486,6 @@ public final class HostColumnVector extends HostColumnVectorCore {
     private long currentIndex = 0;
     private long nullCount;
     private int currentStringByteIndex = 0;
-    private boolean built;
 
     /**
      * Create a builder with a buffer of size rows
@@ -1983,10 +1997,8 @@ public final class HostColumnVector extends HostColumnVectorCore {
      * Finish and create the immutable CudfColumn.
      */
     public final HostColumnVector build() {
-      HostColumnVector cv = new HostColumnVector(type,
+      return new HostColumnVector(type,
           currentIndex, Optional.of(nullCount), data, valid, offsets);
-      built = true;
-      return cv;
     }
 
     /**
@@ -2004,18 +2016,15 @@ public final class HostColumnVector extends HostColumnVectorCore {
      */
     @Override
     public final void close() {
-      if (!built) {
-        data.close();
-        data = null;
-        if (valid != null) {
-          valid.close();
-          valid = null;
-        }
-        if (offsets != null) {
-          offsets.close();
-          offsets = null;
-        }
-        built = true;
+      data.close();
+      data = null;
+      if (valid != null) {
+        valid.close();
+        valid = null;
+      }
+      if (offsets != null) {
+        offsets.close();
+        offsets = null;
       }
     }
 
@@ -2028,7 +2037,6 @@ public final class HostColumnVector extends HostColumnVectorCore {
           ", currentIndex=" + currentIndex +
           ", nullCount=" + nullCount +
           ", rows=" + rows +
-          ", built=" + built +
           '}';
     }
   }
