@@ -1453,20 +1453,22 @@ void copy_data(the_state* state,
   copy_partitions<block_size><<<new_buf_count, block_size, 0, stream.value()>>>(
     d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
 
-  //
-  // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
-  //             can just use the null count of the original columns
-  // postprocess valid_counts
-  auto keys = cudf::detail::make_counting_transform_iterator(
-    0, [out_to_in_index] __device__(size_type i) { return out_to_in_index(i); });
-  auto values = thrust::make_transform_iterator(
-    d_dst_buf_info.begin(), [] __device__(dst_buf_info const& info) { return info.valid_count; });
-  thrust::reduce_by_key(rmm::exec_policy(stream),
-                        keys,
-                        keys + new_buf_count,
-                        values,
-                        thrust::make_discard_iterator(),
-                        dst_valid_count_output_iterator{_d_dst_buf_info});
+  if (user_provided_buffer == nullptr) {
+    //
+    // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
+    //             can just use the null count of the original columns
+    // postprocess valid_counts
+    auto keys = cudf::detail::make_counting_transform_iterator(
+      0, [out_to_in_index] __device__(size_type i) { return out_to_in_index(i); });
+    auto values = thrust::make_transform_iterator(
+      d_dst_buf_info.begin(), [] __device__(dst_buf_info const& info) { return info.valid_count; });
+    thrust::reduce_by_key(rmm::exec_policy(stream),
+                          keys,
+                          keys + new_buf_count,
+                          values,
+                          thrust::make_discard_iterator(),
+                          dst_valid_count_output_iterator{_d_dst_buf_info});
+  }
 }
 
 
