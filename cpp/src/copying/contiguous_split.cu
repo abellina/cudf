@@ -843,6 +843,7 @@ struct the_state {
   the_state(cudf::table_view const& input, 
             rmm::cuda_stream_view stream, 
             rmm::mr::device_memory_resource* mr): 
+    num_calls(0),
     input(input),
     stream(stream), 
     mr(mr){}
@@ -1230,8 +1231,7 @@ struct the_state {
     //                 d_dst_buf_info[N] is copying to the destination location exactly where
     //                 d_dst_buf_info[N-1] ends.
     //               - the intermediate chunked struct would store d_dst_buf_info across calls as
-    //                 well as the count
-    //                 of buffers we've processed so far.
+    //                 well as the count of buffers we've processed so far.
     //               - when it's time to pack another chunk, we are given a buffer and a size from
     //                 the caller.  we search
     //                 forward from the last used pos in the d_dst_buf_info array until we cross the
@@ -1292,8 +1292,14 @@ struct the_state {
                            chunk_offsets.begin(),
                            0);
 
-    return chunk_infos { std::move(chunks), std::move(chunk_offsets) };
+    return chunk_infos {std::move(chunks), std::move(chunk_offsets)};
   }
+
+  void setup_for_next_call() {
+    num_calls++;
+  }
+
+  int num_calls;
 
   cudf::table_view const& input;
   std::size_t num_partitions;
@@ -1357,7 +1363,14 @@ void copy_data(the_state* state,
                uint8_t** d_dst_bufs,
                dst_buf_info* _d_dst_buf_info,
                rmm::cuda_stream_view stream) {
+
+  // TODO: compute_or_get_chunks, because this info doesn't change per call to chunked_contiguous_split
   auto chunk_infos = state->compute_chunks();
+
+  auto user_provided_buffer = state->user_provided_out_buffer;
+  std::size_t size_of_user_provided_buffer = 
+    user_provided_buffer == nullptr ? 0 : user_provided_buffer->size();
+  int number_of_calls = state->num_calls;
 
   auto out_to_in_index = [chunk_offsets = chunk_infos.chunk_offsets.begin(), num_bufs] __device__(size_type i) {
     return static_cast<size_type>(
@@ -1383,19 +1396,22 @@ void copy_data(the_state* state,
      chunk_offsets  = chunk_infos.chunk_offsets.begin(),
      num_bufs,
      num_src_bufs,
-     out_to_in_index] __device__(size_type i) {
+     out_to_in_index,
+     size_of_user_provided_buffer,
+     number_of_calls] __device__(size_type i) {
       size_type const in_buf_index = out_to_in_index(i);
       size_type const chunk_index  = i - chunk_offsets[in_buf_index];
       auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
+
+      // in
       dst_buf_info const& in       = _d_dst_buf_info[in_buf_index];
 
-      // adjust info
+      // out: adjust info
       dst_buf_info& out = d_dst_buf_info[i];
       out.element_size  = in.element_size;
       out.value_shift   = in.value_shift;
       out.bit_shift     = in.bit_shift;
-      out.valid_count =
-        in.valid_count;  // valid count will be set to 1 if this is a validity buffer
+      out.valid_count   = in.valid_count;  // valid count will be set to 1 if this is a validity buffer
       out.src_buf_index = in.src_buf_index;
       out.dst_buf_index = in.dst_buf_index;
 
@@ -1416,7 +1432,10 @@ void copy_data(the_state* state,
                        : rows_per_chunk;
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
-      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
+
+      // we need to subtract from this the size of the buffer * number of attempts
+      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size) - 
+                                (size_of_user_provided_buffer * number_of_calls);
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
@@ -1426,6 +1445,8 @@ void copy_data(the_state* state,
   //
   // CHUNKED F: end
   //
+
+  // TODO: need to pick N d_dst_buf_info
 
   // perform the copy
   constexpr size_type block_size = 256;
