@@ -117,7 +117,9 @@ function buildLibCudfJniInDocker {
     local workspaceCcacheDir="$workspaceDir/.ccache"
     mkdir -p "$CUDF_JAR_JAVA_BUILD_DIR/libcudf-cmake-build"
     mkdir -p "$HOME/.ccache" "$HOME/.m2"
-    nvidia-docker build \
+    cd $REPODIR
+    echo "my working directory: $PWD"
+    docker build \
         -f java/ci/Dockerfile.centos7 \
         --build-arg CUDA_VERSION=${cudaVersion} \
         -t $imageName .
@@ -137,6 +139,7 @@ function buildLibCudfJniInDocker {
         scl enable devtoolset-9 \
             "cmake $workspaceRepoDir/cpp \
                 -G${CMAKE_GENERATOR} \
+		-DCUDA_ENABLE_LINEINFO=OFF \
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache \
                 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
                 -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
@@ -279,6 +282,7 @@ if buildAll || hasArg libcudf; then
     fi
 
     cmake -S $REPODIR/cpp -B ${LIB_BUILD_DIR} \
+	  -DCUDA_ENABLE_LINEINFO=OFF \
           -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} \
           -DCMAKE_CUDA_ARCHITECTURES=${CUDF_CMAKE_CUDA_ARCHITECTURES} \
           -DUSE_NVTX=${BUILD_NVTX} \

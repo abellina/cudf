@@ -180,6 +180,62 @@ std::vector<packed_table> contiguous_split(
   std::vector<size_type> const& splits,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+namespace detail {
+  class metadata_builder_impl;
+}
+
+class metadata_builder {
+  public:
+    explicit metadata_builder(size_type num_root_columns);
+    ~metadata_builder();
+
+    void add_column_to_meta(column_view const& col, int64_t data_offset, int64_t null_mask_offset);
+
+    void add_column_to_meta(data_type col_type,
+                            size_type col_size,
+                            size_type col_null_count,
+                            int64_t data_offset,
+                            int64_t null_mask_offset,
+                            size_type num_children);
+
+    packed_columns::metadata build();
+
+  private:
+    detail::metadata_builder_impl* impl;
+};
+
+namespace detail {
+  struct contiguous_split_state;
+};
+
+class chunked_contiguous_split {
+  public:
+    explicit chunked_contiguous_split(
+        cudf::table_view const& input,
+        std::size_t user_buffer_size,
+        rmm::cuda_stream_view stream,
+        rmm::mr::device_memory_resource* mr);
+
+    ~chunked_contiguous_split();
+
+    [[nodiscard]] std::size_t get_total_contiguous_size() const;
+
+    [[nodiscard]] bool has_next() const;
+
+    [[nodiscard]] std::size_t next(cudf::device_span<uint8_t> const& user_buffer);
+
+    [[nodiscard]] std::unique_ptr<packed_columns::metadata> make_packed_columns() const;
+
+  private:
+    // internal state of contiguous split
+    std::unique_ptr<detail::contiguous_split_state> state;
+  };
+
+std::unique_ptr<chunked_contiguous_split> make_chunked_contiguous_split(
+  cudf::table_view const& input,
+  std::size_t user_buffer_size,
+  rmm::mr::device_memory_resource* mr);
+
 /**
  * @brief Deep-copy a `table_view` into a serialized contiguous memory format
  *

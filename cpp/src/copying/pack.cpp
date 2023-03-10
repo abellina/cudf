@@ -170,6 +170,15 @@ class metadata_builder_impl {
   public:
     metadata_builder_impl() = default;
 
+<<<<<<< HEAD
+=======
+    void add_column_to_meta(column_view const& col, int64_t data_offset, int64_t null_mask_offset)
+    {
+      add_column_to_meta(
+        col.type(), col.size(), col.null_count(), data_offset, null_mask_offset, col.num_children());
+    }
+
+>>>>>>> fb9c598307... chunked pack implementation
     void add_column_to_meta(data_type col_type,
                             size_type col_size,
                             size_type col_null_count,
@@ -262,6 +271,16 @@ metadata_builder::~metadata_builder() {
   delete impl;
 }
 
+<<<<<<< HEAD
+=======
+void metadata_builder::add_column_to_meta(column_view const& col,
+                                          int64_t data_offset,
+                                          int64_t null_mask_offset)
+{
+  impl->add_column_to_meta(col, data_offset, null_mask_offset);
+}
+
+>>>>>>> fb9c598307... chunked pack implementation
 void metadata_builder::add_column_to_meta(data_type col_type,
                                           size_type col_size,
                                           size_type col_null_count,
