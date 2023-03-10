@@ -1,6 +1,6 @@
 /*
  *
- *  Copyright (c) 2019-2021, NVIDIA CORPORATION.
+ *  Copyright (c) 2023, NVIDIA CORPORATION.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -24,34 +24,13 @@ import java.nio.ByteBuffer;
  * A table that is backed by a single contiguous device buffer. This makes transfers of the data
  * much simpler.
  */
-public final class ContiguousTable implements AutoCloseable {
+public final class PackedColumnMetadata implements AutoCloseable {
   private long metadataHandle = 0;
-  private Table table = null;
-  private DeviceMemoryBuffer buffer;
   private ByteBuffer metadataBuffer = null;
-  private final long rowCount;
 
   // This method is invoked by JNI
-  static ContiguousTable fromPackedTable(long metadataHandle,
-                                         long dataAddress,
-                                         long dataLength,
-                                         long rmmBufferAddress,
-                                         long rowCount) {
-    DeviceMemoryBuffer buffer = DeviceMemoryBuffer.fromRmm(dataAddress, dataLength, rmmBufferAddress);
-    return new ContiguousTable(metadataHandle, buffer, rowCount);
-  }
-
-  static ContiguousTable fromPackedColumnMeta(long metadataHandle) {
-    return new ContiguousTable(metadataHandle, null, 0);
-  }
-
-  /** Construct a contiguous table instance given a table and the device buffer backing it. */
-  ContiguousTable(Table table, DeviceMemoryBuffer buffer) {
-    this.metadataHandle = createPackedMetadata(table.getNativeView(),
-            buffer.getAddress(), buffer.getLength());
-    this.table = table;
-    this.buffer = buffer;
-    this.rowCount = table.getRowCount();
+  static PackedColumnMetadata fromPackedColumnMeta(long metadataHandle) {
+    return new PackedColumnMetadata(metadataHandle);
   }
 
   /**
@@ -60,32 +39,10 @@ public final class ContiguousTable implements AutoCloseable {
    * @param buffer buffer containing the packed table data
    * @param rowCount number of rows in the table
    */
-  ContiguousTable(long metadataHandle, DeviceMemoryBuffer buffer, long rowCount) {
+  PackedColumnMetadata(long metadataHandle) {
     this.metadataHandle = metadataHandle;
-    this.buffer = buffer;
-    this.rowCount = rowCount;
   }
 
-  /**
-   * Returns the number of rows in the table. This accessor avoids manifesting
-   * the Table instance if only the row count is needed.
-   */
-  public long getRowCount() {
-    return rowCount;
-  }
-
-  /** Get the table instance, reconstructing it from the metadata if necessary. */
-  public synchronized Table getTable() {
-    if (table == null) {
-      table = Table.fromPackedTable(getMetadataDirectBuffer(), buffer);
-    }
-    return table;
-  }
-
-  /** Get the device buffer backing the contiguous table data. */
-  public DeviceMemoryBuffer getBuffer() {
-    return buffer;
-  }
 
   /**
    * Get the byte buffer containing the host metadata describing the schema and layout of the
@@ -111,20 +68,7 @@ public final class ContiguousTable implements AutoCloseable {
       closeMetadata(metadataHandle);
       metadataHandle = 0;
     }
-
-    if (table != null) {
-      table.close();
-      table = null;
-    }
-
-    if (buffer != null) {
-      buffer.close();
-      buffer = null;
-    }
   }
-
-  // create packed metadata for a table backed by a single data buffer
-  private static native long createPackedMetadata(long tableView, long dataAddress, long dataSize);
 
   // create a DirectByteBuffer for the packed table metadata
   private static native ByteBuffer createMetadataDirectBuffer(long metadataHandle);
