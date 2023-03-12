@@ -1214,6 +1214,12 @@ struct the_state {
                     [stream = stream, mr = mr](std::size_t bytes) {
                       return rmm::device_buffer{bytes, stream, mr};
                     });
+    } else {
+      rmm::device_buffer buff(
+        user_provided_out_buffer->data(), 
+        user_provided_out_buffer->size(),
+        stream, mr);
+      out_buffers.push_back(std::move(buff));
     }
   }
 
@@ -1581,14 +1587,14 @@ struct the_state {
 
 
 // I had this returning a boolean
-std::vector<packed_table> contiguous_split(cudf::table_view const& input,
+std::vector<packed_table> contiguous_split(
+                      cudf::table_view const& input,
                       std::vector<size_type> const& splits,
                       the_state* state,
                       rmm::cuda_stream_view stream,
                       rmm::mr::device_memory_resource* mr)
 {
-  state->initialize(splits, nullptr);
-
+  
   // allocate output partition buffers
   state->reserve();
 
@@ -1637,6 +1643,8 @@ std::vector<packed_table> contiguous_split(
       // caller should call state->make_empty_table(inputs, splits)
       return state.make_empty_table(splits);
     }
+
+    state.initialize(splits, nullptr);
 
     std::cout << "calling contig split detail" << std::endl;
     //auto done = detail::contiguous_split(input, splits, &state, stream, mr);
