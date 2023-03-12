@@ -1215,11 +1215,18 @@ struct the_state {
                       return rmm::device_buffer{bytes, stream, mr};
                     });
     } else {
-      rmm::device_buffer buff(
-        user_provided_out_buffer->data(), 
-        user_provided_out_buffer->size(),
-        stream, mr);
-      out_buffers.push_back(std::move(buff));
+      out_buffers.reserve(num_partitions);
+      std::transform(h_buf_sizes,
+                    h_buf_sizes + num_partitions,
+                    std::back_inserter(out_buffers),
+                    [user_provided_out_buffer = user_provided_out_buffer,
+                    stream = stream, 
+                    mr = mr](std::size_t bytes) {
+                      return rmm::device_buffer(
+                        user_provided_out_buffer->data(), 
+                        bytes,
+                        stream, mr);
+                    });
     }
   }
 
@@ -1252,13 +1259,9 @@ struct the_state {
     //            by the caller.
     //
     // setup dst buffers
-    if (user_provided_out_buffer == nullptr) {
-      std::transform(out_buffers.begin(), out_buffers.end(), h_dst_bufs, [](auto& buf) {
-        return static_cast<uint8_t*>(buf.data());
-      });
-    } else {
-      h_dst_bufs[0] = static_cast<uint8_t*>(user_provided_out_buffer->data());
-    }
+    std::transform(out_buffers.begin(), out_buffers.end(), h_dst_bufs, [](auto& buf) {
+      return static_cast<uint8_t*>(buf.data());
+    });
 
     // device-side
     // TODO: why do we add offset_stack_size here
