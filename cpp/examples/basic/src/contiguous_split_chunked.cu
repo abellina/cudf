@@ -46,9 +46,9 @@
 
 #include <cstddef>
 #include <numeric>
-#include <iostream>
 
 namespace cudf {
+namespace chunked {
 namespace {
 
 // align all column size allocations to this boundary so that all output column buffers
@@ -109,8 +109,8 @@ struct dst_buf_info {
   int bit_shift;           // # of bits to shift right by (for validity buffers)
   size_type valid_count;   // validity count for this block of work
 
-  int src_buf_index;       // source buffer index
-  int dst_buf_index;       // destination buffer index
+  int src_buf_index;  // source buffer index
+  int dst_buf_index;  // destination buffer index
 };
 
 /**
@@ -280,17 +280,10 @@ __global__ void copy_partitions(uint8_t const** src_bufs,
   auto const buf_index     = blockIdx.x;
   auto const src_buf_index = buf_info[buf_index].src_buf_index;
   auto const dst_buf_index = buf_info[buf_index].dst_buf_index;
-  auto const dst_offset    = buf_info[buf_index].dst_offset;
-
-  printf("at buf_index %i, src_buf_index %i dst_buf_index %i dst_offset %i \n", 
-    (int) buf_index, 
-    (int) src_buf_index, 
-    (int) dst_buf_index, 
-    (int) dst_offset);
 
   // copy, shifting offsets and validity bits as needed
   copy_buffer<block_size>(
-    dst_bufs[dst_buf_index] + dst_offset,
+    dst_bufs[dst_buf_index] + buf_info[buf_index].dst_offset,
     src_bufs[src_buf_index],
     threadIdx.x,
     buf_info[buf_index].num_elements,
@@ -372,10 +365,8 @@ std::size_t compute_offset_stack_size(InputIter begin, InputIter end, int offset
 template <typename InputIter, typename OutputIter>
 OutputIter setup_src_buf_data(InputIter begin, InputIter end, OutputIter out_buf)
 {
-  std::cout << "at setu_src_buf_data" << std::endl;
   std::for_each(begin, end, [&out_buf](column_view const& col) {
     if (col.nullable()) {
-      std::cout << "col is nullable" << std::endl;
       *out_buf = reinterpret_cast<uint8_t const*>(col.null_mask());
       out_buf++;
     }
@@ -823,6 +814,164 @@ struct num_chunks_func {
   __device__ std::size_t operator()(size_type i) const { return thrust::get<0>(chunks[i]); }
 };
 
+void copy_data(int num_bufs,
+               int num_src_bufs,
+               uint8_t const** d_src_bufs,
+               uint8_t** d_dst_bufs,
+               dst_buf_info* _d_dst_buf_info,
+               rmm::cuda_stream_view stream)
+{
+  //
+  // CHUNKED F:  So this is where the "real" array of destination buffers to be copied (_d_dst_buf_info)
+  //             is further partitioned into smaller chunks.  these more granular chunks are what gets passed to
+  //             the copy kernel.  So ultimately what needs to happen is
+  //               - refactor out this whole block so it can be called by the chunked packer seperately.
+  //               - verify that the ordering of the chunks is linear with the overall output buffer. that is,
+  //                 d_dst_buf_info[N] is copying to the destination location exactly where d_dst_buf_info[N-1] ends.
+  //               - the intermediate chunked struct would store d_dst_buf_info across calls as well as the count
+  //                 of buffers we've processed so far.
+  //               - when it's time to pack another chunk, we are given a buffer and a size from the caller.  we search 
+  //                 forward from the last used pos in the d_dst_buf_info array until we cross the output size (there's
+  //                 a good example of doing this quickly in cpp/io/src/parquet/reader_impl_preprocess.cu -> find_splits. 
+  //                 we call copy_partitions on that subset of dst_buf_infos.  
+  //               - I -think- the only thing that will need to get updated for each chunk is dst_buf_info::dst_offset.
+  //                 Everything else that would need to be changed should be 0 (value_shift, bit_shift, etc) because
+  //                 we're only outputting 1 "real" partition at the end of the day
+  //               - In the packed case, after computing d_dst_buf_info, do a scan on all the sizes to generate
+  //                 cumulative sizes so we can determine what chunks to read. This will get stored in the intermediate
+  //                 data.
+  //
+  // Since we parallelize at one block per copy, we are vulnerable to situations where we
+  // have small numbers of copies to do (a combination of small numbers of splits and/or columns),
+  // so we will take the actual set of outgoing source/destination buffers and further partition
+  // them into much smaller chunks in order to drive up the number of blocks and overall occupancy.
+  auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
+  rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
+  thrust::transform(
+    rmm::exec_policy(stream),
+    _d_dst_buf_info,
+    _d_dst_buf_info + num_bufs,
+    chunks.begin(),
+    [desired_chunk_size] __device__(
+      dst_buf_info const& buf) -> thrust::pair<std::size_t, std::size_t> {
+      // Total bytes for this incoming partition
+      std::size_t const bytes =
+        static_cast<std::size_t>(buf.num_elements) * static_cast<std::size_t>(buf.element_size);
+
+      // This clause handles nested data types (e.g. list or string) that store no data in the row
+      // columns, only in their children.
+      if (bytes == 0) { return {1, 0}; }
+
+      // The number of chunks we want to subdivide this buffer into
+      std::size_t const num_chunks =
+        max(std::size_t{1}, util::round_up_unsafe(bytes, desired_chunk_size) / desired_chunk_size);
+
+      // NOTE: leaving chunk size as a separate parameter for future tuning
+      // possibilities, even though in the current implementation it will be a
+      // constant.
+      return {num_chunks, desired_chunk_size};
+    });
+
+  rmm::device_uvector<offset_type> chunk_offsets(num_bufs + 1, stream);
+  auto buf_count_iter = cudf::detail::make_counting_transform_iterator(
+    0, [num_bufs, num_chunks = num_chunks_func{chunks.begin()}] __device__(size_type i) {
+      return i == num_bufs ? 0 : num_chunks(i);
+    });
+  thrust::exclusive_scan(rmm::exec_policy(stream),
+                         buf_count_iter,
+                         buf_count_iter + num_bufs + 1,
+                         chunk_offsets.begin(),
+                         0);
+
+  auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
+    return static_cast<size_type>(
+             thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
+             chunk_offsets) -
+           1;
+  };
+  
+  // apply the chunking.
+  auto const num_chunks =
+    cudf::detail::make_counting_transform_iterator(0, num_chunks_func{chunks.begin()});
+  size_type const new_buf_count =
+    thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + chunks.size());
+  rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream);
+  auto iter = thrust::make_counting_iterator(0);
+  thrust::for_each(
+    rmm::exec_policy(stream),
+    iter,
+    iter + new_buf_count,
+    [_d_dst_buf_info,
+     d_dst_buf_info = d_dst_buf_info.begin(),
+     chunks         = chunks.begin(),
+     chunk_offsets  = chunk_offsets.begin(),
+     num_bufs,
+     num_src_bufs,
+     out_to_in_index] __device__(size_type i) {
+      size_type const in_buf_index = out_to_in_index(i);
+      size_type const chunk_index  = i - chunk_offsets[in_buf_index];
+      auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
+      dst_buf_info const& in       = _d_dst_buf_info[in_buf_index];
+
+      // adjust info
+      dst_buf_info& out = d_dst_buf_info[i];
+      out.element_size  = in.element_size;
+      out.value_shift   = in.value_shift;
+      out.bit_shift     = in.bit_shift;
+      out.valid_count =
+        in.valid_count;  // valid count will be set to 1 if this is a validity buffer
+      out.src_buf_index = in.src_buf_index;
+      out.dst_buf_index = in.dst_buf_index;
+
+      size_type const elements_per_chunk =
+        out.element_size == 0 ? 0 : chunk_size / out.element_size;
+      out.num_elements = ((chunk_index + 1) * elements_per_chunk) > in.num_elements
+                           ? in.num_elements - (chunk_index * elements_per_chunk)
+                           : elements_per_chunk;
+
+      size_type const rows_per_chunk =
+        // if this is a validity buffer, each element is a bitmask_type, which
+        // corresponds to 32 rows.
+        out.valid_count > 0
+          ? elements_per_chunk * static_cast<size_type>(cudf::detail::size_in_bits<bitmask_type>())
+          : elements_per_chunk;
+      out.num_rows = ((chunk_index + 1) * rows_per_chunk) > in.num_rows
+                       ? in.num_rows - (chunk_index * rows_per_chunk)
+                       : rows_per_chunk;
+
+      out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
+      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
+
+      // out.bytes and out.buf_size are unneeded here because they are only used to
+      // calculate real output buffer sizes. the data we are generating here is
+      // purely intermediate for the purposes of doing more uniform copying of data
+      // underneath the final structure of the output
+    });  
+  //
+  // CHUNKED F: end
+  //
+
+  // perform the copy
+  constexpr size_type block_size = 256;
+  copy_partitions<block_size><<<new_buf_count, block_size, 0, stream.value()>>>(
+    d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
+
+  //
+  // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
+  //             can just use the null count of the original columns
+  // postprocess valid_counts
+  auto keys = cudf::detail::make_counting_transform_iterator(
+    0, [out_to_in_index] __device__(size_type i) { return out_to_in_index(i); });
+  auto values = thrust::make_transform_iterator(
+    d_dst_buf_info.begin(), [] __device__(dst_buf_info const& info) { return info.valid_count; });
+  thrust::reduce_by_key(rmm::exec_policy(stream),
+                        keys,
+                        keys + new_buf_count,
+                        values,
+                        thrust::make_discard_iterator(),
+                        dst_valid_count_output_iterator{_d_dst_buf_info});
+}
+
 };  // anonymous namespace
 
 namespace detail {
@@ -1023,7 +1172,7 @@ struct the_state {
     cudf::table_view const& input, 
     std::vector<size_type> const& splits) {
       
-    src_buf_info* h_src_buf_info =
+    h_src_buf_info =
       reinterpret_cast<src_buf_info*>(h_indices_and_source_info.data() + indices_size);
     
     // compute splits -> indices.
@@ -1060,7 +1209,7 @@ struct the_state {
     //// destination buffer info
     d_dst_buf_info = reinterpret_cast<dst_buf_info*>(
       static_cast<uint8_t*>(d_buf_sizes_and_dst_info.data()) + buf_sizes_size);
-    std::cout << "d_dst_buf_info is " << dst_buf_info_size << " size " << " and is at " << " buf_sizes_size"<< std::endl;
+    std::cout << "d_dst_buf_info is " << dst_buf_info_size << " size " << " and is at " << buf_sizes_size << " buf_sizes_size"<< std::endl;
   }
 
   void reserve() {
@@ -1399,8 +1548,8 @@ struct the_state {
   
   dst_buf_info* h_dst_buf_info;
   dst_buf_info* d_dst_buf_info;
+  src_buf_info* h_src_buf_info;
   src_buf_info* d_src_buf_info;
-
 
   std::vector<uint8_t> h_indices_and_source_info;
   rmm::device_buffer d_indices_and_source_info;
@@ -1408,196 +1557,243 @@ struct the_state {
   rmm::device_buffer d_buf_sizes_and_dst_info;
   rmm::device_buffer d_src_and_dst_buffers;
 
-  
-
   bool is_empty;
 };
 
-void copy_data(the_state* state,
-               int num_bufs,
-               int num_src_bufs,
-               uint8_t const** d_src_bufs,
-               uint8_t** d_dst_bufs,
-               dst_buf_info* _d_dst_buf_info,
-               rmm::cuda_stream_view stream) {
 
-  // TODO: compute_or_get_chunks, because this info doesn't change per call to chunked_contiguous_split
-  auto chunk_infos = state->compute_chunks();
 
-  auto user_provided_buffer = state->user_provided_out_buffer;
-  std::size_t size_of_user_provided_buffer = 
-    user_provided_buffer == nullptr ? 0 : user_provided_buffer->size();
-  int number_of_calls = state->num_calls;
+// I had this returning a boolean
+std::vector<packed_table> contiguous_split(cudf::table_view const& input,
+                      std::vector<size_type> const& splits,
+                      the_state* state,
+                      rmm::cuda_stream_view stream,
+                      rmm::mr::device_memory_resource* mr)
+{
+  state->initialize(splits, nullptr);
 
-  auto out_to_in_index = [chunk_offsets = chunk_infos.chunk_offsets.begin(), num_bufs] __device__(size_type i) {
-    return static_cast<size_type>(
-             thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
-             chunk_offsets) -
-           1;
-  };
+  std::size_t const num_partitions   = splits.size() + 1;
+  std::size_t const num_root_columns = input.num_columns();
 
-  std::cout << "applying chunking" << std::endl; 
-  // apply the chunking.
-  auto const num_chunks =
-    cudf::detail::make_counting_transform_iterator(0, num_chunks_func{chunk_infos.chunks.begin()});
-  size_type const new_buf_count =
-    thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + chunk_infos.chunks.size());
-  
-  std::cout << "new_buf_count: " << new_buf_count << std::endl;
-  rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream);
-  auto iter = thrust::make_counting_iterator(0);
-  std::cout << "before foreach" << std::endl; 
-  thrust::for_each(
-    rmm::exec_policy(stream),
-    iter,
-    iter + new_buf_count,
-    [_d_dst_buf_info,
-     d_dst_buf_info = d_dst_buf_info.begin(),
-     chunks         = chunk_infos.chunks.begin(),
-     chunk_offsets  = chunk_infos.chunk_offsets.begin(),
-     num_bufs,
-     num_src_bufs,
-     out_to_in_index,
-     size_of_user_provided_buffer,
-     number_of_calls] __device__(size_type i) {
-      size_type const in_buf_index = out_to_in_index(i);
-      size_type const chunk_index  = i - chunk_offsets[in_buf_index];
-      auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
-      
-      // in
-      dst_buf_info const& in       = _d_dst_buf_info[in_buf_index];
-
-      // out: adjust info
-      dst_buf_info& out = d_dst_buf_info[i];
-      out.element_size  = in.element_size;
-      out.value_shift   = in.value_shift;
-      out.bit_shift     = in.bit_shift;
-      out.valid_count   = in.valid_count;  // valid count will be set to 1 if this is a validity buffer
-      out.src_buf_index = in.src_buf_index;
-      out.dst_buf_index = in.dst_buf_index;
-
-      size_type const elements_per_chunk =
-        out.element_size == 0 ? 0 : chunk_size / out.element_size;
-      out.num_elements = ((chunk_index + 1) * elements_per_chunk) > in.num_elements
-                           ? in.num_elements - (chunk_index * elements_per_chunk)
-                           : elements_per_chunk;
-
-      size_type const rows_per_chunk =
-        // if this is a validity buffer, each element is a bitmask_type, which
-        // corresponds to 32 rows.
-        out.valid_count > 0
-          ? elements_per_chunk * static_cast<size_type>(detail::size_in_bits<bitmask_type>())
-          : elements_per_chunk;
-      out.num_rows = ((chunk_index + 1) * rows_per_chunk) > in.num_rows
-                       ? in.num_rows - (chunk_index * rows_per_chunk)
-                       : rows_per_chunk;
-
-      out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
-
-      // we need to subtract from this the size of the buffer * number of attempts
-      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size) - 
-                                (size_of_user_provided_buffer * number_of_calls);
-
-      printf("i: %i chunk_size %i\n", i, (int)chunk_size);
-      printf("i: %i in_buf_indeex %i\n", i, (int)in_buf_index);
-      printf("i: %i out.element_size %i\n", i, (int)out.element_size);
-      printf("i: %i out.value_shift %i\n", i, (int)out.value_shift);
-      printf("i: %i out.bit_shift %i\n", i, (int)out.bit_shift);
-      printf("i: %i out.valid_count %i\n", i, (int)out.valid_count);
-      printf("i: %i out.src_buf_index %i\n", i, (int)out.src_buf_index);
-      printf("i: %i out.dst_buf_index %i\n", i, (int)out.dst_buf_index);
-      printf("i: %i out.num_elements %i\n", i, (int)out.num_elements);
-      printf("i: %i out.num_rows %i\n", i, (int)out.num_rows);
-      printf("i: %i out.src_element_index %i\n", i, (int)out.src_element_index);
-      printf("i: %i out.dst_offset %i\n", i, (int)out.dst_offset);
-
-      // out.bytes and out.buf_size are unneeded here because they are only used to
-      // calculate real output buffer sizes. the data we are generating here is
-      // purely intermediate for the purposes of doing more uniform copying of data
-      // underneath the final structure of the output
-    });  
   //
-  // CHUNKED F: end
+  // CHUNKED A:  This section of code gets refactored out and is called during the first 
+  //             chunked pack call. Everything it computes will be valid across calls except
+  //             the destination buffer data. all the data/vars here will need to be stored in
+  //             some class/struct.
   //
+  // compute # of source buffers (column data, validity, children), # of partitions
+  // and total # of buffers
+  size_type const num_src_bufs = state->num_src_bufs;
+  std::size_t const num_bufs   = state->num_bufs;
 
-  std::cout << "after foreach. dst_bufs_size is " << state->dst_bufs_size << std::endl; 
-  // TODO: need to pick N d_dst_buf_info
+  // packed block of memory 1. split indices and src_buf_info structs
+  std::size_t const indices_size = state->indices_size;
+  std::size_t const src_buf_info_size = state->src_buf_info_size;
 
-  // perform the copy
-  std::cout << "performing copy" << std::endl; 
-  constexpr size_type block_size = 256;
-  copy_partitions<block_size><<<new_buf_count, block_size, 0, stream.value()>>>(
-    d_src_bufs, 
-    d_dst_bufs, 
-    d_dst_buf_info.data());
+  // host-side
+  size_type* h_indices = state->h_indices;
+  // TODO: src_buf_info* h_src_buf_info = state->h_src_buf_info;
 
-  std::cout << "done with copy" << std::endl; 
-  if (user_provided_buffer == nullptr) {
-    //
-    // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
-    //             can just use the null count of the original columns
-    // postprocess valid_counts
+  // device-side
+  // gpu-only : stack space needed for nested list offset calculation
+  std::size_t const offset_stack_size = state->offset_stack_size;
+  auto* d_indices              = state->d_indices;
+  src_buf_info* d_src_buf_info = state->d_src_buf_info;
+  size_type* d_offset_stack    = state->d_offset_stack;
+
+  // compute splits -> indices.
+  h_indices[0]              = 0;
+  h_indices[num_partitions] = input.column(0).size();
+  std::copy(splits.begin(), splits.end(), std::next(h_indices));
+
+  // setup source buf info
+  //setup_source_buf_info(input.begin(), input.end(), h_src_buf_info, h_src_buf_info);
+
+  // HtoD indices and source buf info to device
+  CUDF_CUDA_TRY(cudaMemcpyAsync(
+    d_indices, h_indices, indices_size + src_buf_info_size, cudaMemcpyDefault, stream.value()));
+
+  // packed block of memory 2. partition buffer sizes and dst_buf_info structs
+  std::size_t const buf_sizes_size    = state->buf_sizes_size;
+  std::size_t const dst_buf_info_size = state->dst_buf_info_size;
+  std::size_t* h_buf_sizes            = state->h_buf_sizes;
+  dst_buf_info* h_dst_buf_info        = state->h_dst_buf_info;
+
+  // device-side
+  std::size_t* d_buf_sizes     = state->d_buf_sizes;
+  dst_buf_info* d_dst_buf_info = state->d_dst_buf_info;
+
+  // compute sizes of each column in each partition, including alignment.
+  //thrust::transform(
+  //  rmm::exec_policy(stream),
+  //  thrust::make_counting_iterator<std::size_t>(0),
+  //  thrust::make_counting_iterator<std::size_t>(num_bufs),
+  //  d_dst_buf_info,
+  //  [num_src_bufs,
+  //   d_indices,
+  //   d_src_buf_info,
+  //   d_offset_stack,
+  //   offset_stack_partition_size] __device__(std::size_t t) {
+  //    int const split_index   = t / num_src_bufs;
+  //    int const src_buf_index = t % num_src_bufs;
+  //    auto const& src_info    = d_src_buf_info[src_buf_index];
+
+  //    // apply nested offsets (lists and string columns).
+  //    //
+  //    // We can't just use the incoming row indices to figure out where to read from in a
+  //    // nested list situation.  We have to apply offsets every time we cross a boundary
+  //    // (list or string).  This loop applies those offsets so that our incoming row_index_start
+  //    // and row_index_end get transformed to our final values.
+  //    //
+  //    int const stack_pos = src_info.offset_stack_pos + (split_index * offset_stack_partition_size);
+  //    size_type* offset_stack  = &d_offset_stack[stack_pos];
+  //    int parent_offsets_index = src_info.parent_offsets_index;
+  //    int stack_size           = 0;
+  //    int root_column_offset   = src_info.column_offset;
+  //    while (parent_offsets_index >= 0) {
+  //      offset_stack[stack_size++] = parent_offsets_index;
+  //      root_column_offset         = d_src_buf_info[parent_offsets_index].column_offset;
+  //      parent_offsets_index       = d_src_buf_info[parent_offsets_index].parent_offsets_index;
+  //    }
+  //    // make sure to include the -column- offset on the root column in our calculation.
+  //    int row_start = d_indices[split_index] + root_column_offset;
+  //    int row_end   = d_indices[split_index + 1] + root_column_offset;
+  //    while (stack_size > 0) {
+  //      stack_size--;
+  //      auto const offsets = d_src_buf_info[offset_stack[stack_size]].offsets;
+  //      // this case can happen when you have empty string or list columns constructed with
+  //      // empty_like()
+  //      if (offsets != nullptr) {
+  //        row_start = offsets[row_start];
+  //        row_end   = offsets[row_end];
+  //      }
+  //    }
+
+  //    // final element indices and row count
+  //    int const out_element_index = src_info.is_validity ? row_start / 32 : row_start;
+  //    int const num_rows          = row_end - row_start;
+  //    // if I am an offsets column, all my values need to be shifted
+  //    int const value_shift = src_info.offsets == nullptr ? 0 : src_info.offsets[row_start];
+  //    // if I am a validity column, we may need to shift bits
+  //    int const bit_shift = src_info.is_validity ? row_start % 32 : 0;
+  //    // # of rows isn't necessarily the same as # of elements to be copied.
+  //    auto const num_elements = [&]() {
+  //      if (src_info.offsets != nullptr && num_rows > 0) {
+  //        return num_rows + 1;
+  //      } else if (src_info.is_validity) {
+  //        return (num_rows + 31) / 32;
+  //      }
+  //      return num_rows;
+  //    }();
+  //    int const element_size = cudf::type_dispatcher(data_type{src_info.type}, size_of_helper{});
+  //    std::size_t const bytes =
+  //      static_cast<std::size_t>(num_elements) * static_cast<std::size_t>(element_size);
+
+  //    return dst_buf_info{util::round_up_unsafe(bytes, split_align),
+  //                        num_elements,
+  //                        element_size,
+  //                        num_rows,
+  //                        out_element_index,
+  //                        0,
+  //                        value_shift,
+  //                        bit_shift,
+  //                        src_info.is_validity ? 1 : 0,
+  //                        src_buf_index,
+  //                        split_index};
+  //  });
+
+  // compute total size of each partition
+  {
+    // key is split index
     auto keys = cudf::detail::make_counting_transform_iterator(
-      0, [out_to_in_index] __device__(size_type i) { return out_to_in_index(i); });
-    auto values = thrust::make_transform_iterator(
-      d_dst_buf_info.begin(), [] __device__(dst_buf_info const& info) { return info.valid_count; });
+      0, split_key_functor{static_cast<int>(num_src_bufs)});
+    auto values =
+      cudf::detail::make_counting_transform_iterator(0, buf_size_functor{d_dst_buf_info});
+
     thrust::reduce_by_key(rmm::exec_policy(stream),
                           keys,
-                          keys + new_buf_count,
+                          keys + num_bufs,
                           values,
                           thrust::make_discard_iterator(),
-                          dst_valid_count_output_iterator{_d_dst_buf_info});
+                          d_buf_sizes);
   }
-  std::cout << "at end of copy_data" << std::endl; 
-}
 
+  // compute start offset for each output buffer
+  {
+    auto keys = cudf::detail::make_counting_transform_iterator(
+      0, split_key_functor{static_cast<int>(num_src_bufs)});
+    auto values =
+      cudf::detail::make_counting_transform_iterator(0, buf_size_functor{d_dst_buf_info});
 
-bool chunked_contiguous_split(cudf::table_view const& input,
-                              std::vector<size_type> const& splits,
-                              the_state* state,
-                              rmm::cuda_stream_view stream,
-                              rmm::mr::device_memory_resource* mr)
-{
-  std::cout << "at chunked_contiguous_split"<< std::endl;
+    thrust::exclusive_scan_by_key(rmm::exec_policy(stream),
+                                  keys,
+                                  keys + num_bufs,
+                                  values,
+                                  dst_offset_output_iterator{d_dst_buf_info},
+                                  std::size_t{0});
+  }
+
+  // DtoH buf sizes and col info back to the host
+  CUDF_CUDA_TRY(cudaMemcpyAsync(h_buf_sizes,
+                                d_buf_sizes,
+                                buf_sizes_size + dst_buf_info_size,
+                                cudaMemcpyDefault,
+                                stream.value()));
+  stream.synchronize();
+
+  // allocate output partition buffers
+  std::vector<rmm::device_buffer> out_buffers;
+  out_buffers.reserve(num_partitions);
+  std::transform(h_buf_sizes,
+                 h_buf_sizes + num_partitions,
+                 std::back_inserter(out_buffers),
+                 [stream, mr](std::size_t bytes) {
+                   return rmm::device_buffer{bytes, stream, mr};
+                 });
+
+  // packed block of memory 3. pointers to source and destination buffers (and stack space on the
+  // gpu for offset computation)
+  std::size_t const src_bufs_size =
+    cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
+  std::size_t const dst_bufs_size =
+    cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
+  // host-side
+  std::vector<uint8_t> h_src_and_dst_buffers(src_bufs_size + dst_bufs_size);
+  uint8_t const** h_src_bufs = reinterpret_cast<uint8_t const**>(h_src_and_dst_buffers.data());
+  uint8_t** h_dst_bufs = reinterpret_cast<uint8_t**>(h_src_and_dst_buffers.data() + src_bufs_size);
+  // device-side
+  rmm::device_buffer d_src_and_dst_buffers(src_bufs_size + dst_bufs_size + offset_stack_size,
+                                           stream,
+                                           rmm::mr::get_current_device_resource());
+  auto const** d_src_bufs = reinterpret_cast<uint8_t const**>(d_src_and_dst_buffers.data());
+  uint8_t** d_dst_bufs    = reinterpret_cast<uint8_t**>(
+    reinterpret_cast<uint8_t*>(d_src_and_dst_buffers.data()) + src_bufs_size);
+
+  // setup src buffers
+  setup_src_buf_data(input.begin(), input.end(), h_src_bufs);  
+  //
+  // CHUNKED A: End of section
+  //
+
+  //
+  // CHUNKED B: in the chunked case, there will only ever be 1 destination buffer, passed in
+  //            by the caller.  
+  //
+  // setup dst buffers
+  std::transform(out_buffers.begin(), out_buffers.end(), h_dst_bufs, [](auto& buf) {
+    return static_cast<uint8_t*>(buf.data());
+  });
+
   //
   // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
   //            already be in place - only the dst buf info will have changed. this is fine though. the data
   //            is small.
   //
   // HtoD src and dest buffers
-  auto num_bufs      = state->num_bufs;
-  auto num_src_bufs  = state->num_src_bufs;
-  auto d_src_bufs    = state->d_src_bufs;
-  auto h_src_bufs    = state->h_src_bufs;
-  auto src_bufs_size = state->src_bufs_size;
-  
-  auto d_dst_bufs    = state->d_dst_bufs;
-  auto dst_bufs_size = state->dst_bufs_size;
-
-  //dst_buf_info
-  auto d_dst_buf_info    = state->d_dst_buf_info; // only this changes per chunk
-  auto h_dst_buf_info    = state->h_dst_buf_info; // only this changes per chunk
-  auto dst_buf_info_size = state->dst_buf_info_size; // only this changes per chunk
-
-  // HtoD
   CUDF_CUDA_TRY(cudaMemcpyAsync(
-    d_src_bufs, 
-    h_src_bufs, 
-    src_bufs_size + dst_bufs_size, 
-    cudaMemcpyDefault, 
-    stream.value()));
+    d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
   // perform the copy.
-  copy_data(
-    state,
-    num_bufs, 
-    num_src_bufs, 
-    d_src_bufs, 
-    d_dst_bufs, 
-    d_dst_buf_info, 
-    stream);
-
-  std::cout <<"before dtoh" << std::endl;
+  copy_data(num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, stream);
 
   //
   // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
@@ -1605,39 +1801,61 @@ bool chunked_contiguous_split(cudf::table_view const& input,
   //
   // DtoH dst info (to retrieve null counts)
   CUDF_CUDA_TRY(cudaMemcpyAsync(
-    h_dst_buf_info, 
-    d_dst_buf_info, 
-    dst_buf_info_size, 
-    cudaMemcpyDefault, 
-    stream.value()));
-  std::cout <<"after dtoh" << std::endl;
+    h_dst_buf_info, d_dst_buf_info, dst_buf_info_size, cudaMemcpyDefault, stream.value()));
 
   stream.synchronize();
-  std::cout <<"after sync" << std::endl;
 
-  return true;
+  //
+  // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does so
+  //            by first wrapping everything in column_views and a table_view and then calling pack_metadata().
+  //            but in the chunked case, we're not going to have real pointers or even any backing allocation (which
+  //            pack_metadata relies on).
+  // 
+  // build the output.
+  std::vector<packed_table> result;
+  result.reserve(num_partitions);
+  std::vector<column_view> cols;
+  cols.reserve(num_root_columns);
+  auto cur_dst_buf_info = h_dst_buf_info;
+  for (std::size_t idx = 0; idx < num_partitions; idx++) {
+    // traverse the buffers and build the columns.
+    cur_dst_buf_info = build_output_columns(
+      input.begin(), input.end(), cur_dst_buf_info, std::back_inserter(cols), h_dst_bufs[idx]);
+
+    // pack the columns
+    cudf::table_view t{cols};
+    result.push_back(packed_table{
+      t,
+      packed_columns{
+        std::make_unique<packed_columns::metadata>(cudf::pack_metadata(
+          t, reinterpret_cast<uint8_t const*>(out_buffers[idx].data()), out_buffers[idx].size())),
+        std::make_unique<rmm::device_buffer>(std::move(out_buffers[idx]))}});
+
+    cols.clear();
+  }
+  return result;
 }
 
-bool contiguous_split(cudf::table_view const& input,
-                      std::vector<size_type> const& splits,
-                      the_state* state,
-                      rmm::cuda_stream_view stream,
-                      rmm::mr::device_memory_resource* mr)
-{
-  // else, we have a valid contiguous_split to perform
-  state->initialize(splits, nullptr);
-  return chunked_contiguous_split(input, splits, state, stream, mr);
-}
+//bool contiguous_split(cudf::table_view const& input,
+//                      std::vector<size_type> const& splits,
+//                      the_state* state,
+//                      rmm::cuda_stream_view stream,
+//                      rmm::mr::device_memory_resource* mr)
+//{
+//  // else, we have a valid contiguous_split to perform
+//  state->initialize(splits, nullptr);
+//  return chunked_contiguous_split(input, splits, state, stream, mr);
+//}
 
-bool contiguous_split(cudf::table_view const& input,
-                      std::vector<size_type> const& splits,
-                      rmm::device_buffer* user_provided_out_buffer,
-                      the_state* state,
-                      rmm::cuda_stream_view stream,
-                      rmm::mr::device_memory_resource* mr) {
-  state->initialize(splits, user_provided_out_buffer);
-  return chunked_contiguous_split(input, splits, state, stream, mr);
-}
+//bool contiguous_split(cudf::table_view const& input,
+//                      std::vector<size_type> const& splits,
+//                      rmm::device_buffer* user_provided_out_buffer,
+//                      the_state* state,
+//                      rmm::cuda_stream_view stream,
+//                      rmm::mr::device_memory_resource* mr) {
+//  state->initialize(splits, user_provided_out_buffer);
+//  return chunked_contiguous_split(input, splits, state, stream, mr);
+//}
 
 // need this defined in detail
 std::vector<packed_table> contiguous_split(
@@ -1646,7 +1864,6 @@ std::vector<packed_table> contiguous_split(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr){
 
-    std::cout << "instantiating state" << std::endl;
     detail::the_state state(input, stream, mr);
 
     std::cout << "checking inputs" << std::endl;
@@ -1659,12 +1876,12 @@ std::vector<packed_table> contiguous_split(
     }
 
     std::cout << "calling contig split detail" << std::endl;
-    auto done = detail::contiguous_split(input, splits, &state, stream, mr);
+    //auto done = detail::contiguous_split(input, splits, &state, stream, mr);
+    auto tables = detail::contiguous_split(input, splits, &state, stream, mr);
 
     std::cout << "making packed tables" << std::endl;
-    return state.make_packed_tables();
+    return tables;
   }
-
 };  // namespace detail
 
 std::vector<packed_table> contiguous_split(cudf::table_view const& input,
@@ -1673,28 +1890,6 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
 {
   CUDF_FUNC_RANGE();
   return detail::contiguous_split(input, splits, cudf::get_default_stream(), mr);
-  
 }
 
-detail::the_state* chunked_contiguous_split(cudf::table_view const& input,
-                                            std::vector<size_type> const& splits,
-                                            rmm::device_buffer* user_provided_out_buffer,
-                                            rmm::mr::device_memory_resource* mr)
-{
-  CUDF_FUNC_RANGE();
-  auto stream = cudf::get_default_stream();
-
-  detail::the_state* state = new detail::the_state(input, stream, mr);
-
-  bool is_empty = state->check_inputs(splits);
-
-  if (is_empty) {
-    //caller should call state->make_empty_table(inputs, splits)
-    return state;
-  }
-
-  auto done = detail::contiguous_split(input, splits, user_provided_out_buffer, state, stream, mr);
-  return state;
-}
-
-};  // namespace cudf
+}};  // namespace cudf

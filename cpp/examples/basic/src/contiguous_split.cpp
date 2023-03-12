@@ -14,12 +14,10 @@
  * limitations under the License.
  */
 
-#include <cudf/types.hpp>
 #include <cudf/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/io/csv.hpp>
 #include <cudf/table/table.hpp>
-#include <cudf/copying.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
@@ -29,8 +27,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include "contiguous_split_chunked.cuh"
 
 cudf::io::table_with_metadata read_csv(std::string const& file_path)
 {
@@ -82,12 +78,10 @@ int main(int argc, char** argv)
 {
   // Construct a CUDA memory resource using RAPIDS Memory Manager (RMM)
   // This is the default memory resource for libcudf for allocating device memory.
-  std::cout << "initializing memory resource" << std::endl;
   rmm::mr::cuda_memory_resource cuda_mr{};
   // Construct a memory pool using the CUDA memory resource
   // Using a memory pool for device memory allocations is important for good performance in libcudf.
   // The pool defaults to allocating half of the available GPU memory.
-  std::cout << "initializing pool" << std::endl;
   rmm::mr::pool_memory_resource mr{&cuda_mr};
 
   // Set the pool resource to be used by default for all device memory allocations
@@ -95,25 +89,15 @@ int main(int argc, char** argv)
   // it being set as the default
   // Also, call this before the first libcudf API call to ensure all data is allocated by the same
   // memory resource.
-  std::cout << "setting current resource" << std::endl;
   rmm::mr::set_current_device_resource(&mr);
 
   // Read data
-  std::cout << "reading some csv" << std::endl;
-  auto stock_table_with_metadata = read_csv("/home/abellina/work/cudf/cpp/examples/basic/4stock_5day.csv");
+  auto stock_table_with_metadata = read_csv("4stock_5day.csv");
 
   // Process
-  std::cout << "doing some compute" << std::endl;
   auto result = average_closing_price(*stock_table_with_metadata.tbl);
 
-  // contig split it
-  std::vector<cudf::size_type> splits;
-  auto tv = result->select(std::vector<cudf::size_type>{1});
-  std::cout << "calling contig split" << std::endl;
-  auto cs = cudf::chunked::contiguous_split(tv, splits);
-
   // Write out result
-  std::cout << "writing result out" << std::endl;
   write_csv(*result, "4stock_5day_avg_close.csv");
 
   return 0;
