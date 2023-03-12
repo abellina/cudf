@@ -697,8 +697,8 @@ BufInfo build_output_columns(InputIter begin,
 
     // size/data pointer for the column
     auto const size = current_info->num_elements;
-    uint8_t const* data_ptr =
-      size == 0 || src.head() == nullptr ? nullptr : base_ptr + current_info->dst_offset;
+    int64_t data_offset =
+      size == 0 || src.head() == nullptr ? 0 : current_info->dst_offset;
     ++current_info;
 
     // children
