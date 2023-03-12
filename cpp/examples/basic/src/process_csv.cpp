@@ -115,7 +115,7 @@ int main(int argc, char** argv)
   // Write out result
   std::cout << "writing result out" << std::endl;
   write_csv(*result, "4stock_5day_avg_close.csv");
-  write_csv(cs[0].table, "4stock_5day_avg_close.csv");
+  write_csv(cs[0].table, "4stock_5day_avg_close_cs.csv");
 
   return 0;
 }
