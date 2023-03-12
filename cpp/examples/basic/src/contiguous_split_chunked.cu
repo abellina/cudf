@@ -1646,36 +1646,6 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
 
   stream.synchronize();
 
-  //
-  // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does so
-  //            by first wrapping everything in column_views and a table_view and then calling pack_metadata().
-  //            but in the chunked case, we're not going to have real pointers or even any backing allocation (which
-  //            pack_metadata relies on).
-  // 
-  // build the output.
-  /*
-  std::vector<packed_table> result;
-  result.reserve(num_partitions);
-  std::vector<column_view> cols;
-  cols.reserve(num_root_columns);
-  auto cur_dst_buf_info = h_dst_buf_info;
-  for (std::size_t idx = 0; idx < num_partitions; idx++) {
-    // traverse the buffers and build the columns.
-    cur_dst_buf_info = build_output_columns(
-      input.begin(), input.end(), cur_dst_buf_info, std::back_inserter(cols), h_dst_bufs[idx]);
-
-    // pack the columns
-    cudf::table_view t{cols};
-    result.push_back(packed_table{
-      t,
-      packed_columns{
-        std::make_unique<packed_columns::metadata>(cudf::pack_metadata(
-          t, reinterpret_cast<uint8_t const*>(out_buffers[idx].data()), out_buffers[idx].size())),
-        std::make_unique<rmm::device_buffer>(std::move(out_buffers[idx]))}});
-
-    cols.clear();
-  }
-  */
   return state->make_packed_tables();
 }
 
