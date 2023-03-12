@@ -111,7 +111,7 @@ int main(int argc, char** argv)
   auto tv = result->select(std::vector<cudf::size_type>{0,1});
   std::cout << "calling contig split" << std::endl;
   rmm::device_buffer user_buff(10000000, cudf::get_default_stream(), &mr);
-  auto cs = cudf::chunked::contiguous_split(tv, splits);
+  auto cs = cudf::chunked::contiguous_split(tv, splits, &user_buff);
 
   // Write out result
   std::cout << "writing result out" << std::endl;
