@@ -1494,6 +1494,30 @@ struct the_state {
     return chunk_infos {std::move(chunks), std::move(chunk_offsets)};
   }
 
+  void perform_copy() {
+    //
+    // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
+    //            already be in place - only the dst buf info will have changed. this is fine
+    //            though. the data is small.
+    //
+    // HtoD src and dest buffers
+    CUDF_CUDA_TRY(cudaMemcpyAsync(
+      d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
+
+    // perform the copy.
+    copy_data(num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, stream);
+
+    //
+    // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
+    //            so the null counts can just be retrieved from the original table/columns.
+    //
+    // DtoH dst info (to retrieve null counts)
+    CUDF_CUDA_TRY(cudaMemcpyAsync(
+      h_dst_buf_info, d_dst_buf_info, dst_buf_info_size, cudaMemcpyDefault, stream.value()));
+
+    stream.synchronize();
+  }
+
   void setup_for_next_call() {
     num_calls++;
   }
@@ -1570,59 +1594,7 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
 
   state->make_other_packed_data(input);
 
-  std::size_t const num_partitions   = splits.size() + 1;
-  std::size_t const num_root_columns = input.num_columns();
-
-  //
-  // CHUNKED A:  This section of code gets refactored out and is called during the first 
-  //             chunked pack call. Everything it computes will be valid across calls except
-  //             the destination buffer data. all the data/vars here will need to be stored in
-  //             some class/struct.
-  //
-  // compute # of source buffers (column data, validity, children), # of partitions
-  // and total # of buffers
-  size_type const num_src_bufs = state->num_src_bufs;
-  std::size_t const num_bufs   = state->num_bufs;
-
-  // packed block of memory 2. partition buffer sizes and dst_buf_info structs
-  std::size_t const dst_buf_info_size = state->dst_buf_info_size;
-  dst_buf_info* h_dst_buf_info        = state->h_dst_buf_info;
-
-  // device-side
-  dst_buf_info* d_dst_buf_info = state->d_dst_buf_info;
-
-  std::size_t const src_bufs_size = state->src_bufs_size;
-  std::size_t const dst_bufs_size = state->dst_bufs_size;
-  // host-side
-  uint8_t const** h_src_bufs      = state->h_src_bufs;
-  // device-side
-  auto const** d_src_bufs         = state->d_src_bufs;
-  uint8_t** d_dst_bufs            = state->d_dst_bufs;
-  //
-  // CHUNKED A: End of section
-  //
-
-  //
-  // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
-  //            already be in place - only the dst buf info will have changed. this is fine though. the data
-  //            is small.
-  //
-  // HtoD src and dest buffers
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
-
-  // perform the copy.
-  copy_data(num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, stream);
-
-  //
-  // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
-  //            so the null counts can just be retrieved from the original table/columns.
-  //
-  // DtoH dst info (to retrieve null counts)
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    h_dst_buf_info, d_dst_buf_info, dst_buf_info_size, cudaMemcpyDefault, stream.value()));
-
-  stream.synchronize();
+  state->perform_copy();
 
   return state->make_packed_tables();
 }
