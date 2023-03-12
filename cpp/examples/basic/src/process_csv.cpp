@@ -108,13 +108,14 @@ int main(int argc, char** argv)
 
   // contig split it
   std::vector<cudf::size_type> splits;
-  auto tv = result->select(std::vector<cudf::size_type>{1});
+  auto tv = result->select(std::vector<cudf::size_type>{0,1});
   std::cout << "calling contig split" << std::endl;
   auto cs = cudf::chunked::contiguous_split(tv, splits);
 
   // Write out result
   std::cout << "writing result out" << std::endl;
   write_csv(*result, "4stock_5day_avg_close.csv");
+  write_csv(cs[0].table, "4stock_5day_avg_close.csv");
 
   return 0;
 }
