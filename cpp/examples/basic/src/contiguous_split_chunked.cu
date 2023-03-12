@@ -1630,21 +1630,9 @@ std::vector<packed_table> contiguous_split(
 std::vector<packed_table> contiguous_split(
   cudf::table_view const& input,
   std::vector<size_type> const& splits,
+  the_state& state,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr){
-
-    detail::the_state state(input, stream, mr);
-
-    std::cout << "checking inputs" << std::endl;
-    bool is_empty = state.check_inputs(splits);
-
-    std::cout << "is it empty" << std::endl;
-    if (is_empty) {
-      // caller should call state->make_empty_table(inputs, splits)
-      return state.make_empty_table(splits);
-    }
-
-    state.initialize(splits, nullptr);
 
     std::cout << "calling contig split detail" << std::endl;
     //auto done = detail::contiguous_split(input, splits, &state, stream, mr);
@@ -1660,7 +1648,23 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
                                            rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::contiguous_split(input, splits, cudf::get_default_stream(), mr);
+
+  auto stream = cudf::get_default_stream();
+
+  detail::the_state state(input, stream, mr);
+
+  std::cout << "checking inputs" << std::endl;
+  bool is_empty = state.check_inputs(splits);
+
+  std::cout << "is it empty" << std::endl;
+  if (is_empty) {
+    // caller should call state->make_empty_table(inputs, splits)
+    return state.make_empty_table(splits);
+  }
+
+  state.initialize(splits, nullptr);
+
+  return detail::contiguous_split(input, splits, state, stream, mr);
 }
 
 }};  // namespace cudf
