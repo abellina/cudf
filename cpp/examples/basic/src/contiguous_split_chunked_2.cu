@@ -49,6 +49,7 @@
 #include <iostream>
 
 namespace cudf {
+namespace chunked {
 namespace {
 
 // align all column size allocations to this boundary so that all output column buffers
@@ -179,6 +180,7 @@ __device__ void copy_buffer(uint8_t* __restrict__ dst,
     v.y -= value_shift;
     v.z -= value_shift;
     v.w -= value_shift;
+    printf("about to write to pos %i\n", (int)(pos/16));
     reinterpret_cast<uint4*>(dst)[pos / 16] = v;
     if (valid_count) {
       thread_valid_count += (__popc(v.x) + __popc(v.y) + __popc(v.z) + __popc(v.w));
@@ -1060,7 +1062,7 @@ struct the_state {
     //// destination buffer info
     d_dst_buf_info = reinterpret_cast<dst_buf_info*>(
       static_cast<uint8_t*>(d_buf_sizes_and_dst_info.data()) + buf_sizes_size);
-    std::cout << "d_dst_buf_info is " << dst_buf_info_size << " size " << " and is at " << " buf_sizes_size"<< std::endl;
+    std::cout << "d_dst_buf_info is " << dst_buf_info_size << " size " << " and is at " << buf_sizes_size << " buf_sizes_size"<< std::endl;
   }
 
   void reserve() {
@@ -1486,7 +1488,7 @@ void copy_data(the_state* state,
         // if this is a validity buffer, each element is a bitmask_type, which
         // corresponds to 32 rows.
         out.valid_count > 0
-          ? elements_per_chunk * static_cast<size_type>(detail::size_in_bits<bitmask_type>())
+          ? elements_per_chunk * static_cast<size_type>(::cudf::detail::size_in_bits<bitmask_type>())
           : elements_per_chunk;
       out.num_rows = ((chunk_index + 1) * rows_per_chunk) > in.num_rows
                        ? in.num_rows - (chunk_index * rows_per_chunk)
@@ -1697,4 +1699,5 @@ detail::the_state* chunked_contiguous_split(cudf::table_view const& input,
   return state;
 }
 
+};  //namespace chunked
 };  // namespace cudf
