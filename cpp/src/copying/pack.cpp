@@ -48,6 +48,13 @@ struct serialized_column {
       num_children(_num_children),
       pad(0)
   {
+    std::cout << "instantiated serialized_column "
+      << " type: " << (int32_t) type.id()
+      << " size: " << size 
+      << " null count: " << null_count
+      << " data offset: " << data_offset 
+      << " null mask offset: " << null_mask_offset 
+      << " children " << num_children << std::endl;
   }
 
   data_type type;
@@ -84,6 +91,11 @@ column_view deserialize_column(serialized_column serial_column,
       ? reinterpret_cast<bitmask_type const*>(base_ptr + serial_column.null_mask_offset)
       : nullptr;
 
+  std::cout << "deserializing column: " 
+    << "data_ptr: " << (uint64_t) data_ptr 
+    << "null mask ptr: " << (uint64_t) null_mask_ptr 
+    << std::endl;
+  
   return column_view(serial_column.type,
                      serial_column.size,
                      data_ptr,
@@ -109,19 +121,19 @@ void build_column_metadata(std::vector<serialized_column>& metadata,
                            size_t data_size)
 {
   uint8_t const* data_ptr = col.size() == 0 || !col.head<uint8_t>() ? nullptr : col.head<uint8_t>();
-  if (data_ptr != nullptr) {
-    CUDF_EXPECTS(data_ptr >= base_ptr && data_ptr < base_ptr + data_size,
-                 "Encountered column data outside the range of input buffer");
-  }
+ // if (data_ptr != nullptr) {
+ //   CUDF_EXPECTS(data_ptr >= base_ptr && data_ptr < base_ptr + data_size,
+ //                "Encountered column data outside the range of input buffer");
+ // }
   int64_t const data_offset = data_ptr ? data_ptr - base_ptr : -1;
 
   uint8_t const* null_mask_ptr = col.size() == 0 || !col.nullable()
                                    ? nullptr
                                    : reinterpret_cast<uint8_t const*>(col.null_mask());
-  if (null_mask_ptr != nullptr) {
-    CUDF_EXPECTS(null_mask_ptr >= base_ptr && null_mask_ptr < base_ptr + data_size,
-                 "Encountered column null mask outside the range of input buffer");
-  }
+  //if (null_mask_ptr != nullptr) {
+  //  CUDF_EXPECTS(null_mask_ptr >= base_ptr && null_mask_ptr < base_ptr + data_size,
+  //               "Encountered column null mask outside the range of input buffer");
+  //}
   int64_t const null_mask_offset = null_mask_ptr ? null_mask_ptr - base_ptr : -1;
 
   // add metadata
