@@ -1108,6 +1108,11 @@ struct the_state {
     num_src_bufs = count_src_bufs(input.begin(), input.end());
     num_bufs   = num_src_bufs * num_partitions;
 
+    src_bufs_size =
+      cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
+    dst_bufs_size =
+      cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
+
     std::cout << "num root columns: " << num_root_columns << std::endl;
     std::cout << "num_partitions: " << num_partitions << std::endl;
     std::cout << "num_src_bufs: " << num_src_bufs << std::endl;
@@ -1151,6 +1156,7 @@ struct the_state {
 
     std::cout << "copy_sizes_and_col_info_back_to_host" << std::endl;
     copy_sizes_and_col_info_back_to_host();
+
   }
 
   void packed_block_one(
@@ -1229,6 +1235,9 @@ struct the_state {
 
   void make_other_packed_data(cudf::table_view const& input) {
     // host-side
+    std::cout << "src_bufs_size=" << src_bufs_size << std::endl;
+    std::cout << "dst_bufs_size=" << dst_bufs_size << std::endl;
+
     h_src_and_dst_buffers = std::vector<uint8_t>(src_bufs_size + dst_bufs_size);
     h_src_bufs = reinterpret_cast<uint8_t const**>(h_src_and_dst_buffers.data());
     h_dst_bufs = reinterpret_cast<uint8_t**>(h_src_and_dst_buffers.data() + src_bufs_size);
@@ -1585,18 +1594,6 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
   std::size_t const offset_stack_size = state->offset_stack_size;
   auto* d_indices              = state->d_indices;
 
-  // compute splits -> indices.
-  // DO NOT think needed h_indices[0]              = 0;
-  // DO NOT think needed h_indices[num_partitions] = input.column(0).size();
-  // DO NOT think needed std::copy(splits.begin(), splits.end(), std::next(h_indices));
-
-  // setup source buf info
-  //setup_source_buf_info(input.begin(), input.end(), h_src_buf_info, h_src_buf_info);
-
-  // HtoD indices and source buf info to device
-// CUDF_CUDA_TRY(cudaMemcpyAsync(
-//   d_indices, h_indices, indices_size + src_buf_info_size, cudaMemcpyDefault, stream.value()));
-
   // packed block of memory 2. partition buffer sizes and dst_buf_info structs
   std::size_t const buf_sizes_size    = state->buf_sizes_size;
   std::size_t const dst_buf_info_size = state->dst_buf_info_size;
@@ -1611,26 +1608,21 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
   state->reserve();
   std::vector<rmm::device_buffer>& out_buffers = state->out_buffers;
 
+  state->make_other_packed_data(input);
+
   // packed block of memory 3. pointers to source and destination buffers (and stack space on the
   // gpu for offset computation)
-  std::size_t const src_bufs_size =
-    cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
-  std::size_t const dst_bufs_size =
-    cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
+  std::size_t const src_bufs_size = state->src_bufs_size;
+  std::size_t const dst_bufs_size = state->dst_bufs_size;
+  std::cout << "src_bufs_size good="<<src_bufs_size << std::endl;
+  std::cout << "dst_bufs_size good="<<dst_bufs_size << std::endl;
   // host-side
-  std::vector<uint8_t> h_src_and_dst_buffers(src_bufs_size + dst_bufs_size);
-  uint8_t const** h_src_bufs = reinterpret_cast<uint8_t const**>(h_src_and_dst_buffers.data());
-  uint8_t** h_dst_bufs = reinterpret_cast<uint8_t**>(h_src_and_dst_buffers.data() + src_bufs_size);
+  uint8_t const** h_src_bufs = state->h_src_bufs;
+  uint8_t** h_dst_bufs = state->h_dst_bufs;
   // device-side
-  rmm::device_buffer d_src_and_dst_buffers(src_bufs_size + dst_bufs_size + offset_stack_size,
-                                           stream,
-                                           rmm::mr::get_current_device_resource());
-  auto const** d_src_bufs = reinterpret_cast<uint8_t const**>(d_src_and_dst_buffers.data());
-  uint8_t** d_dst_bufs    = reinterpret_cast<uint8_t**>(
-    reinterpret_cast<uint8_t*>(d_src_and_dst_buffers.data()) + src_bufs_size);
+  auto const** d_src_bufs = state->d_src_bufs;
+  uint8_t** d_dst_bufs    = state->d_dst_bufs;
 
-  // setup src buffers
-  setup_src_buf_data(input.begin(), input.end(), h_src_bufs);  
   //
   // CHUNKED A: End of section
   //
