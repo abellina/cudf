@@ -1140,16 +1140,6 @@ struct the_state {
     std::cout << "CALC DST BUF INFO" << std::endl;
     calc_dst_buf_info();
 
- //std::cout << "RESERVE" << std::endl;
- //reserve(); //optional
-
-    std::cout << "PACKED CHUNK 3" << std::endl;
-    // packed block of memory 3. pointers to source and destination buffers (and stack space on the
-    // gpu for offset computation)
-    src_bufs_size = cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
-    dst_bufs_size = cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
-    make_other_packed_data(input);
-
     std::cout << "DO WRK" << std::endl;
     do_work();
 
@@ -1620,13 +1610,6 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
   // allocate output partition buffers
   state->reserve();
   std::vector<rmm::device_buffer>& out_buffers = state->out_buffers;
- //out_buffers.reserve(num_partitions);
- //std::transform(h_buf_sizes,
- //               h_buf_sizes + num_partitions,
- //               std::back_inserter(out_buffers),
- //               [stream, mr](std::size_t bytes) {
- //                 return rmm::device_buffer{bytes, stream, mr};
- //               });
 
   // packed block of memory 3. pointers to source and destination buffers (and stack space on the
   // gpu for offset computation)
