@@ -1614,27 +1614,15 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
   // gpu for offset computation)
   std::size_t const src_bufs_size = state->src_bufs_size;
   std::size_t const dst_bufs_size = state->dst_bufs_size;
-  std::cout << "src_bufs_size good="<<src_bufs_size << std::endl;
-  std::cout << "dst_bufs_size good="<<dst_bufs_size << std::endl;
   // host-side
   uint8_t const** h_src_bufs = state->h_src_bufs;
-  uint8_t** h_dst_bufs = state->h_dst_bufs;
+  uint8_t** h_dst_bufs       = state->h_dst_bufs;
   // device-side
   auto const** d_src_bufs = state->d_src_bufs;
   uint8_t** d_dst_bufs    = state->d_dst_bufs;
-
   //
   // CHUNKED A: End of section
   //
-
-  //
-  // CHUNKED B: in the chunked case, there will only ever be 1 destination buffer, passed in
-  //            by the caller.  
-  //
-  // setup dst buffers
-  std::transform(out_buffers.begin(), out_buffers.end(), h_dst_bufs, [](auto& buf) {
-    return static_cast<uint8_t*>(buf.data());
-  });
 
   //
   // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
@@ -1665,6 +1653,7 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
   //            pack_metadata relies on).
   // 
   // build the output.
+  /*
   std::vector<packed_table> result;
   result.reserve(num_partitions);
   std::vector<column_view> cols;
@@ -1686,7 +1675,8 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
 
     cols.clear();
   }
-  return result;
+  */
+  return state->make_packed_tables();
 }
 
 //bool contiguous_split(cudf::table_view const& input,
