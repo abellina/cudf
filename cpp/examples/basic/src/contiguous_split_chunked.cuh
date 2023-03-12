@@ -14,11 +14,11 @@ namespace detail {
     struct the_state;
 };
 
-std::vector<packed_table> contiguous_split(cudf::table_view const& input,
+std::vector<packed_columns> contiguous_split(cudf::table_view const& input,
                                            std::vector<size_type> const& splits,
                                            rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-std::vector<packed_table> contiguous_split(cudf::table_view const& input,
+std::vector<packed_columns> contiguous_split(cudf::table_view const& input,
                                            std::vector<size_type> const& splits,
                                            rmm::device_buffer* user_provided_out_buffer,
                                            rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
