@@ -1643,8 +1643,10 @@ std::vector<packed_table> contiguous_split(
   }
 };  // namespace detail
 
+
 std::vector<packed_table> contiguous_split(cudf::table_view const& input,
                                            std::vector<size_type> const& splits,
+                                           rmm::device_buffer* user_provided_buffer,
                                            rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
@@ -1662,9 +1664,16 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
     return state.make_empty_table(splits);
   }
 
-  state.initialize(splits, nullptr);
+  state.initialize(splits, user_provided_buffer);
 
   return detail::contiguous_split(input, splits, state, stream, mr);
+}
+
+std::vector<packed_table> contiguous_split(cudf::table_view const& input,
+                                           std::vector<size_type> const& splits,
+                                           rmm::mr::device_memory_resource* mr)
+{
+  return contiguous_split(input, splits, nullptr, mr);
 }
 
 }};  // namespace cudf
