@@ -110,6 +110,7 @@ int main(int argc, char** argv)
   std::vector<cudf::size_type> splits;
   auto tv = result->select(std::vector<cudf::size_type>{0,1});
   std::cout << "calling contig split" << std::endl;
+  rmm::device_buffer user_buff(10000000, cudf::get_default_stream(), &mr);
   auto cs = cudf::chunked::contiguous_split(tv, splits);
 
   // Write out result
