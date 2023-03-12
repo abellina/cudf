@@ -1156,7 +1156,6 @@ struct the_state {
 
     std::cout << "copy_sizes_and_col_info_back_to_host" << std::endl;
     copy_sizes_and_col_info_back_to_host();
-
   }
 
   void packed_block_one(
@@ -1566,6 +1565,11 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
 {
   state->initialize(splits, nullptr);
 
+  // allocate output partition buffers
+  state->reserve();
+
+  state->make_other_packed_data(input);
+
   std::size_t const num_partitions   = splits.size() + 1;
   std::size_t const num_root_columns = input.num_columns();
 
@@ -1580,46 +1584,20 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
   size_type const num_src_bufs = state->num_src_bufs;
   std::size_t const num_bufs   = state->num_bufs;
 
-  // packed block of memory 1. split indices and src_buf_info structs
-  std::size_t const indices_size = state->indices_size;
-  std::size_t const src_buf_info_size = state->src_buf_info_size;
-
-  // host-side
-  size_type* h_indices = state->h_indices;
-  // TODO: src_buf_info* h_src_buf_info = state->h_src_buf_info;
-
-  // device-side
-  // gpu-only : stack space needed for nested list offset calculation
-  // TOODO: int const offset_stack_partition_size = state->offset_stack_partition_size;
-  std::size_t const offset_stack_size = state->offset_stack_size;
-  auto* d_indices              = state->d_indices;
-
   // packed block of memory 2. partition buffer sizes and dst_buf_info structs
-  std::size_t const buf_sizes_size    = state->buf_sizes_size;
   std::size_t const dst_buf_info_size = state->dst_buf_info_size;
-  std::size_t* h_buf_sizes            = state->h_buf_sizes;
   dst_buf_info* h_dst_buf_info        = state->h_dst_buf_info;
 
   // device-side
-  std::size_t* d_buf_sizes     = state->d_buf_sizes;
   dst_buf_info* d_dst_buf_info = state->d_dst_buf_info;
 
-  // allocate output partition buffers
-  state->reserve();
-  std::vector<rmm::device_buffer>& out_buffers = state->out_buffers;
-
-  state->make_other_packed_data(input);
-
-  // packed block of memory 3. pointers to source and destination buffers (and stack space on the
-  // gpu for offset computation)
   std::size_t const src_bufs_size = state->src_bufs_size;
   std::size_t const dst_bufs_size = state->dst_bufs_size;
   // host-side
-  uint8_t const** h_src_bufs = state->h_src_bufs;
-  uint8_t** h_dst_bufs       = state->h_dst_bufs;
+  uint8_t const** h_src_bufs      = state->h_src_bufs;
   // device-side
-  auto const** d_src_bufs = state->d_src_bufs;
-  uint8_t** d_dst_bufs    = state->d_dst_bufs;
+  auto const** d_src_bufs         = state->d_src_bufs;
+  uint8_t** d_dst_bufs            = state->d_dst_bufs;
   //
   // CHUNKED A: End of section
   //
