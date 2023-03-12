@@ -1002,6 +1002,7 @@ struct the_state {
   the_state(cudf::table_view const& input, 
             rmm::cuda_stream_view stream, 
             rmm::mr::device_memory_resource* mr): 
+    user_provided_out_buffer(nullptr),
     num_calls(0),
     input(input),
     stream(stream), 
@@ -1216,11 +1217,12 @@ struct the_state {
     // should be 1 buffer
     // allocate output partition buffers
     if (user_provided_out_buffer == nullptr) {
+      out_buffers.clear(); // TODO: remove
       out_buffers.reserve(num_partitions);
       std::transform(h_buf_sizes,
                     h_buf_sizes + num_partitions,
                     std::back_inserter(out_buffers),
-                    [this](std::size_t bytes) {
+                    [stream = stream, mr = mr](std::size_t bytes) {
                       return rmm::device_buffer{bytes, stream, mr};
                     });
     }
@@ -1595,22 +1597,21 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
 
   // device-side
   // gpu-only : stack space needed for nested list offset calculation
+  // TOODO: int const offset_stack_partition_size = state->offset_stack_partition_size;
   std::size_t const offset_stack_size = state->offset_stack_size;
   auto* d_indices              = state->d_indices;
-  src_buf_info* d_src_buf_info = state->d_src_buf_info;
-  size_type* d_offset_stack    = state->d_offset_stack;
 
   // compute splits -> indices.
-  h_indices[0]              = 0;
-  h_indices[num_partitions] = input.column(0).size();
-  std::copy(splits.begin(), splits.end(), std::next(h_indices));
+  // DO NOT think needed h_indices[0]              = 0;
+  // DO NOT think needed h_indices[num_partitions] = input.column(0).size();
+  // DO NOT think needed std::copy(splits.begin(), splits.end(), std::next(h_indices));
 
   // setup source buf info
   //setup_source_buf_info(input.begin(), input.end(), h_src_buf_info, h_src_buf_info);
 
   // HtoD indices and source buf info to device
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    d_indices, h_indices, indices_size + src_buf_info_size, cudaMemcpyDefault, stream.value()));
+// CUDF_CUDA_TRY(cudaMemcpyAsync(
+//   d_indices, h_indices, indices_size + src_buf_info_size, cudaMemcpyDefault, stream.value()));
 
   // packed block of memory 2. partition buffer sizes and dst_buf_info structs
   std::size_t const buf_sizes_size    = state->buf_sizes_size;
@@ -1622,116 +1623,6 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
   std::size_t* d_buf_sizes     = state->d_buf_sizes;
   dst_buf_info* d_dst_buf_info = state->d_dst_buf_info;
 
-  // compute sizes of each column in each partition, including alignment.
-  //thrust::transform(
-  //  rmm::exec_policy(stream),
-  //  thrust::make_counting_iterator<std::size_t>(0),
-  //  thrust::make_counting_iterator<std::size_t>(num_bufs),
-  //  d_dst_buf_info,
-  //  [num_src_bufs,
-  //   d_indices,
-  //   d_src_buf_info,
-  //   d_offset_stack,
-  //   offset_stack_partition_size] __device__(std::size_t t) {
-  //    int const split_index   = t / num_src_bufs;
-  //    int const src_buf_index = t % num_src_bufs;
-  //    auto const& src_info    = d_src_buf_info[src_buf_index];
-
-  //    // apply nested offsets (lists and string columns).
-  //    //
-  //    // We can't just use the incoming row indices to figure out where to read from in a
-  //    // nested list situation.  We have to apply offsets every time we cross a boundary
-  //    // (list or string).  This loop applies those offsets so that our incoming row_index_start
-  //    // and row_index_end get transformed to our final values.
-  //    //
-  //    int const stack_pos = src_info.offset_stack_pos + (split_index * offset_stack_partition_size);
-  //    size_type* offset_stack  = &d_offset_stack[stack_pos];
-  //    int parent_offsets_index = src_info.parent_offsets_index;
-  //    int stack_size           = 0;
-  //    int root_column_offset   = src_info.column_offset;
-  //    while (parent_offsets_index >= 0) {
-  //      offset_stack[stack_size++] = parent_offsets_index;
-  //      root_column_offset         = d_src_buf_info[parent_offsets_index].column_offset;
-  //      parent_offsets_index       = d_src_buf_info[parent_offsets_index].parent_offsets_index;
-  //    }
-  //    // make sure to include the -column- offset on the root column in our calculation.
-  //    int row_start = d_indices[split_index] + root_column_offset;
-  //    int row_end   = d_indices[split_index + 1] + root_column_offset;
-  //    while (stack_size > 0) {
-  //      stack_size--;
-  //      auto const offsets = d_src_buf_info[offset_stack[stack_size]].offsets;
-  //      // this case can happen when you have empty string or list columns constructed with
-  //      // empty_like()
-  //      if (offsets != nullptr) {
-  //        row_start = offsets[row_start];
-  //        row_end   = offsets[row_end];
-  //      }
-  //    }
-
-  //    // final element indices and row count
-  //    int const out_element_index = src_info.is_validity ? row_start / 32 : row_start;
-  //    int const num_rows          = row_end - row_start;
-  //    // if I am an offsets column, all my values need to be shifted
-  //    int const value_shift = src_info.offsets == nullptr ? 0 : src_info.offsets[row_start];
-  //    // if I am a validity column, we may need to shift bits
-  //    int const bit_shift = src_info.is_validity ? row_start % 32 : 0;
-  //    // # of rows isn't necessarily the same as # of elements to be copied.
-  //    auto const num_elements = [&]() {
-  //      if (src_info.offsets != nullptr && num_rows > 0) {
-  //        return num_rows + 1;
-  //      } else if (src_info.is_validity) {
-  //        return (num_rows + 31) / 32;
-  //      }
-  //      return num_rows;
-  //    }();
-  //    int const element_size = cudf::type_dispatcher(data_type{src_info.type}, size_of_helper{});
-  //    std::size_t const bytes =
-  //      static_cast<std::size_t>(num_elements) * static_cast<std::size_t>(element_size);
-
-  //    return dst_buf_info{util::round_up_unsafe(bytes, split_align),
-  //                        num_elements,
-  //                        element_size,
-  //                        num_rows,
-  //                        out_element_index,
-  //                        0,
-  //                        value_shift,
-  //                        bit_shift,
-  //                        src_info.is_validity ? 1 : 0,
-  //                        src_buf_index,
-  //                        split_index};
-  //  });
-
-  // compute total size of each partition
-  {
-    // key is split index
-    auto keys = cudf::detail::make_counting_transform_iterator(
-      0, split_key_functor{static_cast<int>(num_src_bufs)});
-    auto values =
-      cudf::detail::make_counting_transform_iterator(0, buf_size_functor{d_dst_buf_info});
-
-    thrust::reduce_by_key(rmm::exec_policy(stream),
-                          keys,
-                          keys + num_bufs,
-                          values,
-                          thrust::make_discard_iterator(),
-                          d_buf_sizes);
-  }
-
-  // compute start offset for each output buffer
-  {
-    auto keys = cudf::detail::make_counting_transform_iterator(
-      0, split_key_functor{static_cast<int>(num_src_bufs)});
-    auto values =
-      cudf::detail::make_counting_transform_iterator(0, buf_size_functor{d_dst_buf_info});
-
-    thrust::exclusive_scan_by_key(rmm::exec_policy(stream),
-                                  keys,
-                                  keys + num_bufs,
-                                  values,
-                                  dst_offset_output_iterator{d_dst_buf_info},
-                                  std::size_t{0});
-  }
-
   // DtoH buf sizes and col info back to the host
   CUDF_CUDA_TRY(cudaMemcpyAsync(h_buf_sizes,
                                 d_buf_sizes,
@@ -1741,14 +1632,15 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
   stream.synchronize();
 
   // allocate output partition buffers
-  std::vector<rmm::device_buffer> out_buffers;
-  out_buffers.reserve(num_partitions);
-  std::transform(h_buf_sizes,
-                 h_buf_sizes + num_partitions,
-                 std::back_inserter(out_buffers),
-                 [stream, mr](std::size_t bytes) {
-                   return rmm::device_buffer{bytes, stream, mr};
-                 });
+  state->reserve();
+  std::vector<rmm::device_buffer>& out_buffers = state->out_buffers;
+ //out_buffers.reserve(num_partitions);
+ //std::transform(h_buf_sizes,
+ //               h_buf_sizes + num_partitions,
+ //               std::back_inserter(out_buffers),
+ //               [stream, mr](std::size_t bytes) {
+ //                 return rmm::device_buffer{bytes, stream, mr};
+ //               });
 
   // packed block of memory 3. pointers to source and destination buffers (and stack space on the
   // gpu for offset computation)
