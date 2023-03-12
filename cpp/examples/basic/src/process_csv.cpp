@@ -114,9 +114,14 @@ int main(int argc, char** argv)
   auto cs = cudf::chunked::contiguous_split(tv, splits, &user_buff);
 
   // Write out result
-  std::cout << "writing result out" << std::endl;
+  std::cout << "writing result out, see " << cs.size() << " results" << std::endl;
   write_csv(*result, "4stock_5day_avg_close.csv");
-  write_csv(cs[0].table, "4stock_5day_avg_close_cs.csv");
+  auto meta = cs[0].metadata_->data();
+  auto unpacked= cudf::unpack(
+    meta,
+    (const uint8_t*) cs[0].gpu_data->data());
+
+  write_csv(unpacked, "4stock_5day_avg_close_cs.csv");
 
   return 0;
 }
