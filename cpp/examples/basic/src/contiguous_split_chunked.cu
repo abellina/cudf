@@ -943,7 +943,6 @@ struct num_chunks_func {
   __device__ std::size_t operator()(size_type i) const { return thrust::get<0>(chunks[i]); }
 };
 
-
 void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
                rmm::device_uvector<offset_type>& chunk_offsets,
                int num_bufs,
@@ -953,6 +952,7 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
                dst_buf_info* _d_dst_buf_info,
                rmm::cuda_stream_view stream)
 {
+
   auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
     return static_cast<size_type>(
              thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
@@ -969,6 +969,10 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
   std::cout << "chunks.size: " << chunks.size() << " new_buf_count: " << new_buf_count << std::endl;
 
   auto iter = thrust::make_counting_iterator(0);
+
+  // load up the chunks as d_dst_buf_info
+  rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream); 
+  
   thrust::for_each(
     rmm::exec_policy(stream),
     iter,
