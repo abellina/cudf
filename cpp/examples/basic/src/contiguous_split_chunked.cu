@@ -278,6 +278,7 @@ __global__ void copy_partitions(uint8_t const** src_bufs,
                                 dst_buf_info* buf_info)
 {
   auto const buf_index     = blockIdx.x;
+  printf("copying buf_index %i dst_offset: %i \n", buf_index, (int)buf_info[buf_index].dst_offset);
   auto const src_buf_index = buf_info[buf_index].src_buf_index;
   auto const dst_buf_index = buf_info[buf_index].dst_buf_index;
 
@@ -942,75 +943,16 @@ struct num_chunks_func {
   __device__ std::size_t operator()(size_type i) const { return thrust::get<0>(chunks[i]); }
 };
 
-void copy_data(int num_bufs,
+
+void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
+               rmm::device_uvector<offset_type>& chunk_offsets,
+               int num_bufs,
                int num_src_bufs,
                uint8_t const** d_src_bufs,
                uint8_t** d_dst_bufs,
                dst_buf_info* _d_dst_buf_info,
                rmm::cuda_stream_view stream)
 {
-  //
-  // CHUNKED F:  So this is where the "real" array of destination buffers to be copied (_d_dst_buf_info)
-  //             is further partitioned into smaller chunks.  these more granular chunks are what gets passed to
-  //             the copy kernel.  So ultimately what needs to happen is
-  //               - refactor out this whole block so it can be called by the chunked packer seperately.
-  //               - verify that the ordering of the chunks is linear with the overall output buffer. that is,
-  //                 d_dst_buf_info[N] is copying to the destination location exactly where d_dst_buf_info[N-1] ends.
-  //               - the intermediate chunked struct would store d_dst_buf_info across calls as well as the count
-  //                 of buffers we've processed so far.
-  //               - when it's time to pack another chunk, we are given a buffer and a size from the caller.  we search 
-  //                 forward from the last used pos in the d_dst_buf_info array until we cross the output size (there's
-  //                 a good example of doing this quickly in cpp/io/src/parquet/reader_impl_preprocess.cu -> find_splits. 
-  //                 we call copy_partitions on that subset of dst_buf_infos.  
-  //               - I -think- the only thing that will need to get updated for each chunk is dst_buf_info::dst_offset.
-  //                 Everything else that would need to be changed should be 0 (value_shift, bit_shift, etc) because
-  //                 we're only outputting 1 "real" partition at the end of the day
-  //               - In the packed case, after computing d_dst_buf_info, do a scan on all the sizes to generate
-  //                 cumulative sizes so we can determine what chunks to read. This will get stored in the intermediate
-  //                 data.
-  //
-  // Since we parallelize at one block per copy, we are vulnerable to situations where we
-  // have small numbers of copies to do (a combination of small numbers of splits and/or columns),
-  // so we will take the actual set of outgoing source/destination buffers and further partition
-  // them into much smaller chunks in order to drive up the number of blocks and overall occupancy.
-  auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
-  rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
-  thrust::transform(
-    rmm::exec_policy(stream),
-    _d_dst_buf_info,
-    _d_dst_buf_info + num_bufs,
-    chunks.begin(),
-    [desired_chunk_size] __device__(
-      dst_buf_info const& buf) -> thrust::pair<std::size_t, std::size_t> {
-      // Total bytes for this incoming partition
-      std::size_t const bytes =
-        static_cast<std::size_t>(buf.num_elements) * static_cast<std::size_t>(buf.element_size);
-
-      // This clause handles nested data types (e.g. list or string) that store no data in the row
-      // columns, only in their children.
-      if (bytes == 0) { return {1, 0}; }
-
-      // The number of chunks we want to subdivide this buffer into
-      std::size_t const num_chunks =
-        max(std::size_t{1}, util::round_up_unsafe(bytes, desired_chunk_size) / desired_chunk_size);
-
-      // NOTE: leaving chunk size as a separate parameter for future tuning
-      // possibilities, even though in the current implementation it will be a
-      // constant.
-      return {num_chunks, desired_chunk_size};
-    });
-
-  rmm::device_uvector<offset_type> chunk_offsets(num_bufs + 1, stream);
-  auto buf_count_iter = cudf::detail::make_counting_transform_iterator(
-    0, [num_bufs, num_chunks = num_chunks_func{chunks.begin()}] __device__(size_type i) {
-      return i == num_bufs ? 0 : num_chunks(i);
-    });
-  thrust::exclusive_scan(rmm::exec_policy(stream),
-                         buf_count_iter,
-                         buf_count_iter + num_bufs + 1,
-                         chunk_offsets.begin(),
-                         0);
-
   auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
     return static_cast<size_type>(
              thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
@@ -1024,8 +966,8 @@ void copy_data(int num_bufs,
   size_type const new_buf_count =
     thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + chunks.size());
 
-  // load up the chunks as d_dst_buf_info
-  rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream);
+  std::cout << "chunks.size: " << chunks.size() << " new_buf_count: " << new_buf_count << std::endl;
+
   auto iter = thrust::make_counting_iterator(0);
   thrust::for_each(
     rmm::exec_policy(stream),
@@ -1072,6 +1014,8 @@ void copy_data(int num_bufs,
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
       out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
 
+      printf("i: %i chunk_index: %i out.dst_offset %i\n", (int)i, (int)chunk_index, (int)out.dst_offset);
+
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
       // purely intermediate for the purposes of doing more uniform copying of data
@@ -1081,10 +1025,23 @@ void copy_data(int num_bufs,
   // CHUNKED F: end
   //
 
-  // perform the copy
+  // break it into two copies
   constexpr size_type block_size = 256;
-  copy_partitions<block_size><<<new_buf_count, block_size, 0, stream.value()>>>(
+  copy_partitions<block_size><<<3, block_size, 0, stream.value()>>>(
     d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
+
+  stream.synchronize();
+
+  std::cout << "DONE FIRST HALF" << std::endl;
+
+  copy_partitions<block_size><<<3, block_size, 0, stream.value()>>>(
+    d_src_bufs, d_dst_bufs, &(d_dst_buf_info.data()[3]));
+  stream.synchronize();
+
+  // perform the copy
+ // constexpr size_type block_size = 256;
+ // copy_partitions<block_size><<<new_buf_count, block_size, 0, stream.value()>>>(
+ //   d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
 
   //
   // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
@@ -1675,7 +1632,8 @@ struct dst_buf_info {
     // so we will take the actual set of outgoing source/destination buffers and further partition
     // them into much smaller chunks in order to drive up the number of blocks and overall
     // occupancy.
-    auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
+    auto const desired_chunk_size = std::size_t{16};
+    //auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
     rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
     thrust::transform(
       rmm::exec_policy(stream),
@@ -1695,6 +1653,9 @@ struct dst_buf_info {
         // The number of chunks we want to subdivide this buffer into
         std::size_t const num_chunks = std::max(
           std::size_t{1}, util::round_up_unsafe(bytes, desired_chunk_size) / desired_chunk_size);
+
+        printf("bytes for partition %i. num_chunks %i \n", (int)bytes, (int)num_chunks);
+
 
         // NOTE: leaving chunk size as a separate parameter for future tuning
         // possibilities, even though in the current implementation it will be a
@@ -1727,6 +1688,7 @@ struct dst_buf_info {
   }
 
   void perform_copy() {
+    auto cis = compute_chunks();
     //
     // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
     //            already be in place - only the dst buf info will have changed. this is fine
@@ -1737,7 +1699,10 @@ struct dst_buf_info {
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
     // perform the copy.
-    copy_data(num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, stream);
+    copy_data(
+      cis.chunks,
+      cis.chunk_offsets,
+      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, stream);
 
     //
     // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
