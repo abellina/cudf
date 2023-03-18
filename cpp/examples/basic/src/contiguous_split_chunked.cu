@@ -943,15 +943,14 @@ struct num_chunks_func {
   __device__ std::size_t operator()(size_type i) const { return thrust::get<0>(chunks[i]); }
 };
 
-void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
-               rmm::device_uvector<offset_type>& chunk_offsets,
-               int num_bufs,
-               int num_src_bufs,
-               uint8_t const** d_src_bufs,
-               uint8_t** d_dst_bufs,
-               dst_buf_info* _d_dst_buf_info,
-               rmm::cuda_stream_view stream)
-{
+rmm::device_uvector<dst_buf_info> get_dst_buf_info(
+  rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
+  rmm::device_uvector<offset_type>& chunk_offsets,
+  int num_bufs,
+  int num_src_bufs,
+  dst_buf_info* _d_dst_buf_info,
+  cudf::size_type new_buf_count,
+  rmm::cuda_stream_view stream) {
 
   auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
     return static_cast<size_type>(
@@ -959,20 +958,12 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
              chunk_offsets) -
            1;
   };
-  
-  // apply the chunking.
-  auto const num_chunks =
-    cudf::detail::make_counting_transform_iterator(0, num_chunks_func{chunks.begin()});
-  size_type const new_buf_count =
-    thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + chunks.size());
-
-  std::cout << "chunks.size: " << chunks.size() << " new_buf_count: " << new_buf_count << std::endl;
 
   auto iter = thrust::make_counting_iterator(0);
 
   // load up the chunks as d_dst_buf_info
-  rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream); 
-  
+  rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream);
+
   thrust::for_each(
     rmm::exec_policy(stream),
     iter,
@@ -1018,16 +1009,39 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
       out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
 
-      printf("i: %i chunk_index: %i out.dst_offset %i\n", (int)i, (int)chunk_index, (int)out.dst_offset);
+      printf(
+        "i: %i chunk_index: %i out.dst_offset %i\n", (int)i, (int)chunk_index, (int)out.dst_offset);
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
       // purely intermediate for the purposes of doing more uniform copying of data
       // underneath the final structure of the output
-    });  
+    });
   //
   // CHUNKED F: end
   //
+  return std::move(d_dst_buf_info);
+}
+
+void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
+               rmm::device_uvector<offset_type>& chunk_offsets,
+               int num_bufs,
+               int num_src_bufs,
+               uint8_t const** d_src_bufs,
+               uint8_t** d_dst_bufs,
+               dst_buf_info* _d_dst_buf_info,
+               rmm::cuda_stream_view stream)
+{
+  // apply the chunking.
+  auto const num_chunks =
+    cudf::detail::make_counting_transform_iterator(0, num_chunks_func{chunks.begin()});
+  size_type const new_buf_count =
+    thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + chunks.size());
+
+  std::cout << "chunks.size: " << chunks.size() << " new_buf_count: " << new_buf_count << std::endl;
+
+  auto d_dst_buf_info = 
+    get_dst_buf_info(chunks, chunk_offsets, num_bufs, num_src_bufs, _d_dst_buf_info, new_buf_count, stream);
 
   // break it into two copies
   constexpr size_type block_size = 256;
@@ -1046,6 +1060,13 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
  // constexpr size_type block_size = 256;
  // copy_partitions<block_size><<<new_buf_count, block_size, 0, stream.value()>>>(
  //   d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
+
+  auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
+    return static_cast<size_type>(
+             thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
+             chunk_offsets) -
+           1;
+  };
 
   //
   // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
