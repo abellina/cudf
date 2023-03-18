@@ -949,6 +949,7 @@ rmm::device_uvector<dst_buf_info> get_dst_buf_info(
   int num_bufs,
   int num_src_bufs,
   dst_buf_info* _d_dst_buf_info,
+  cudf::size_type starting_buf,
   cudf::size_type new_buf_count,
   rmm::cuda_stream_view stream) {
 
@@ -959,7 +960,7 @@ rmm::device_uvector<dst_buf_info> get_dst_buf_info(
            1;
   };
 
-  auto iter = thrust::make_counting_iterator(0);
+  auto iter = thrust::make_counting_iterator(starting_buf);
 
   // load up the chunks as d_dst_buf_info
   rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream);
@@ -974,14 +975,15 @@ rmm::device_uvector<dst_buf_info> get_dst_buf_info(
      chunk_offsets  = chunk_offsets.begin(),
      num_bufs,
      num_src_bufs,
-     out_to_in_index] __device__(size_type i) {
+     out_to_in_index,
+     starting_buf] __device__(size_type i) {
       size_type const in_buf_index = out_to_in_index(i);
       size_type const chunk_index  = i - chunk_offsets[in_buf_index];
       auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
       dst_buf_info const& in       = _d_dst_buf_info[in_buf_index];
 
       // adjust info
-      dst_buf_info& out = d_dst_buf_info[i];
+      dst_buf_info& out = d_dst_buf_info[i - starting_buf];
       out.element_size  = in.element_size;
       out.value_shift   = in.value_shift;
       out.bit_shift     = in.bit_shift;
@@ -1038,28 +1040,30 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
   size_type const new_buf_count =
     thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + chunks.size());
 
-  std::cout << "chunks.size: " << chunks.size() << " new_buf_count: " << new_buf_count << std::endl;
+  std::cout << "chunks.size: " << chunks.size() << " new_buf_count: " << new_buf_count
+            << " num bufs: " << num_bufs << std::endl;
 
-  auto d_dst_buf_info = 
-    get_dst_buf_info(chunks, chunk_offsets, num_bufs, num_src_bufs, _d_dst_buf_info, new_buf_count, stream);
+  cudf::size_type remaining_bufs = new_buf_count;
+  for (cudf::size_type starting_buf = 0; starting_buf < new_buf_count; starting_buf += 3) {
+    auto buf_count_to_copy = std::min(starting_buf + 3, remaining_bufs);
+    remaining_bufs -= buf_count_to_copy;
+    auto d_dst_buf_info = 
+      get_dst_buf_info(
+        chunks, 
+        chunk_offsets, 
+        num_bufs, 
+        num_src_bufs, 
+        _d_dst_buf_info, 
+        starting_buf,       // wasnt' here before
+        buf_count_to_copy,  // new_buf_count
+        stream);
 
-  // break it into two copies
-  constexpr size_type block_size = 256;
-  copy_partitions<block_size><<<3, block_size, 0, stream.value()>>>(
-    d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
-
-  stream.synchronize();
-
-  std::cout << "DONE FIRST HALF" << std::endl;
-
-  copy_partitions<block_size><<<3, block_size, 0, stream.value()>>>(
-    d_src_bufs, d_dst_bufs, &(d_dst_buf_info.data()[3]));
-  stream.synchronize();
-
-  // perform the copy
- // constexpr size_type block_size = 256;
- // copy_partitions<block_size><<<new_buf_count, block_size, 0, stream.value()>>>(
- //   d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
+    constexpr size_type block_size = 256;
+    copy_partitions<block_size><<<buf_count_to_copy, block_size, 0, stream.value()>>>(
+      d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
+  }
+  
+  /*
 
   auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
     return static_cast<size_type>(
@@ -1072,6 +1076,7 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
   // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
   //             can just use the null count of the original columns
   // postprocess valid_counts
+  
   auto keys = cudf::detail::make_counting_transform_iterator(
     0, [out_to_in_index] __device__(size_type i) { return out_to_in_index(i); });
   auto values = thrust::make_transform_iterator(
@@ -1082,6 +1087,7 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
                         values,
                         thrust::make_discard_iterator(),
                         dst_valid_count_output_iterator{_d_dst_buf_info});
+                        */
 }
 
 };  // anonymous namespace
