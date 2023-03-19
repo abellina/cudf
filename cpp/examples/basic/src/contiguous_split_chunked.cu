@@ -945,7 +945,8 @@ struct num_chunks_func {
 
 struct chunk_byte_size_function {
   __device__ int operator()(const dst_buf_info& i) const { 
-    return i.num_elements * i.element_size;
+    printf("chunk_size_calc numel: %i el_size: %i\n", (int)i.num_elements, (int)i.element_size);
+    return i.dst_offset + (i.num_elements * i.element_size);
     //return util::round_up_unsafe(i.num_elements * i.element_size, cudf::size_type(split_align));
   }
 };
@@ -1018,9 +1019,8 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
                        : rows_per_chunk;
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
-      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);// - bytes_copied_so_far;
+      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size) - bytes_copied_so_far;
         
-
       printf(
         "i: %i chunk_index: %i chunk_size: %i out.dst_offset %i\n", (int)i, (int)chunk_index, (int) chunk_size, (int)out.dst_offset);
 
@@ -1036,7 +1036,7 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
     thrust::transform_reduce(
       rmm::exec_policy(stream), 
       d_dst_buf_info.begin(), 
-      d_dst_buf_info.begin() + d_dst_buf_info.size(),
+      d_dst_buf_info.end(),
       chunk_byte_size_function(),
       0,
       thrust::plus<int>());
@@ -1054,7 +1054,8 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
                uint8_t const** d_src_bufs,
                uint8_t** d_dst_bufs,
                dst_buf_info* _d_dst_buf_info,
-               void* result_buff,
+               uint8_t* result_buff,
+               rmm::device_buffer& out_buffer,
                rmm::cuda_stream_view stream)
 {
   // apply the chunking.
@@ -1068,7 +1069,6 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
 
   cudf::size_type remaining_bufs = new_buf_count;
   cudf::size_type copied_so_far = 0;
-  cudf::size_type offset= 0;
 
   for (cudf::size_type starting_buf = 0; starting_buf < new_buf_count; starting_buf += 3) {
     auto buf_count_to_copy = std::min(starting_buf + 3, remaining_bufs);
@@ -1085,18 +1085,31 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
         copied_so_far,
         stream);
     auto& d_dst_buf_info = dst_buf_infos.first;
-    copied_so_far += dst_buf_infos.second;
-
-   //CUDF_CUDA_TRY(cudaMemcpyAsync(
-   //  result_buff, d_dst_bufs[0], dst_buf_infos.second, cudaMemcpyDefault, stream.value()));
-    offset += dst_buf_infos.second;
+    
     constexpr size_type block_size = 256;
     copy_partitions<block_size><<<buf_count_to_copy, block_size, 0, stream.value()>>>(
-      d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
+      d_src_bufs, 
+      d_dst_bufs, 
+      d_dst_buf_info.data());
+
+    std::cout << "now copying " << dst_buf_infos.second  << " bytes out" << std::endl;
+
+    CUDF_CUDA_TRY(cudaMemcpyAsync(
+     result_buff+copied_so_far, 
+     out_buffer.data(), 
+     dst_buf_infos.second, 
+     cudaMemcpyDefault, 
+     stream.value()));
+
+    copied_so_far += dst_buf_infos.second;
   }
 
-//  CUDF_CUDA_TRY(cudaMemcpyAsync(
-  //  d_dst_bufs[0], result_buff, copied_so_far, cudaMemcpyDefault, stream.value()));
+  CUDF_CUDA_TRY(cudaMemcpyAsync(
+    out_buffer.data(), 
+    result_buff, 
+    copied_so_far, 
+    cudaMemcpyDefault, 
+    stream.value()));
   
   /*
 
@@ -1764,12 +1777,12 @@ struct dst_buf_info {
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
-    auto result_buff = mr->allocate(1L*1024*1024);
+    auto result_buff = (uint8_t*)mr->allocate(1L*1024*1024);
     // perform the copy.
     copy_data(
       cis.chunks,
       cis.chunk_offsets,
-      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, result_buff, stream);
+      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, result_buff, out_buffers[0], stream);
 
     //
     // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
