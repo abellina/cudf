@@ -12,14 +12,9 @@ namespace chunked {
 
 namespace detail {
     struct the_state;
-};
+}
 
-void contiguous_split(
-  cudf::table_view const& input,
-  std::vector<size_type> const& splits,
-  rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
-
-void contiguous_split(
+std::pair<bool, cudf::size_type> contiguous_split(
   cudf::table_view const& input,
   std::vector<size_type> const& splits,
   rmm::device_buffer* user_provided_out_buffer,
