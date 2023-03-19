@@ -943,7 +943,14 @@ struct num_chunks_func {
   __device__ std::size_t operator()(size_type i) const { return thrust::get<0>(chunks[i]); }
 };
 
-rmm::device_uvector<dst_buf_info> get_dst_buf_info(
+struct chunk_byte_size_function {
+  __device__ int operator()(const dst_buf_info& i) const { 
+    return i.num_elements * i.element_size;
+    //return util::round_up_unsafe(i.num_elements * i.element_size, cudf::size_type(split_align));
+  }
+};
+
+std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
   rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
   rmm::device_uvector<offset_type>& chunk_offsets,
   int num_bufs,
@@ -951,6 +958,7 @@ rmm::device_uvector<dst_buf_info> get_dst_buf_info(
   dst_buf_info* _d_dst_buf_info,
   cudf::size_type starting_buf,
   cudf::size_type new_buf_count,
+  cudf::size_type bytes_copied_so_far,
   rmm::cuda_stream_view stream) {
 
   auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
@@ -964,7 +972,7 @@ rmm::device_uvector<dst_buf_info> get_dst_buf_info(
 
   // load up the chunks as d_dst_buf_info
   rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream);
-
+        
   thrust::for_each(
     rmm::exec_policy(stream),
     iter,
@@ -976,7 +984,8 @@ rmm::device_uvector<dst_buf_info> get_dst_buf_info(
      num_bufs,
      num_src_bufs,
      out_to_in_index,
-     starting_buf] __device__(size_type i) {
+     starting_buf,
+     bytes_copied_so_far] __device__(size_type i) {
       size_type const in_buf_index = out_to_in_index(i);
       size_type const chunk_index  = i - chunk_offsets[in_buf_index];
       auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
@@ -1009,10 +1018,11 @@ rmm::device_uvector<dst_buf_info> get_dst_buf_info(
                        : rows_per_chunk;
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
-      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
+      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);// - bytes_copied_so_far;
+        
 
       printf(
-        "i: %i chunk_index: %i out.dst_offset %i\n", (int)i, (int)chunk_index, (int)out.dst_offset);
+        "i: %i chunk_index: %i chunk_size: %i out.dst_offset %i\n", (int)i, (int)chunk_index, (int) chunk_size, (int)out.dst_offset);
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
@@ -1022,7 +1032,19 @@ rmm::device_uvector<dst_buf_info> get_dst_buf_info(
   //
   // CHUNKED F: end
   //
-  return std::move(d_dst_buf_info);
+  size_type const byte_size_copied =
+    thrust::transform_reduce(
+      rmm::exec_policy(stream), 
+      d_dst_buf_info.begin(), 
+      d_dst_buf_info.begin() + d_dst_buf_info.size(),
+      chunk_byte_size_function(),
+      0,
+      thrust::plus<int>());
+
+  
+  auto aligned_bytes = cudf::util::round_up_safe(byte_size_copied, cudf::size_type(split_align));
+  std::cout << "byte size copied: " << byte_size_copied << " aligned to: " << aligned_bytes << std::endl;
+  return std::make_pair(std::move(d_dst_buf_info), aligned_bytes);
 }
 
 void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
@@ -1032,6 +1054,7 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
                uint8_t const** d_src_bufs,
                uint8_t** d_dst_bufs,
                dst_buf_info* _d_dst_buf_info,
+               void* result_buff,
                rmm::cuda_stream_view stream)
 {
   // apply the chunking.
@@ -1044,10 +1067,13 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
             << " num bufs: " << num_bufs << std::endl;
 
   cudf::size_type remaining_bufs = new_buf_count;
+  cudf::size_type copied_so_far = 0;
+  cudf::size_type offset= 0;
+
   for (cudf::size_type starting_buf = 0; starting_buf < new_buf_count; starting_buf += 3) {
     auto buf_count_to_copy = std::min(starting_buf + 3, remaining_bufs);
     remaining_bufs -= buf_count_to_copy;
-    auto d_dst_buf_info = 
+    auto dst_buf_infos = 
       get_dst_buf_info(
         chunks, 
         chunk_offsets, 
@@ -1056,12 +1082,21 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
         _d_dst_buf_info, 
         starting_buf,       // wasnt' here before
         buf_count_to_copy,  // new_buf_count
+        copied_so_far,
         stream);
+    auto& d_dst_buf_info = dst_buf_infos.first;
+    copied_so_far += dst_buf_infos.second;
 
+   //CUDF_CUDA_TRY(cudaMemcpyAsync(
+   //  result_buff, d_dst_bufs[0], dst_buf_infos.second, cudaMemcpyDefault, stream.value()));
+    offset += dst_buf_infos.second;
     constexpr size_type block_size = 256;
     copy_partitions<block_size><<<buf_count_to_copy, block_size, 0, stream.value()>>>(
       d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
   }
+
+//  CUDF_CUDA_TRY(cudaMemcpyAsync(
+  //  d_dst_bufs[0], result_buff, copied_so_far, cudaMemcpyDefault, stream.value()));
   
   /*
 
@@ -1729,11 +1764,12 @@ struct dst_buf_info {
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
+    auto result_buff = mr->allocate(1L*1024*1024);
     // perform the copy.
     copy_data(
       cis.chunks,
       cis.chunk_offsets,
-      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, stream);
+      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, result_buff, stream);
 
     //
     // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
