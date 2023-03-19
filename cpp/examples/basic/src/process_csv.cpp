@@ -113,7 +113,11 @@ int main(int argc, char** argv)
   rmm::device_buffer user_buff(10000000, cudf::get_default_stream(), &mr);
 
   cudf::chunked::detail::the_state* state = nullptr;
-  cudf::chunked::contiguous_split(tv, splits, &user_buff, state);
+  bool has_next = true;
+  while(has_next) {
+    auto p = cudf::chunked::contiguous_split(tv, splits, &user_buff, state);
+    has_next = p.first;
+  }
   auto cs = cudf::chunked::make_packed_columns(state);
 
   // Write out result

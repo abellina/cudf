@@ -1047,16 +1047,16 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
   return std::make_pair(std::move(d_dst_buf_info), aligned_bytes);
 }
 
-void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
-               rmm::device_uvector<offset_type>& chunk_offsets,
-               int num_bufs,
-               int num_src_bufs,
-               uint8_t const** d_src_bufs,
-               uint8_t** d_dst_bufs,
-               dst_buf_info* _d_dst_buf_info,
-               uint8_t* result_buff,
-               rmm::device_buffer& out_buffer,
-               rmm::cuda_stream_view stream)
+cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
+                          rmm::device_uvector<offset_type>& chunk_offsets,
+                          int num_bufs,
+                          int num_src_bufs,
+                          uint8_t const** d_src_bufs,
+                          uint8_t** d_dst_bufs,
+                          dst_buf_info* _d_dst_buf_info,
+                          uint8_t* result_buff,
+                          rmm::device_buffer& out_buffer,
+                          rmm::cuda_stream_view stream)
 {
   // apply the chunking.
   auto const num_chunks =
@@ -1110,6 +1110,8 @@ void copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chun
     copied_so_far, 
     cudaMemcpyDefault, 
     stream.value()));
+
+  return copied_so_far;
   
   /*
 
@@ -1766,7 +1768,7 @@ struct dst_buf_info {
     return chunk_infos {std::move(chunks), std::move(chunk_offsets)};
   }
 
-  void perform_copy() {
+  cudf::size_type perform_copy() {
     auto cis = compute_chunks();
     //
     // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
@@ -1779,7 +1781,7 @@ struct dst_buf_info {
 
     auto result_buff = (uint8_t*)mr->allocate(1L*1024*1024);
     // perform the copy.
-    copy_data(
+    auto bytes_copied = copy_data(
       cis.chunks,
       cis.chunk_offsets,
       num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, result_buff, out_buffers[0], stream);
@@ -1793,10 +1795,17 @@ struct dst_buf_info {
       h_dst_buf_info, d_dst_buf_info, dst_buf_info_size, cudaMemcpyDefault, stream.value()));
 
     stream.synchronize();
+
+    return bytes_copied;
   }
 
   void setup_for_next_call() {
     num_calls++;
+  }
+
+
+  bool has_next() {
+    return false;
   }
 
   int num_calls;
@@ -1858,7 +1867,7 @@ struct dst_buf_info {
 
 
 // I had this returning a boolean
-void contiguous_split(cudf::table_view const& input,
+cudf::size_type contiguous_split(cudf::table_view const& input,
                       std::vector<size_type> const& splits,
                       the_state* state,
                       rmm::cuda_stream_view stream,
@@ -1867,7 +1876,7 @@ void contiguous_split(cudf::table_view const& input,
   // allocate output partition buffers
   state->reserve();
   state->make_other_packed_data(input);
-  state->perform_copy();
+  return state->perform_copy();
 }
 
 //bool contiguous_split(cudf::table_view const& input,
@@ -1892,23 +1901,22 @@ void contiguous_split(cudf::table_view const& input,
 //}
 
 // need this defined in detail
-void contiguous_split(
-  cudf::table_view const& input,
-  std::vector<size_type> const& splits,
-  the_state& state,
-  rmm::cuda_stream_view stream,
-  rmm::mr::device_memory_resource* mr){
-
-    std::cout << "calling contig split detail" << std::endl;
-    detail::contiguous_split(input, splits, &state, stream, mr);
-  }
+cudf::size_type contiguous_split(cudf::table_view const& input,
+                                 std::vector<size_type> const& splits,
+                                 the_state& state,
+                                 rmm::cuda_stream_view stream,
+                                 rmm::mr::device_memory_resource* mr)
+{
+  std::cout << "calling contig split detail" << std::endl;
+  return detail::contiguous_split(input, splits, &state, stream, mr);
+}
 };  // namespace detail
 
-void contiguous_split(cudf::table_view const& input,
-                      std::vector<size_type> const& splits,
-                      rmm::device_buffer* user_provided_buffer,
-                      detail::the_state*& user_state,
-                      rmm::mr::device_memory_resource* mr)
+std::pair<bool, cudf::size_type> contiguous_split(cudf::table_view const& input,
+                                                  std::vector<size_type> const& splits,
+                                                  rmm::device_buffer* user_provided_buffer,
+                                                  detail::the_state*& user_state,
+                                                  rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
 
@@ -1929,7 +1937,8 @@ void contiguous_split(cudf::table_view const& input,
     user_state = state;
   }
 
-  detail::contiguous_split(input, splits, user_state, stream, mr);
+  auto bytes_copied = detail::contiguous_split(input, splits, user_state, stream, mr);
+  return std::make_pair(user_state->has_next(), bytes_copied);
 }
 
 std::vector<packed_columns> make_packed_columns(detail::the_state* state)
