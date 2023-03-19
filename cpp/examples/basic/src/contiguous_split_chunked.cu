@@ -1858,22 +1858,16 @@ struct dst_buf_info {
 
 
 // I had this returning a boolean
-std::vector<packed_columns> contiguous_split(
-                      cudf::table_view const& input,
+void contiguous_split(cudf::table_view const& input,
                       std::vector<size_type> const& splits,
                       the_state* state,
                       rmm::cuda_stream_view stream,
                       rmm::mr::device_memory_resource* mr)
 {
-  
   // allocate output partition buffers
   state->reserve();
-
   state->make_other_packed_data(input);
-
   state->perform_copy();
-
-  return state->make_packed_tables();
 }
 
 //bool contiguous_split(cudf::table_view const& input,
@@ -1898,7 +1892,7 @@ std::vector<packed_columns> contiguous_split(
 //}
 
 // need this defined in detail
-std::vector<packed_columns> contiguous_split(
+void contiguous_split(
   cudf::table_view const& input,
   std::vector<size_type> const& splits,
   the_state& state,
@@ -1906,44 +1900,43 @@ std::vector<packed_columns> contiguous_split(
   rmm::mr::device_memory_resource* mr){
 
     std::cout << "calling contig split detail" << std::endl;
-    //auto done = detail::contiguous_split(input, splits, &state, stream, mr);
-    auto tables = detail::contiguous_split(input, splits, &state, stream, mr);
-
-    std::cout << "making packed tables" << std::endl;
-    return tables;
+    detail::contiguous_split(input, splits, &state, stream, mr);
   }
 };  // namespace detail
 
-
-std::vector<packed_columns> contiguous_split(cudf::table_view const& input,
-                                           std::vector<size_type> const& splits,
-                                           rmm::device_buffer* user_provided_buffer,
-                                           rmm::mr::device_memory_resource* mr)
+void contiguous_split(cudf::table_view const& input,
+                      std::vector<size_type> const& splits,
+                      rmm::device_buffer* user_provided_buffer,
+                      detail::the_state*& user_state,
+                      rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
 
   auto stream = cudf::get_default_stream();
 
-  detail::the_state state(input, stream, mr);
+  if (user_state == nullptr) {
+    detail::the_state* state = new detail::the_state(input, stream, mr);
+    std::cout << "checking inputs" << std::endl;
+    bool is_empty = state->check_inputs(splits);
 
-  std::cout << "checking inputs" << std::endl;
-  bool is_empty = state.check_inputs(splits);
+    std::cout << "is it empty" << std::endl;
+    // TODO:
+    //if (is_empty) {
+    //  return state->make_empty_table(splits);
+    //}
 
-  std::cout << "is it empty" << std::endl;
-  if (is_empty) {
-    return state.make_empty_table(splits);
+    state->initialize(splits, user_provided_buffer);
+    user_state = state;
   }
 
-  state.initialize(splits, user_provided_buffer);
-
-  return detail::contiguous_split(input, splits, state, stream, mr);
+  detail::contiguous_split(input, splits, user_state, stream, mr);
 }
 
-std::vector<packed_columns> contiguous_split(cudf::table_view const& input,
-                                           std::vector<size_type> const& splits,
-                                           rmm::mr::device_memory_resource* mr)
+std::vector<packed_columns> make_packed_columns(detail::the_state* state)
 {
-  return contiguous_split(input, splits, nullptr, mr);
+  CUDF_FUNC_RANGE();
+  return state->make_packed_tables();
 }
+
 
 }};  // namespace cudf
