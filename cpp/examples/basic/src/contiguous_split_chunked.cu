@@ -1305,7 +1305,7 @@ struct dst_buf_info {
     return packed_columns::metadata{std::move(metadata_bytes)};
   }
 
-  std::vector<packed_columns> make_packed_tables() {
+  std::vector<packed_columns::metadata> make_packed_tables() {
     //
     // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does
     // so
@@ -1314,7 +1314,7 @@ struct dst_buf_info {
     //            or even any backing allocation (which pack_metadata relies on).
     //
     // build the output.
-    std::vector<packed_columns> result;
+    std::vector<packed_columns::metadata> result;
     result.reserve(num_partitions);
 
     std::vector<pre_serialized_column> cols;
@@ -1331,14 +1331,10 @@ struct dst_buf_info {
 
       // pack the columns
       result.push_back(
-        packed_columns{
-          std::make_unique<packed_columns::metadata>(pack_metadata(
+          pack_metadata(
             cols.begin(),
             cols.end(), 
-            out_buffers[idx].size() // TODO: would have to be total size
-            )),
-          std::make_unique<rmm::device_buffer>(std::move(out_buffers[idx]))});
-
+            total_size));
       cols.clear();
     }
 
@@ -1459,19 +1455,6 @@ struct dst_buf_info {
                     [stream = stream, mr = mr](std::size_t bytes) {
                       return rmm::device_buffer{bytes, stream, mr};
                     });
-    } else {
-      out_buffers.reserve(num_partitions);
-      std::transform(h_buf_sizes,
-                    h_buf_sizes + num_partitions,
-                    std::back_inserter(out_buffers),
-                    [user_provided_out_buffer = user_provided_out_buffer,
-                    stream = stream, 
-                    mr = mr](std::size_t bytes) {
-                      return rmm::device_buffer(
-                        user_provided_out_buffer->data(), 
-                        bytes,
-                        stream, mr);
-                    });
     }
   }
 
@@ -1504,9 +1487,13 @@ struct dst_buf_info {
     //            by the caller.
     //
     // setup dst buffers
-    std::transform(out_buffers.begin(), out_buffers.end(), h_dst_bufs, [](auto& buf) {
-      return static_cast<uint8_t*>(buf.data());
-    });
+    if (user_provided_out_buffer == nullptr) {
+      std::transform(out_buffers.begin(), out_buffers.end(), h_dst_bufs, [](auto& buf) {
+        return static_cast<uint8_t*>(buf.data());
+      });
+    } else {
+      h_dst_bufs[0] = static_cast<uint8_t*>(user_provided_out_buffer->data());
+    }
 
     // device-side
     // TODO: why do we add offset_stack_size here
@@ -1763,11 +1750,14 @@ struct dst_buf_info {
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
+    auto & out_buffer = user_provided_out_buffer != nullptr ? *user_provided_out_buffer : out_buffers[0];
     // perform the copy.
     auto bytes_copied = copy_data(
       cis.chunks,
       cis.chunk_offsets,
-      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, out_buffers[0], stream);
+      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, 
+      out_buffer,
+      stream);
 
     total_size = bytes_copied;
 
@@ -1865,27 +1855,6 @@ cudf::size_type contiguous_split(cudf::table_view const& input,
   return state->perform_copy();
 }
 
-//bool contiguous_split(cudf::table_view const& input,
-//                      std::vector<size_type> const& splits,
-//                      the_state* state,
-//                      rmm::cuda_stream_view stream,
-//                      rmm::mr::device_memory_resource* mr)
-//{
-//  // else, we have a valid contiguous_split to perform
-//  state->initialize(splits, nullptr);
-//  return chunked_contiguous_split(input, splits, state, stream, mr);
-//}
-
-//bool contiguous_split(cudf::table_view const& input,
-//                      std::vector<size_type> const& splits,
-//                      rmm::device_buffer* user_provided_out_buffer,
-//                      the_state* state,
-//                      rmm::cuda_stream_view stream,
-//                      rmm::mr::device_memory_resource* mr) {
-//  state->initialize(splits, user_provided_out_buffer);
-//  return chunked_contiguous_split(input, splits, state, stream, mr);
-//}
-
 // need this defined in detail
 cudf::size_type contiguous_split(cudf::table_view const& input,
                                  std::vector<size_type> const& splits,
@@ -1927,7 +1896,7 @@ std::pair<bool, cudf::size_type> contiguous_split(cudf::table_view const& input,
   return std::make_pair(user_state->has_next(), bytes_copied);
 }
 
-std::vector<packed_columns> make_packed_columns(detail::the_state* state)
+std::vector<packed_columns::metadata> make_packed_columns(detail::the_state* state)
 {
   CUDF_FUNC_RANGE();
   return state->make_packed_tables();

@@ -21,6 +21,6 @@ std::pair<bool, cudf::size_type> contiguous_split(
   detail::the_state*& user_state,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
-std::vector<packed_columns> make_packed_columns(detail::the_state* state);
+std::vector<packed_columns::metadata> make_packed_columns(detail::the_state* state);
 
 }};

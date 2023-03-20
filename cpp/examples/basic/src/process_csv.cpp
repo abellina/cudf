@@ -118,12 +118,12 @@ int main(int argc, char** argv)
   cudf::size_type final_buff_offset = 0;
   while(has_next) {
     auto p = cudf::chunked::contiguous_split(tv, splits, &user_buff, state);
-    //cudaMemcpyAsync(
-    //  (uint8_t*)final_buff.data() + final_buff_offset,
-    //  user_buff.data(),
-    //  p.second,
-    //  cudaMemcpyDefault,
-    //  cudf::get_default_stream());
+    cudaMemcpyAsync(
+      (uint8_t*)final_buff.data() + final_buff_offset,
+      user_buff.data(),
+      p.second,
+      cudaMemcpyDefault,
+      cudf::get_default_stream());
     std::cout << "copied in this iteration: " << p.second << ". have next? " << p.first << std::endl;
     final_buff_offset += p.second;
     has_next = p.first;
@@ -133,10 +133,11 @@ int main(int argc, char** argv)
   // Write out result
   std::cout << "writing result out, see " << cs.size() << " results" << std::endl;
   write_csv(*result, "4stock_5day_avg_close.csv");
-  auto meta = cs[0].metadata_->data();
+  auto meta = cs[0].data();
   auto unpacked= cudf::unpack(
     meta,
-    (const uint8_t*) cs[0].gpu_data->data());
+    (const uint8_t*)final_buff.data());
+    //(const uint8_t*) cs[0].gpu_data->data());
 
   write_csv(unpacked, "4stock_5day_avg_close_cs.csv");
 
