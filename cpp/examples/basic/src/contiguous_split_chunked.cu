@@ -278,7 +278,6 @@ __global__ void copy_partitions(uint8_t const** src_bufs,
                                 dst_buf_info* buf_info)
 {
   auto const buf_index     = blockIdx.x;
-  printf("copying buf_index %i dst_offset: %i \n", buf_index, (int)buf_info[buf_index].dst_offset);
   auto const src_buf_index = buf_info[buf_index].src_buf_index;
   auto const dst_buf_index = buf_info[buf_index].dst_buf_index;
 
@@ -945,7 +944,6 @@ struct num_chunks_func {
 
 struct chunk_byte_size_function {
   __device__ int operator()(const dst_buf_info& i) const { 
-    printf("chunk_size_calc numel: %i el_size: %i\n", (int)i.num_elements, (int)i.element_size);
     return (i.num_elements * i.element_size);
   }
 };
@@ -1020,10 +1018,6 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
       out.dst_offset        = in.dst_offset + (chunk_index * chunk_size) - bytes_copied_so_far;
-        
-      printf(
-        "i: %i chunk_index: %i chunk_size: %i copied_so_far: %i out.dst_offset %i\n", 
-        (int)i, (int)chunk_index, (int) chunk_size, (int) bytes_copied_so_far, (int)out.dst_offset);
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
@@ -1550,15 +1544,10 @@ struct dst_buf_info {
        my_offset_stack_partition_size,
        my_d_offset_stack,
        my_d_indices] __device__(std::size_t t) {
-        printf("at t=%i num_src_bufs=%i\n", (int)t, (int)my_num_src_bufs);
 
         int const split_index   = t / my_num_src_bufs;
         int const src_buf_index = t % my_num_src_bufs;
-        printf("split_index %i\n", split_index);
-        printf("src_buf_index %i\n", src_buf_index);
         auto const& src_info    = my_d_src_buf_info[src_buf_index];
-        printf("got src_info\n");
-
 
         // apply nested offsets (lists and string columns).
         //
@@ -1694,9 +1683,6 @@ struct dst_buf_info {
         std::size_t const num_chunks = std::max(
           std::size_t{1}, util::round_up_unsafe(bytes, desired_chunk_size) / desired_chunk_size);
 
-        printf("bytes for partition %i. num_chunks %i \n", (int)bytes, (int)num_chunks);
-
-
         // NOTE: leaving chunk size as a separate parameter for future tuning
         // possibilities, even though in the current implementation it will be a
         // constant.
@@ -1709,10 +1695,8 @@ struct dst_buf_info {
     auto buf_count_iter = cudf::detail::make_counting_transform_iterator(
       0, [my_num_bufs, 
           num_chunks = num_chunks_func{chunks.begin()}] __device__(size_type i) {
-        printf("%i gets %i\n", (int)i, (int)(i == my_num_bufs ? 0 : num_chunks(i)));
         return i == my_num_bufs ? 0 : num_chunks(i);
       });
-
 
     std::cout << "before exclusive_scan" << std::endl;
     thrust::exclusive_scan(rmm::exec_policy(stream),
