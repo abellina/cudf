@@ -1055,46 +1055,31 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
                           uint8_t** d_dst_bufs,
                           dst_buf_info* _d_dst_buf_info,
                           rmm::device_buffer& out_buffer,
+                          cudf::size_type starting_buf,
+                          cudf::size_type copied_so_far,
+                          cudf::size_type buf_count_to_copy,
                           rmm::cuda_stream_view stream)
 {
-  // apply the chunking.
-  auto const num_chunks =
-    cudf::detail::make_counting_transform_iterator(0, num_chunks_func{chunks.begin()});
-  size_type const new_buf_count =
-    thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + chunks.size());
+  auto dst_buf_infos = 
+    get_dst_buf_info(
+      chunks, 
+      chunk_offsets, 
+      num_bufs, 
+      num_src_bufs, 
+      _d_dst_buf_info, 
+      starting_buf,       // wasnt' here before
+      buf_count_to_copy,  // new_buf_count
+      copied_so_far,
+      stream);
+  auto& d_dst_buf_info = dst_buf_infos.first;
+  
+  constexpr size_type block_size = 256;
+  copy_partitions<block_size><<<buf_count_to_copy, block_size, 0, stream.value()>>>(
+    d_src_bufs, 
+    d_dst_bufs, 
+    d_dst_buf_info.data());
 
-  std::cout << "chunks.size: " << chunks.size() << " new_buf_count: " << new_buf_count
-            << " num bufs: " << num_bufs << std::endl;
-
-  cudf::size_type remaining_bufs = new_buf_count;
-  cudf::size_type copied_so_far = 0;
-
-  for (cudf::size_type starting_buf = 0; starting_buf < new_buf_count; starting_buf += new_buf_count) {
-    auto buf_count_to_copy = std::min(starting_buf + new_buf_count, remaining_bufs);
-    remaining_bufs -= buf_count_to_copy;
-    auto dst_buf_infos = 
-      get_dst_buf_info(
-        chunks, 
-        chunk_offsets, 
-        num_bufs, 
-        num_src_bufs, 
-        _d_dst_buf_info, 
-        starting_buf,       // wasnt' here before
-        buf_count_to_copy,  // new_buf_count
-        copied_so_far,
-        stream);
-    auto& d_dst_buf_info = dst_buf_infos.first;
-    
-    constexpr size_type block_size = 256;
-    copy_partitions<block_size><<<buf_count_to_copy, block_size, 0, stream.value()>>>(
-      d_src_bufs, 
-      d_dst_bufs, 
-      d_dst_buf_info.data());
-
-    copied_so_far += dst_buf_infos.second;
-  }
-
-  return copied_so_far;
+  return dst_buf_infos.second;
   
   /*
 
@@ -1158,7 +1143,9 @@ struct the_state {
     input(input),
     stream(stream), 
     mr(mr),
-    total_size(0){}
+    total_size(0),
+    starting_buf(0),
+    remaining_bufs(-1){}
 
   bool check_inputs(std::vector<size_type> const& splits) {
     if (input.num_columns() == 0) { return {}; }
@@ -1751,15 +1738,38 @@ struct dst_buf_info {
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
     auto & out_buffer = user_provided_out_buffer != nullptr ? *user_provided_out_buffer : out_buffers[0];
+    cudf::size_type buf_count_to_copy = 0;
+    if (remaining_bufs == -1) {
+      // apply the chunking.
+      auto const num_chunks =
+        cudf::detail::make_counting_transform_iterator(0, num_chunks_func{cis.chunks.begin()});
+      size_type const new_buf_count =
+        thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + cis.chunks.size());
+
+      std::cout << "chunks.size: " << cis.chunks.size() << " new_buf_count: " << new_buf_count
+                << " num bufs: " << num_bufs << std::endl;
+
+      remaining_bufs = new_buf_count;
+      buf_count_to_copy = std::min(starting_buf + new_buf_count, remaining_bufs);
+    }
+
     // perform the copy.
     auto bytes_copied = copy_data(
       cis.chunks,
       cis.chunk_offsets,
-      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, 
+      num_bufs, 
+      num_src_bufs, 
+      d_src_bufs, 
+      d_dst_bufs, 
+      d_dst_buf_info, 
       out_buffer,
+      starting_buf,
+      total_size,
+      buf_count_to_copy,
       stream);
 
-    total_size = bytes_copied;
+    remaining_bufs -= buf_count_to_copy;
+    total_size += bytes_copied;
 
     //
     // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
@@ -1780,7 +1790,7 @@ struct dst_buf_info {
 
 
   bool has_next() {
-    return false;
+    return remaining_bufs > 0;
   }
 
   int num_calls;
@@ -1838,6 +1848,8 @@ struct dst_buf_info {
 
   bool is_empty;
   cudf::size_type total_size;
+  cudf::size_type starting_buf;
+  cudf::size_type remaining_bufs;
 };
 
 
