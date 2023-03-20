@@ -1739,6 +1739,7 @@ struct dst_buf_info {
 
     auto & out_buffer = user_provided_out_buffer != nullptr ? *user_provided_out_buffer : out_buffers[0];
     cudf::size_type buf_count_to_copy = 0;
+    
     if (remaining_bufs == -1) {
       // apply the chunking.
       auto const num_chunks =
@@ -1750,8 +1751,8 @@ struct dst_buf_info {
                 << " num bufs: " << num_bufs << std::endl;
 
       remaining_bufs = new_buf_count;
-      buf_count_to_copy = std::min(starting_buf + new_buf_count, remaining_bufs);
     }
+    buf_count_to_copy = std::min(starting_buf + 3, remaining_bufs);
 
     // perform the copy.
     auto bytes_copied = copy_data(
@@ -1768,9 +1769,10 @@ struct dst_buf_info {
       buf_count_to_copy,
       stream);
 
+    starting_buf += buf_count_to_copy;
     remaining_bufs -= buf_count_to_copy;
     total_size += bytes_copied;
-
+    
     //
     // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
     //            so the null counts can just be retrieved from the original table/columns.
