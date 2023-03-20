@@ -1054,7 +1054,6 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
                           uint8_t const** d_src_bufs,
                           uint8_t** d_dst_bufs,
                           dst_buf_info* _d_dst_buf_info,
-                          uint8_t* result_buff,
                           rmm::device_buffer& out_buffer,
                           rmm::cuda_stream_view stream)
 {
@@ -1070,8 +1069,8 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
   cudf::size_type remaining_bufs = new_buf_count;
   cudf::size_type copied_so_far = 0;
 
-  for (cudf::size_type starting_buf = 0; starting_buf < new_buf_count; starting_buf += 3) {
-    auto buf_count_to_copy = std::min(starting_buf + 3, remaining_bufs);
+  for (cudf::size_type starting_buf = 0; starting_buf < new_buf_count; starting_buf += new_buf_count) {
+    auto buf_count_to_copy = std::min(starting_buf + new_buf_count, remaining_bufs);
     remaining_bufs -= buf_count_to_copy;
     auto dst_buf_infos = 
       get_dst_buf_info(
@@ -1092,24 +1091,8 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
       d_dst_bufs, 
       d_dst_buf_info.data());
 
-    std::cout << "now copying " << dst_buf_infos.second  << " bytes out" << std::endl;
-
-    CUDF_CUDA_TRY(cudaMemcpyAsync(
-     result_buff+copied_so_far, 
-     out_buffer.data(), 
-     dst_buf_infos.second, 
-     cudaMemcpyDefault, 
-     stream.value()));
-
     copied_so_far += dst_buf_infos.second;
   }
-
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    out_buffer.data(), 
-    result_buff, 
-    copied_so_far, 
-    cudaMemcpyDefault, 
-    stream.value()));
 
   return copied_so_far;
   
@@ -1174,7 +1157,8 @@ struct the_state {
     num_calls(0),
     input(input),
     stream(stream), 
-    mr(mr){}
+    mr(mr),
+    total_size(0){}
 
   bool check_inputs(std::vector<size_type> const& splits) {
     if (input.num_columns() == 0) { return {}; }
@@ -1779,12 +1763,13 @@ struct dst_buf_info {
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
-    auto result_buff = (uint8_t*)mr->allocate(1L*1024*1024);
     // perform the copy.
     auto bytes_copied = copy_data(
       cis.chunks,
       cis.chunk_offsets,
-      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, result_buff, out_buffers[0], stream);
+      num_bufs, num_src_bufs, d_src_bufs, d_dst_bufs, d_dst_buf_info, out_buffers[0], stream);
+
+    total_size = bytes_copied;
 
     //
     // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
@@ -1862,6 +1847,7 @@ struct dst_buf_info {
   rmm::device_buffer d_src_and_dst_buffers;
 
   bool is_empty;
+  cudf::size_type total_size;
 };
 
 

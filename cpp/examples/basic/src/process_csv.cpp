@@ -111,11 +111,21 @@ int main(int argc, char** argv)
   auto tv = result->select(std::vector<cudf::size_type>{0,1});
   std::cout << "calling contig split" << std::endl;
   rmm::device_buffer user_buff(10000000, cudf::get_default_stream(), &mr);
+  rmm::device_buffer final_buff(10000000, cudf::get_default_stream(), &mr);
 
   cudf::chunked::detail::the_state* state = nullptr;
   bool has_next = true;
+  cudf::size_type final_buff_offset = 0;
   while(has_next) {
     auto p = cudf::chunked::contiguous_split(tv, splits, &user_buff, state);
+    //cudaMemcpyAsync(
+    //  (uint8_t*)final_buff.data() + final_buff_offset,
+    //  user_buff.data(),
+    //  p.second,
+    //  cudaMemcpyDefault,
+    //  cudf::get_default_stream());
+    std::cout << "copied in this iteration: " << p.second << ". have next? " << p.first << std::endl;
+    final_buff_offset += p.second;
     has_next = p.first;
   }
   auto cs = cudf::chunked::make_packed_columns(state);
