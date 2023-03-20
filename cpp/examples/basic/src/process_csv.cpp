@@ -62,7 +62,8 @@ std::unique_ptr<cudf::table> average_closing_price(cudf::table_view stock_info_t
 {
   // Schema: | Company | Date | Open | High | Low | Close | Volume |
   auto keys = cudf::table_view{{stock_info_table.column(0)}};  // Company
-  auto val  = stock_info_table.column(5);                      // Close
+  //auto val  = stock_info_table.column(5);                      // Close
+  auto val  = stock_info_table.column(1);                      // Close
 
   // Compute the average of each company's closing price with entire column
   cudf::groupby::groupby grpby_obj(keys);
@@ -100,18 +101,22 @@ int main(int argc, char** argv)
 
   // Read data
   std::cout << "reading some csv" << std::endl;
-  auto stock_table_with_metadata = read_csv("/home/abellina/work/cudf/cpp/examples/basic/4stock_5day.csv");
+  //auto stock_table_with_metadata = read_csv("/home/abellina/work/cudf/cpp/examples/basic/4stock_5day_mock.csv");
+  auto stock_table_with_metadata = read_csv("/tmp/foo/part-00000-9101979e-1cb5-4e74-ac2e-01519ecff06a-c000.csv");
 
   // Process
   std::cout << "doing some compute" << std::endl;
   auto result = average_closing_price(*stock_table_with_metadata.tbl);
+  // write it the normal way
+  write_csv(*result, "4stock_5day_avg_close.csv");
 
   // contig split it
   std::vector<cudf::size_type> splits;
   auto tv = result->select(std::vector<cudf::size_type>{0,1});
   std::cout << "calling contig split" << std::endl;
-  rmm::device_buffer user_buff(10000000, cudf::get_default_stream(), &mr);
-  rmm::device_buffer final_buff(10000000, cudf::get_default_stream(), &mr);
+
+  rmm::device_buffer user_buff(100000000, cudf::get_default_stream(), &mr);
+  rmm::device_buffer final_buff(500000000, cudf::get_default_stream(), &mr);
 
   cudf::chunked::detail::the_state* state = nullptr;
   bool has_next = true;
@@ -132,7 +137,7 @@ int main(int argc, char** argv)
 
   // Write out result
   std::cout << "writing result out, see " << cs.size() << " results" << std::endl;
-  write_csv(*result, "4stock_5day_avg_close.csv");
+  
   auto meta = cs[0].data();
   auto unpacked= cudf::unpack(
     meta,
