@@ -1070,6 +1070,9 @@ struct the_state {
     num_src_bufs = count_src_bufs(input.begin(), input.end());
     num_bufs   = num_src_bufs * num_partitions;
 
+    // Packed block of memory 3:
+    // Pointers to source and destination buffers (and stack space on the
+    // gpu for offset computation)
     src_bufs_size =
       cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
     dst_bufs_size =
@@ -1087,13 +1090,15 @@ struct the_state {
     }
 
     // CHUNKED A 
-
     std::cout << "CHUNKED A" << std::endl;
     // packed block of memory 1. split indices and src_buf_info structs
     indices_size =
-      cudf::util::round_up_safe((num_partitions + 1) * sizeof(size_type), split_align);
+      cudf::util::round_up_safe(
+        (num_partitions + 1) * sizeof(size_type), split_align);
     src_buf_info_size =
-      cudf::util::round_up_safe(num_src_bufs * sizeof(src_buf_info), split_align);
+      cudf::util::round_up_safe(
+        num_src_bufs * sizeof(src_buf_info), split_align);
+
     // host-side
     h_indices_and_source_info = std::vector<uint8_t>(indices_size + src_buf_info_size);
     h_indices = reinterpret_cast<size_type*>(h_indices_and_source_info.data());
@@ -1658,8 +1663,15 @@ struct the_state {
   std::size_t dst_buf_info_size;
   std::size_t offset_stack_size;
 
+  // source and destination pointers, packed in a single
+  // src_bufs_size + dst_bufs_size buffer
   std::size_t src_bufs_size; 
   std::size_t dst_bufs_size; 
+  const uint8_t** h_src_bufs;
+  const uint8_t** d_src_bufs;
+  uint8_t** h_dst_bufs;
+  uint8_t** d_dst_bufs;
+
   std::size_t buf_sizes_size;
 
   std::vector<rmm::device_buffer> out_buffers;
@@ -1668,10 +1680,7 @@ struct the_state {
 
   int offset_stack_partition_size;
   size_type* d_offset_stack;
-  uint8_t** h_dst_bufs;
-  uint8_t** d_dst_bufs;
-  const uint8_t** h_src_bufs;
-  const uint8_t** d_src_bufs;
+  
   std::size_t* h_buf_sizes;
   std::size_t* d_buf_sizes;
   size_type* d_indices;
@@ -1694,6 +1703,7 @@ struct the_state {
   rmm::device_buffer d_buf_sizes_and_dst_info;
   rmm::device_buffer d_src_and_dst_buffers;
 
+  // state around the iterator pattern
   bool is_empty;
   cudf::size_type total_size;
   cudf::size_type starting_buf;
@@ -1701,6 +1711,7 @@ struct the_state {
   cudf::size_type buffs_to_copy;
   chunk_infos* computed_chunks;
 
+  // we compute the packed_metata on initialization and store it here
   std::vector<packed_columns::metadata> packed_metadata;
 };
 };  // namespace detail
