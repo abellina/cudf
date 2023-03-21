@@ -1070,36 +1070,18 @@ struct the_state {
     num_src_bufs = count_src_bufs(input.begin(), input.end());
     num_bufs   = num_src_bufs * num_partitions;
 
-    std::cout << "num root columns: " << num_root_columns << std::endl;
-    std::cout << "num_partitions: " << num_partitions << std::endl;
-    std::cout << "num_src_bufs: " << num_src_bufs << std::endl;
-    std::cout << "num_bufs: " << num_bufs << std::endl;
-
     // user has provided a destination buffer
     if (out_buffer != nullptr) {
       user_provided_out_buffer = out_buffer;
       user_provided_out_buffer_size = out_buffer_size;
     }
 
-    packed_block_one(input, splits);
-
-    std::cout << "STACK SETUP" << std::endl;
-    
+    compute_split_indices_and_src_buf_infos(input, splits);
     setup_stack(input);
-
-    std::cout << "CALC DST BUF INFO" << std::endl;
     calc_dst_buf_info();
-
-    std::cout << "DO WRK" << std::endl;
-    do_work();
-
-    std::cout << "compute_total_size_of_each_partition" << std::endl;
+    compute_sizes_of_each_column_per_partition();
     compute_total_size_of_each_partition();
-
-    std::cout << "compute_num_rows" << std::endl;
     compute_num_rows();
-
-    std::cout << "copy_sizes_and_col_info_back_to_host" << std::endl;
     copy_sizes_and_col_info_back_to_host();
 
     if (!is_empty) {
@@ -1230,7 +1212,7 @@ struct the_state {
     return packed_metadata;
   }
 
-  void packed_block_one(
+  void compute_split_indices_and_src_buf_infos(
     cudf::table_view const& input, 
     std::vector<size_type> const& splits) {
     // CHUNKED A 
@@ -1395,7 +1377,7 @@ struct the_state {
                                   std::size_t{0});
   }
   
-  void do_work() {
+  void compute_sizes_of_each_column_per_partition() {
     // compute sizes of each column in each partition, including alignment.
     auto& my_num_src_bufs = num_src_bufs;
     auto& my_d_src_buf_info = d_src_buf_info;
