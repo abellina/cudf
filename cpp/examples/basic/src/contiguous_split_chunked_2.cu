@@ -1009,7 +1009,7 @@ struct the_state {
     make_other_packed_data(input);
 
     std::cout << "DO WRK" << std::endl;
-    do_work();
+    compute_sizes_of_each_column_per_partition();
 
     std::cout << "compute_total_size_of_each_partition" << std::endl;
     compute_total_size_of_each_partition();
@@ -1160,7 +1160,7 @@ struct the_state {
                                   std::size_t{0});
   }
   
-  void do_work() {
+  void compute_sizes_of_each_column_per_partition() {
     // compute sizes of each column in each partition, including alignment.
     auto& my_num_src_bufs = num_src_bufs;
     auto& my_d_src_buf_info = d_src_buf_info;
