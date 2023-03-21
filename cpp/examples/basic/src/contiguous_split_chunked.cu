@@ -1081,25 +1081,10 @@ struct the_state {
       user_provided_out_buffer_size = out_buffer_size;
     }
 
-    // CHUNKED A 
-    std::cout << "CHUNKED A" << std::endl;
-    // packed block of memory 1. split indices and src_buf_info structs
-    indices_size =
-      cudf::util::round_up_safe(
-        (num_partitions + 1) * sizeof(size_type), split_align);
-    src_buf_info_size =
-      cudf::util::round_up_safe(
-        num_src_bufs * sizeof(src_buf_info), split_align);
-
-    // host-side
-    h_indices_and_source_info = std::vector<uint8_t>(indices_size + src_buf_info_size);
-    h_indices = reinterpret_cast<size_type*>(h_indices_and_source_info.data());
     packed_block_one(input, splits);
 
     std::cout << "STACK SETUP" << std::endl;
-    // stack setup
-    offset_stack_partition_size = compute_offset_stack_size(input.begin(), input.end());
-    offset_stack_size = offset_stack_partition_size * num_partitions * sizeof(size_type);
+    
     setup_stack(input);
 
     std::cout << "CALC DST BUF INFO" << std::endl;
@@ -1248,7 +1233,20 @@ struct the_state {
   void packed_block_one(
     cudf::table_view const& input, 
     std::vector<size_type> const& splits) {
-      
+    // CHUNKED A 
+    std::cout << "CHUNKED A" << std::endl;
+    // packed block of memory 1. split indices and src_buf_info structs
+    indices_size =
+      cudf::util::round_up_safe(
+        (num_partitions + 1) * sizeof(size_type), split_align);
+    src_buf_info_size =
+      cudf::util::round_up_safe(
+        num_src_bufs * sizeof(src_buf_info), split_align);
+
+    // host-side
+    h_indices_and_source_info = std::vector<uint8_t>(indices_size + src_buf_info_size);
+    h_indices = reinterpret_cast<size_type*>(h_indices_and_source_info.data());
+
     h_src_buf_info =
       reinterpret_cast<src_buf_info*>(h_indices_and_source_info.data() + indices_size);
     
@@ -1304,6 +1302,8 @@ struct the_state {
   }
 
   void setup_stack(cudf::table_view const& input) {
+    offset_stack_partition_size = compute_offset_stack_size(input.begin(), input.end());
+    offset_stack_size = offset_stack_partition_size * num_partitions * sizeof(size_type);
     // device-side
     // gpu-only : stack space needed for nested list offset calculation
     d_indices_and_source_info = rmm::device_buffer(
