@@ -1081,7 +1081,7 @@ struct the_state {
     return is_empty;
   }
 
-  std::vector<packed_columns> make_empty_tables() {
+  std::vector<packed_columns::metadata> make_empty_tables() {
     // sanitize the inputs (to handle corner cases like sliced tables)
     std::size_t empty_num_partitions   = num_partitions;
     std::vector<std::unique_ptr<column>> empty_columns;
@@ -1099,17 +1099,15 @@ struct the_state {
     table_view empty_inputs(empty_column_views);
 
     // build the empty results
-    std::vector<packed_columns> result;
+    std::vector<packed_columns::metadata> result;
     result.reserve(empty_num_partitions);
     auto iter = thrust::make_counting_iterator(0);
     std::transform(iter,
                    iter + empty_num_partitions,
                    std::back_inserter(result),
                    [&empty_inputs](int partition_index) {
-                     return packed_columns{
-                      std::make_unique<packed_columns::metadata>(cudf::pack_metadata(
-                      empty_inputs, static_cast<uint8_t const*>(nullptr), 0)),
-                      std::make_unique<rmm::device_buffer>()};
+                     return cudf::pack_metadata(
+                      empty_inputs, static_cast<uint8_t const*>(nullptr), 0);
                    });
     return result;
   }
@@ -1147,10 +1145,9 @@ struct the_state {
   }
 
   std::vector<packed_columns::metadata> make_packed_tables() {
-    // TODO:
-    //if (is_empty) {
-    //  return make_empty_tables();
-    //}
+    if (is_empty) {
+      return make_empty_tables();
+    }
     //
     // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does
     // so
