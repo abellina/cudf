@@ -744,8 +744,8 @@ BufInfo build_output_columns(InputIter begin,
       src.type(), 
       (size_type) size, 
       (size_type) null_count, 
-      data_offset, 
-      bitmask_offset, 
+      src.num_children() > 0 ? -1 : data_offset,
+      src.null_count() == 0 ? -1 : bitmask_offset, 
       src.num_children());
 
     ++current_info;
@@ -1118,22 +1118,6 @@ struct the_state {
                              serialized_column col,
                              size_t data_size)
   {
-    //uint8_t const* data_ptr =
-    //  col.size() == 0 || !col.head<uint8_t>() ? nullptr : col.head<uint8_t>();
-    // if (data_ptr != nullptr) {
-    //   CUDF_EXPECTS(data_ptr >= base_ptr && data_ptr < base_ptr + data_size,
-    //                "Encountered column data outside the range of input buffer");
-    // }
-    //int64_t const data_offset = data_ptr ? data_ptr - base_ptr : -1;
-
-    //uint8_t const* null_mask_ptr = col.size() == 0 || !col.nullable()
-    //                                 ? nullptr
-    //                                 : reinterpret_cast<uint8_t const*>(col.null_mask());
-    // if (null_mask_ptr != nullptr) {
-    //   CUDF_EXPECTS(null_mask_ptr >= base_ptr && null_mask_ptr < base_ptr + data_size,
-    //                "Encountered column null mask outside the range of input buffer");
-    // }
-    //int64_t const null_mask_offset = null_mask_ptr ? null_mask_ptr: -1;
 
     std::cout << "adding column meta again " << (int32_t)col.type.id() 
               << " " << "num_children: " << col.num_children << std::endl;
@@ -1149,36 +1133,14 @@ struct the_state {
       col.num_children);
   }
 
-  template <typename ColumnIter>
-  packed_columns::metadata pack_metadata(size_type num_root_columns,
-                                         ColumnIter begin,
-                                         ColumnIter end,
+  packed_columns::metadata pack_metadata(std::vector<serialized_column>& cols,
                                          size_t buffer_size)
   {
-    std::vector<serialized_column> metadata;
-
-    // first metadata entry is a stub indicating how many total (top level) columns
-    // there are
-    metadata.emplace_back(data_type{type_id::EMPTY},
-                          num_root_columns,
-                          UNKNOWN_NULL_COUNT,
-                          -1,
-                          -1,
-                          0);
-
-    std::for_each(
-      begin, end, [this, &metadata, &buffer_size](serialized_column const& col) {
-        build_column_metadata(
-          metadata, 
-          col,
-          buffer_size);
-      });
-
     // convert to anonymous bytes
     std::vector<uint8_t> metadata_bytes;
-    auto const metadata_begin = reinterpret_cast<uint8_t const*>(metadata.data());
+    auto const metadata_begin = reinterpret_cast<uint8_t const*>(cols.data());
     std::copy(metadata_begin,
-              metadata_begin + (metadata.size() * sizeof(serialized_column)),
+              metadata_begin + (cols.size() * sizeof(serialized_column)),
               std::back_inserter(metadata_bytes));
 
     return packed_columns::metadata{std::move(metadata_bytes)};
@@ -1205,6 +1167,15 @@ struct the_state {
 
     auto cur_dst_buf_info = h_dst_buf_info;
     for (std::size_t idx = 0; idx < num_partitions; idx++) {
+      // first metadata entry is a stub indicating how many total (top level) columns
+      // there are
+      cols.emplace_back(data_type{type_id::EMPTY},
+                        num_root_columns,
+                        UNKNOWN_NULL_COUNT,
+                        -1,
+                        -1,
+                        0);
+
       // traverse the buffers and build the columns.
       cur_dst_buf_info = build_output_columns(
         input.begin(), 
@@ -1213,12 +1184,7 @@ struct the_state {
         cols); //h_dst_bufs[idx]); //TODO: h_dst_bufs also points to out_buffers
 
       // pack the columns
-      result.push_back(
-          pack_metadata(
-            num_root_columns,
-            cols.begin(),
-            cols.end(), 
-            total_size));
+      result.push_back(pack_metadata(cols, total_size));
       cols.clear();
     }
 
