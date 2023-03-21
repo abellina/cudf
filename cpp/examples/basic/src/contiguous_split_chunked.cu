@@ -733,14 +733,14 @@ struct pre_serialized_column {
  *
  * @returns new dst_buf_info iterator after processing this range of input columns
  */
-template <typename InputIter, typename BufInfo, typename Output>
+template <typename InputIter, typename BufInfo>
 BufInfo build_output_columns(InputIter begin,
                              InputIter end,
                              BufInfo info_begin,
-                             Output out_begin)
+                             std::vector<pre_serialized_column>& out)
 {
   auto current_info = info_begin;
-  std::transform(begin, end, out_begin, [&current_info](column_view const& src) {
+  std::for_each(begin, end, [&current_info, &out](column_view const& src) {
     auto [bitmask_offset, null_count] = [&]() {
       if (src.nullable()) {
         auto const ptr =
@@ -771,16 +771,15 @@ BufInfo build_output_columns(InputIter begin,
       src.child_begin(), 
       src.child_end(), 
       current_info, 
-      std::back_inserter(children)
-      );
+      children);
 
-    return pre_serialized_column{
+    out.emplace_back( 
       src.type(), 
       (size_type) size, 
       (size_type) null_count, 
       data_offset, 
       bitmask_offset, 
-      children};
+      children);
   });
 
   return current_info;
@@ -1237,7 +1236,7 @@ struct the_state {
         input.begin(), 
         input.end(), 
         cur_dst_buf_info, 
-        std::back_inserter(cols)); //h_dst_bufs[idx]); //TODO: h_dst_bufs also points to out_buffers
+        cols); //h_dst_bufs[idx]); //TODO: h_dst_bufs also points to out_buffers
 
       // pack the columns
       result.push_back(
