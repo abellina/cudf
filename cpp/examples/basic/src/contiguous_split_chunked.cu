@@ -1070,14 +1070,6 @@ struct the_state {
     num_src_bufs = count_src_bufs(input.begin(), input.end());
     num_bufs   = num_src_bufs * num_partitions;
 
-    // Packed block of memory 3:
-    // Pointers to source and destination buffers (and stack space on the
-    // gpu for offset computation)
-    src_bufs_size =
-      cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
-    dst_bufs_size =
-      cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
-
     std::cout << "num root columns: " << num_root_columns << std::endl;
     std::cout << "num_partitions: " << num_partitions << std::endl;
     std::cout << "num_src_bufs: " << num_src_bufs << std::endl;
@@ -1327,6 +1319,14 @@ struct the_state {
   }
 
   void make_other_packed_data(cudf::table_view const& input) {
+    // Packed block of memory 3:
+    // Pointers to source and destination buffers (and stack space on the
+    // gpu for offset computation)
+    src_bufs_size =
+      cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
+    dst_bufs_size =
+      cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
+
     // host-side
     std::cout << "src_bufs_size=" << src_bufs_size << std::endl;
     std::cout << "dst_bufs_size=" << dst_bufs_size << std::endl;
