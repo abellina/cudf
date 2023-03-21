@@ -133,7 +133,7 @@ int main(int argc, char** argv)
       bytes_copied,
       cudaMemcpyDefault,
       cudf::get_default_stream());
-    std::cout << "copied in this iteration: " << bytes_copied << ". have next? " << p.first << std::endl;
+    std::cout << "copied in this iteration: " << bytes_copied << ". have next? " << cs.has_next() << std::endl;
     final_buff_offset += bytes_copied;
   }
   auto packed_columns = cs.make_packed_columns();
