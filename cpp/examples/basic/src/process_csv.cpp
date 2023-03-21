@@ -101,8 +101,7 @@ int main(int argc, char** argv)
 
   // Read data
   std::cout << "reading some csv" << std::endl;
-  //auto stock_table_with_metadata = read_csv("/home/abellina/work/cudf/cpp/examples/basic/4stock_5day_mock.csv");
-  auto stock_table_with_metadata = read_csv("/tmp/foo/part-00000-9101979e-1cb5-4e74-ac2e-01519ecff06a-c000.csv");
+  auto stock_table_with_metadata = read_csv("/home/abellina/mock.csv");
 
   // Process
   std::cout << "doing some compute" << std::endl;

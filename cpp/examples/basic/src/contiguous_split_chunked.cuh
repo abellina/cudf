@@ -29,7 +29,8 @@ class chunked_contiguous_split {
 
     std::size_t next();
 
-    std::vector<packed_columns::metadata> make_packed_columns();
+    std::vector<packed_columns::metadata> const& make_packed_columns() const;
+
   private:
     detail::the_state* state;
 };
