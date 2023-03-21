@@ -785,49 +785,6 @@ BufInfo build_output_columns(InputIter begin,
 
   return current_info;
 }
-template <typename InputIter, typename BufInfo, typename Output>
-BufInfo build_output_columns_old(InputIter begin,
-                             InputIter end,
-                             BufInfo info_begin,
-                             Output out_begin,
-                             uint8_t const* const base_ptr)
-{
-  auto current_info = info_begin;
-  std::transform(begin, end, out_begin, [&current_info, base_ptr](column_view const& src) {
-    auto [bitmask_ptr, null_count] = [&]() {
-      if (src.nullable()) {
-        auto const ptr =
-          current_info->num_elements == 0 
-            ? nullptr
-            : reinterpret_cast<bitmask_type const*>(base_ptr + current_info->dst_offset);
-        auto const null_count = current_info->num_elements == 0
-                                  ? 0
-                                  : (current_info->num_rows - current_info->valid_count);
-        ++current_info;
-        return std::pair(ptr, null_count);
-      }
-      return std::pair(static_cast<bitmask_type const*>(nullptr), 0);
-    }();
-    
-    // size/data pointer for the column
-    auto const size = current_info->num_elements;
-    uint8_t const* data_ptr =
-      size == 0 || src.head() == nullptr ? nullptr : base_ptr + current_info->dst_offset;
-    ++current_info;
-  
-    // children
-    auto children = std::vector<column_view>{};
-    children.reserve(src.num_children());
-  
-    current_info = build_output_columns_old(
-      src.child_begin(), src.child_end(), current_info, std::back_inserter(children), base_ptr);
-  
-    return column_view{src.type(), size, data_ptr, bitmask_ptr, null_count, 0, std::move(children)};
-  });
-  
-  return current_info;
-}   
-
 
 /**
  * @brief Functor that retrieves the size of a destination buffer
