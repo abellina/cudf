@@ -111,34 +111,38 @@ int main(int argc, char** argv)
   write_csv(*result, "4stock_5day_avg_close.csv");
 
   // contig split it
-  std::vector<cudf::size_type> splits;
   auto tv = result->select(std::vector<cudf::size_type>{0,1});
   std::cout << "calling contig split" << std::endl;
 
-  rmm::device_buffer user_buff(100000000, cudf::get_default_stream(), &mr);
+  rmm::device_buffer bounce_buff(100000000, cudf::get_default_stream(), &mr);
   rmm::device_buffer final_buff(500000000, cudf::get_default_stream(), &mr);
 
-  cudf::chunked::detail::the_state* state = nullptr;
-  bool has_next = true;
+  auto cs = cudf::chunked::chunked_contiguous_split(
+    tv, 
+    bounce_buff.data(), 
+    bounce_buff.size(),
+    cudf::get_default_stream(),
+    rmm::mr::get_current_device_resource());
+
   cudf::size_type final_buff_offset = 0;
-  while(has_next) {
-    auto p = cudf::chunked::contiguous_split(tv, splits, &user_buff, state);
+  while(cs.has_next()) {
+    auto bytes_copied = cs.next();
     cudaMemcpyAsync(
       (uint8_t*)final_buff.data() + final_buff_offset,
-      user_buff.data(),
-      p.second,
+      bounce_buff.data(),
+      bytes_copied,
       cudaMemcpyDefault,
       cudf::get_default_stream());
-    std::cout << "copied in this iteration: " << p.second << ". have next? " << p.first << std::endl;
-    final_buff_offset += p.second;
-    has_next = p.first;
+    std::cout << "copied in this iteration: " << bytes_copied << ". have next? " << p.first << std::endl;
+    final_buff_offset += bytes_copied;
   }
-  auto cs = cudf::chunked::make_packed_columns(state);
+  auto packed_columns = cs.make_packed_columns();
 
   // Write out result
-  std::cout << "writing result out, see " << cs.size() << " results" << std::endl;
+  std::cout << "writing result out, see " 
+            << packed_columns.size() << " results" << std::endl;
   
-  auto meta = cs[0].data();
+  auto meta = packed_columns[0].data();
   auto unpacked= cudf::unpack(
     meta,
     (const uint8_t*)final_buff.data());
