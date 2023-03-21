@@ -688,31 +688,6 @@ struct serialized_column {
   int pad;
 };
 
-struct pre_serialized_column {
-  pre_serialized_column(data_type _type,
-                    size_type _size,
-                    size_type _null_count,
-                    int64_t _data_offset,
-                    int64_t _null_mask_offset,
-                    // TODO: make this take a &&
-                    std::vector<pre_serialized_column>& _children)
-    : type(_type),
-      size(_size),
-      null_count(_null_count),
-      data_offset(_data_offset),
-      null_mask_offset(_null_mask_offset),
-      children(_children)
-  {
-  }
-
-  data_type type;
-  size_type size;
-  size_type null_count;
-  int64_t data_offset;       // offset into contiguous data buffer, or -1 if column data is null
-  int64_t null_mask_offset;  // offset into contiguous data buffer, or -1 if column data is null
-  std::vector<pre_serialized_column> children;
-};
-
 /**
  * @brief Given a set of input columns and processed split buffers, produce
  * output columns.
@@ -737,7 +712,7 @@ template <typename InputIter, typename BufInfo>
 BufInfo build_output_columns(InputIter begin,
                              InputIter end,
                              BufInfo info_begin,
-                             std::vector<pre_serialized_column>& out)
+                             std::vector<serialized_column>& out)
 {
   auto current_info = info_begin;
   std::for_each(begin, end, [&current_info, &out](column_view const& src) {
@@ -761,17 +736,9 @@ BufInfo build_output_columns(InputIter begin,
     auto const size = current_info->num_elements;
     int64_t data_offset =
       size == 0 || src.head() == nullptr ? 0 : current_info->dst_offset;
-    ++current_info;
-
-    // children
-    auto children = std::vector<pre_serialized_column>{};
-    children.reserve(src.num_children());
-
-    current_info = build_output_columns(
-      src.child_begin(), 
-      src.child_end(), 
-      current_info, 
-      children);
+    
+    std::cout << "adding column meta " << (int32_t)src.type().id() << " " 
+            << "num_children: " << src.num_children() << std::endl;
 
     out.emplace_back( 
       src.type(), 
@@ -779,7 +746,16 @@ BufInfo build_output_columns(InputIter begin,
       (size_type) null_count, 
       data_offset, 
       bitmask_offset, 
-      children);
+      src.num_children());
+
+    ++current_info;
+
+    // children
+    current_info = build_output_columns(
+      src.child_begin(), 
+      src.child_end(), 
+      current_info, 
+      out);
   });
 
   return current_info;
@@ -1139,7 +1115,7 @@ struct the_state {
   }
 
   void build_column_metadata(std::vector<serialized_column>& metadata,
-                             pre_serialized_column col,
+                             serialized_column col,
                              size_t data_size)
   {
     //uint8_t const* data_ptr =
@@ -1159,25 +1135,23 @@ struct the_state {
     // }
     //int64_t const null_mask_offset = null_mask_ptr ? null_mask_ptr: -1;
 
+    std::cout << "adding column meta again " << (int32_t)col.type.id() 
+              << " " << "num_children: " << col.num_children << std::endl;
+
     // add metadata
     metadata.emplace_back(
       col.type, 
       col.size, 
       col.null_count, 
-      col.children.size() > 0 ? -1 : col.data_offset, 
+      col.num_children > 0 ? -1 : col.data_offset, 
       // TODO: should this be -1 if no nulls??
       col.null_count == 0 ? -1 : col.null_mask_offset, 
-      col.children.size());
-
-    std::for_each(col.children.begin(),
-                  col.children.end(),
-                  [this, &metadata, &data_size](pre_serialized_column const& col) {
-                    build_column_metadata(metadata, col, data_size);
-                  });
+      col.num_children);
   }
 
   template <typename ColumnIter>
-  packed_columns::metadata pack_metadata(ColumnIter begin,
+  packed_columns::metadata pack_metadata(size_type num_root_columns,
+                                         ColumnIter begin,
                                          ColumnIter end,
                                          size_t buffer_size)
   {
@@ -1186,14 +1160,14 @@ struct the_state {
     // first metadata entry is a stub indicating how many total (top level) columns
     // there are
     metadata.emplace_back(data_type{type_id::EMPTY},
-                          static_cast<size_type>(std::distance(begin, end)),
+                          num_root_columns,
                           UNKNOWN_NULL_COUNT,
                           -1,
                           -1,
                           0);
 
     std::for_each(
-      begin, end, [this, &metadata, &buffer_size](pre_serialized_column const& col) {
+      begin, end, [this, &metadata, &buffer_size](serialized_column const& col) {
         build_column_metadata(
           metadata, 
           col,
@@ -1226,7 +1200,7 @@ struct the_state {
     std::vector<packed_columns::metadata> result;
     result.reserve(num_partitions);
 
-    std::vector<pre_serialized_column> cols;
+    std::vector<serialized_column> cols;
     cols.reserve(num_root_columns); // TODO: need to make this number of cols + children
 
     auto cur_dst_buf_info = h_dst_buf_info;
@@ -1241,6 +1215,7 @@ struct the_state {
       // pack the columns
       result.push_back(
           pack_metadata(
+            num_root_columns,
             cols.begin(),
             cols.end(), 
             total_size));
