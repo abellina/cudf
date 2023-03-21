@@ -673,15 +673,7 @@ struct serialized_column {
       null_mask_offset(_null_mask_offset),
       num_children(_num_children),
       pad(0)
-  {
-    std::cout << "instantiated my serialized_column "
-      << " type: " << (int32_t) type.id()
-      << " size: " << size 
-      << " null count: " << null_count
-      << " data offset: " << data_offset 
-      << " null mask offset: " << null_mask_offset 
-      << " children " << num_children << std::endl;
-  }
+  {}
 
   data_type type;
   size_type size;
@@ -709,13 +701,6 @@ struct pre_serialized_column {
       null_mask_offset(_null_mask_offset),
       children(_children)
   {
-    std::cout << "instantiated pre_serialized_column "
-      << " type: " << (int32_t) type.id()
-      << " size: " << size 
-      << " null count: " << null_count
-      << " data offset: " << data_offset 
-      << " null mask offset: " << null_mask_offset 
-      << " children " << children.size() << std::endl;
   }
 
   data_type type;
@@ -1116,6 +1101,36 @@ struct chunk_infos {
   rmm::device_uvector<offset_type> chunk_offsets;
 };
 
+chunked_contiguous_split::chunked_contiguous_split(
+  cudf::table_view& const input,
+  uint8_t* user_buffer,
+  std::size_t user_buffer_size,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr):
+    state(input, stream, mr) {
+  std::vector<cudf::size_type> splits;
+  bool is_empty = state.check_inputs(splits);
+  state.initialize(splits, user_provided_buffer);
+  if (!is_empty) {
+    state.reserve();
+    state.make_other_packed_data(input);
+    state.compute_chunks();
+  }
+}
+
+bool chunked_contiguous_split::has_next() const {
+  return state.has_next();
+}
+
+std::size_t chunked_contiguous_split::next() {
+  return state.perform_copy();
+}
+
+std::vector<packed_columns::metadata> 
+chunked_contiguous_split::make_packed_columns() {
+  return state.make_packed_tables();
+}
+
 struct the_state {
   //
   // CHUNKED A:  This section of code gets refactored out and is called during the first 
@@ -1163,9 +1178,9 @@ struct the_state {
     return is_empty;
   }
 
-  std::vector<packed_columns> make_empty_table(std::vector<size_type> const& splits) {
+  std::vector<packed_columns> make_empty_tables() {
     // sanitize the inputs (to handle corner cases like sliced tables)
-    std::size_t empty_num_partitions   = get_num_partitions(splits);
+    std::size_t empty_num_partitions   = num_partitions;
     std::vector<std::unique_ptr<column>> empty_columns;
     empty_columns.reserve(input.num_columns());
     std::transform(
@@ -1195,7 +1210,6 @@ struct the_state {
                    });
     return result;
   }
-
 
   void build_column_metadata(std::vector<serialized_column>& metadata,
                              pre_serialized_column col,
@@ -1288,6 +1302,10 @@ struct dst_buf_info {
   }
 
   std::vector<packed_columns::metadata> make_packed_tables() {
+    // TODO:
+    //if (is_empty) {
+    //  return make_empty_tables();
+    //}
     //
     // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does
     // so
@@ -1327,6 +1345,7 @@ struct dst_buf_info {
   void initialize(std::vector<size_type> const& splits,
                   rmm::device_buffer* out_buffer) {
     std::cout << "at initialize" << std::endl;
+    is_empty = check_inputs(splits);
     num_root_columns = input.num_columns();
     num_partitions   = get_num_partitions(splits);
     num_src_bufs = count_src_bufs(input.begin(), input.end());
@@ -1842,11 +1861,11 @@ struct dst_buf_info {
 // I had this returning a boolean
 cudf::size_type contiguous_split(cudf::table_view const& input,
                       std::vector<size_type> const& splits,
-                      the_state* state,
+                      the_state& state,
                       rmm::cuda_stream_view stream,
                       rmm::mr::device_memory_resource* mr)
 {
-  return state->perform_copy();
+  return state.perform_copy();
 }
 
 // need this defined in detail
@@ -1879,7 +1898,7 @@ std::pair<bool, cudf::size_type> contiguous_split(cudf::table_view const& input,
     std::cout << "is it empty" << std::endl;
     // TODO:
     //if (is_empty) {
-    //  return state->make_empty_table(splits);
+    //  return state->make_empty_tables(splits);
     //}
 
     state->initialize(splits, user_provided_buffer);
