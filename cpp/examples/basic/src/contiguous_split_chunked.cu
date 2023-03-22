@@ -654,43 +654,8 @@ std::pair<src_buf_info*, size_type> setup_source_buf_info(InputIter begin,
 }
 
 /**
- * @brief The data that is stored as anonymous bytes in the `packed_columns` metadata
- * field.
- *
- * The metadata field of the `packed_columns` struct is simply an array of these.
- * This struct is exposed here because it is needed by both contiguous_split, pack
- * and unpack.
- */
-struct serialized_column {
-  serialized_column(data_type _type,
-                    size_type _size,
-                    size_type _null_count,
-                    int64_t _data_offset,
-                    int64_t _null_mask_offset,
-                    size_type _num_children)
-    : type(_type),
-      size(_size),
-      null_count(_null_count),
-      data_offset(_data_offset),
-      null_mask_offset(_null_mask_offset),
-      num_children(_num_children),
-      pad(0)
-  {}
-
-  data_type type;
-  size_type size;
-  size_type null_count;
-  int64_t data_offset;       // offset into contiguous data buffer, or -1 if column data is null
-  int64_t null_mask_offset;  // offset into contiguous data buffer, or -1 if column data is null
-  size_type num_children;
-  // Explicitly pad to avoid uninitialized padding bits, allowing `serialized_column` to be
-  // bit-wise comparable
-  int pad;
-};
-
-/**
- * @brief Given a set of input columns and processed split buffers, produce
- * output columns.
+ * @brief Given a set of input columns, processed split buffers, and a metadata_builder,
+ * append column metadata using the builder.
  *
  * After performing the split we are left with 1 large buffer per incoming split
  * partition.  We need to traverse this buffer and distribute the individual
@@ -703,8 +668,7 @@ struct serialized_column {
  * @param end End of input columns
  * @param info_begin Iterator of dst_buf_info structs containing information about each
  * copied buffer
- * @param out_begin Output iterator of column views
- * @param base_ptr Pointer to the base address of copied data for the working partition
+ * @param mb packed column metadata builder
  *
  * @returns new dst_buf_info iterator after processing this range of input columns
  */
@@ -712,16 +676,16 @@ template <typename InputIter, typename BufInfo>
 BufInfo build_output_columns(InputIter begin,
                              InputIter end,
                              BufInfo info_begin,
-                             std::vector<serialized_column>& out)
+                             metadata_builder& mb)
 {
   auto current_info = info_begin;
-  std::for_each(begin, end, [&current_info, &out](column_view const& src) {
+  std::for_each(begin, end, [&current_info, &mb](column_view const& src) {
     auto [bitmask_offset, null_count] = [&]() {
       if (src.nullable()) {
         auto const ptr =
           current_info->num_elements == 0
             ? 0 
-            // TODO: why is this ptr the same as data_ptr?
+            // TODO: ask: why is this ptr the same as data_ptr?
             : current_info->dst_offset;
         auto const null_count = current_info->num_elements == 0
                                   ? 0
@@ -740,7 +704,7 @@ BufInfo build_output_columns(InputIter begin,
     std::cout << "adding column meta " << (int32_t)src.type().id() << " " 
             << "num_children: " << src.num_children() << std::endl;
 
-    out.emplace_back( 
+    mb.add_column_to_meta(
       src.type(), 
       (size_type) size, 
       (size_type) null_count, 
@@ -755,7 +719,7 @@ BufInfo build_output_columns(InputIter begin,
       src.child_begin(), 
       src.child_end(), 
       current_info, 
-      out);
+      mb);
   });
 
   return current_info;
@@ -861,6 +825,9 @@ struct num_chunks_func {
   __device__ std::size_t operator()(size_type i) const { return thrust::get<0>(chunks[i]); }
 };
 
+/**
+ * @brief Get the size in bytes of a chunk described by `dst_buf_info`.
+*/
 struct chunk_byte_size_function {
   __device__ int operator()(const dst_buf_info& i) const { 
     return (i.num_elements * i.element_size);
@@ -890,7 +857,6 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
   // load up the chunks as d_dst_buf_info
   rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream);
         
-  std::cout << "new_buf_count is: " << new_buf_count << std::endl;
   thrust::for_each(
     rmm::exec_policy(stream),
     iter,
@@ -1152,19 +1118,6 @@ struct the_state {
     return result;
   }
 
-  packed_columns::metadata pack_metadata(std::vector<serialized_column>& cols,
-                                         size_t buffer_size)
-  {
-    // convert to anonymous bytes
-    std::vector<uint8_t> metadata_bytes;
-    auto const metadata_begin = reinterpret_cast<uint8_t const*>(cols.data());
-    std::copy(metadata_begin,
-              metadata_begin + (cols.size() * sizeof(serialized_column)),
-              std::back_inserter(metadata_bytes));
-
-    return packed_columns::metadata{std::move(metadata_bytes)};
-  }
-
   std::vector<packed_columns::metadata> make_packed_tables(
     cudf::table_view const& input,
     std::size_t num_partitions) 
@@ -1183,37 +1136,22 @@ struct the_state {
     std::vector<packed_columns::metadata> result;
     result.reserve(num_partitions);
 
-    std::vector<serialized_column> cols;
-    cols.reserve(num_root_columns); // TODO: need to make this number of cols + children
-
     auto cur_dst_buf_info = h_dst_buf_info;
     for (std::size_t idx = 0; idx < num_partitions; idx++) {
-      // first metadata entry is a stub indicating how many total (top level) columns
-      // there are
-      cols.emplace_back(data_type{type_id::EMPTY},
-                        num_root_columns,
-                        UNKNOWN_NULL_COUNT,
-                        -1,
-                        -1,
-                        0);
+      metadata_builder mb(num_root_columns);
 
       // traverse the buffers and build the columns.
       cur_dst_buf_info = build_output_columns(
         input.begin(), 
         input.end(), 
         cur_dst_buf_info, 
-        cols); //h_dst_bufs[idx]); //TODO: h_dst_bufs also points to out_buffers
+        mb); //h_dst_bufs[idx]); //TODO: h_dst_bufs also points to out_buffers
 
       // pack the columns
-      result.push_back(pack_metadata(cols, total_size));
-      cols.clear();
+      result.push_back(mb.build());
     }
 
     return result;
-  }
-
-  std::vector<packed_columns::metadata> const& get_packed_metadata() {
-    return packed_metadata;
   }
 
   void compute_split_indices_and_src_buf_infos(
@@ -1620,6 +1558,10 @@ struct the_state {
 
   bool has_next() {
     return !is_empty && remaining_bufs != 0;
+  }
+
+  std::vector<packed_columns::metadata> const& get_packed_metadata() {
+    return packed_metadata;
   }
 
   ~the_state() {
