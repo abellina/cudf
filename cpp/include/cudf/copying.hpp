@@ -668,6 +668,30 @@ std::vector<packed_table> contiguous_split(
   std::vector<size_type> const& splits,
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
 
+namespace detail {
+  class metadata_builder_impl;
+}
+
+class metadata_builder {
+  public:
+    explicit metadata_builder(size_type num_root_columns);
+    ~metadata_builder();
+
+    void add_column_to_meta(column_view const& col, int64_t data_offset, int64_t null_mask_offset);
+
+    void add_column_to_meta(data_type col_type,
+                            size_type col_size,
+                            size_type col_null_count,
+                            int64_t data_offset,
+                            int64_t null_mask_offset,
+                            size_type num_children);
+
+    packed_columns::metadata build();
+
+  private:
+    detail::metadata_builder_impl* impl;
+};
+
 /**
  * @brief Deep-copy a `table_view` into a serialized contiguous memory format
  *
