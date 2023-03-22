@@ -145,7 +145,6 @@ int main(int argc, char** argv)
   auto unpacked= cudf::unpack(
     meta,
     (const uint8_t*)final_buff.data());
-
   write_csv(unpacked, "4stock_5day_avg_close_cs.csv");
 
   return 0;
