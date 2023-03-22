@@ -1086,7 +1086,7 @@ struct the_state {
 
     if (!is_empty) {
       reserve();
-      make_other_packed_data(input);
+      compute_src_and_dst_pointers(input);
       compute_chunks();
     }
 
@@ -1228,7 +1228,6 @@ struct the_state {
     // host-side
     h_indices_and_source_info = std::vector<uint8_t>(indices_size + src_buf_info_size);
     h_indices = reinterpret_cast<size_type*>(h_indices_and_source_info.data());
-
     h_src_buf_info =
       reinterpret_cast<src_buf_info*>(h_indices_and_source_info.data() + indices_size);
     
@@ -1239,6 +1238,7 @@ struct the_state {
     std::copy(splits.begin(), splits.end(), std::next(h_indices));
 
     // setup source buf info
+    // TODO: ask: learn how this works
     setup_source_buf_info(input.begin(), input.end(), h_src_buf_info, h_src_buf_info);
   }
 
@@ -1300,7 +1300,7 @@ struct the_state {
                                    indices_size + src_buf_info_size);
   }
 
-  void make_other_packed_data(cudf::table_view const& input) {
+  void compute_src_and_dst_pointers(cudf::table_view const& input) {
     // Packed block of memory 3:
     // Pointers to source and destination buffers (and stack space on the
     // gpu for offset computation)
@@ -1309,10 +1309,8 @@ struct the_state {
     dst_bufs_size =
       cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
 
+    // TODO: ask why when we copy h_src_bufs to device we copy with src_bufs_size + dst_bufs_size...
     // host-side
-    std::cout << "src_bufs_size=" << src_bufs_size << std::endl;
-    std::cout << "dst_bufs_size=" << dst_bufs_size << std::endl;
-
     h_src_and_dst_buffers = std::vector<uint8_t>(src_bufs_size + dst_bufs_size);
     h_src_bufs = reinterpret_cast<uint8_t const**>(h_src_and_dst_buffers.data());
     h_dst_bufs = reinterpret_cast<uint8_t**>(h_src_and_dst_buffers.data() + src_bufs_size);
@@ -1330,16 +1328,13 @@ struct the_state {
       h_dst_bufs[0] = user_provided_out_buffer;
     }
 
+    // TODO: ASK: why do we add offset_stack_size here
     // device-side
-    // TODO: why do we add offset_stack_size here
     d_src_and_dst_buffers = rmm::device_buffer(src_bufs_size + dst_bufs_size + offset_stack_size,
                                              stream,
                                              rmm::mr::get_current_device_resource());
     d_src_bufs = reinterpret_cast<uint8_t const**>(d_src_and_dst_buffers.data());
-
-    // TODO: too small?
     d_dst_bufs = reinterpret_cast<uint8_t**>(
-      // TODO: why cast to uint8_t* then to uint8_t**
       reinterpret_cast<uint8_t*>(d_src_and_dst_buffers.data()) + src_bufs_size);
 
     // setup src buffers
@@ -1570,6 +1565,9 @@ struct the_state {
     //            though. the data is small.
     //
     // HtoD src and dest buffers
+    // TODO: ask why when we copy h_src_bufs to device we copy with src_bufs_size + dst_bufs_size...
+    // TODO: ask: I think this is setting up d_dst_bufs and d_src_bufs
+    // by copying starting at h_src_bufs and going _over_ its size (src+dst)
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
