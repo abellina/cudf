@@ -1063,10 +1063,9 @@ struct the_state {
                   std::vector<size_type> const& splits,
                   uint8_t* out_buffer,
                   std::size_t out_buffer_size) {
-    std::cout << "at initialize" << std::endl;
     is_empty = check_inputs(input, splits);
     num_root_columns = input.num_columns();
-    num_partitions   = get_num_partitions(splits);
+    std::size_t num_partitions = get_num_partitions(splits);
     num_src_bufs = count_src_bufs(input.begin(), input.end());
     num_bufs   = num_src_bufs * num_partitions;
 
@@ -1076,21 +1075,22 @@ struct the_state {
       user_provided_out_buffer_size = out_buffer_size;
     }
 
-    compute_split_indices_and_src_buf_infos(input, splits);
-    setup_stack(input);
-    calc_dst_buf_info();
+    // TODO: can we skip all of this if empty
+    compute_split_indices_and_src_buf_infos(input, splits, num_partitions);
+    setup_stack(input, num_partitions);
+    calc_dst_buf_info(num_partitions);
     compute_sizes_of_each_column_per_partition();
     compute_total_size_of_each_partition();
     compute_num_rows();
     copy_sizes_and_col_info_back_to_host();
 
     if (!is_empty) {
-      reserve();
-      compute_src_and_dst_pointers(input);
+      reserve(num_partitions);
+      compute_src_and_dst_pointers(input, num_partitions);
       compute_chunks();
     }
 
-    packed_metadata = make_packed_tables(input);
+    packed_metadata = make_packed_tables(input, num_partitions);
   }
 
   bool check_inputs(cudf::table_view const& input,
@@ -1120,7 +1120,8 @@ struct the_state {
   }
 
   std::vector<packed_columns::metadata> make_empty_tables(
-    cudf::table_view const& input) {
+    cudf::table_view const& input,
+    std::size_t num_partitions) {
     // sanitize the inputs (to handle corner cases like sliced tables)
     std::size_t empty_num_partitions   = num_partitions;
     std::vector<std::unique_ptr<column>> empty_columns;
@@ -1164,9 +1165,12 @@ struct the_state {
     return packed_columns::metadata{std::move(metadata_bytes)};
   }
 
-  std::vector<packed_columns::metadata> make_packed_tables(cudf::table_view const& input) {
+  std::vector<packed_columns::metadata> make_packed_tables(
+    cudf::table_view const& input,
+    std::size_t num_partitions) 
+  {
     if (is_empty) {
-      return make_empty_tables(input);
+      return make_empty_tables(input, num_partitions);
     }
     //
     // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does
@@ -1214,7 +1218,8 @@ struct the_state {
 
   void compute_split_indices_and_src_buf_infos(
     cudf::table_view const& input, 
-    std::vector<size_type> const& splits) {
+    std::vector<size_type> const& splits,
+    std::size_t num_partitions) {
     // CHUNKED A 
     std::cout << "CHUNKED A" << std::endl;
     // packed block of memory 1. split indices and src_buf_info structs
@@ -1242,7 +1247,7 @@ struct the_state {
     setup_source_buf_info(input.begin(), input.end(), h_src_buf_info, h_src_buf_info);
   }
 
-  void calc_dst_buf_info() {
+  void calc_dst_buf_info(std::size_t num_partitions) {
     // HtoD indices and source buf info to device
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       d_indices, h_indices, indices_size + src_buf_info_size, cudaMemcpyDefault, stream.value()));
@@ -1266,10 +1271,9 @@ struct the_state {
     //// destination buffer info
     d_dst_buf_info = reinterpret_cast<dst_buf_info*>(
       static_cast<uint8_t*>(d_buf_sizes_and_dst_info.data()) + buf_sizes_size);
-    std::cout << "d_dst_buf_info is " << dst_buf_info_size << " size " << " and is at " << buf_sizes_size << " buf_sizes_size"<< std::endl;
   }
 
-  void reserve() {
+  void reserve(std::size_t num_partitions) {
     // should be 1 buffer
     // allocate output partition buffers
     if (user_provided_out_buffer == nullptr) {
@@ -1283,7 +1287,7 @@ struct the_state {
     }
   }
 
-  void setup_stack(cudf::table_view const& input) {
+  void setup_stack(cudf::table_view const& input, std::size_t num_partitions) {
     offset_stack_partition_size = compute_offset_stack_size(input.begin(), input.end());
     offset_stack_size = offset_stack_partition_size * num_partitions * sizeof(size_type);
     // device-side
@@ -1300,7 +1304,7 @@ struct the_state {
                                    indices_size + src_buf_info_size);
   }
 
-  void compute_src_and_dst_pointers(cudf::table_view const& input) {
+  void compute_src_and_dst_pointers(cudf::table_view const& input, std::size_t num_partitions) {
     // Packed block of memory 3:
     // Pointers to source and destination buffers (and stack space on the
     // gpu for offset computation)
@@ -1374,14 +1378,12 @@ struct the_state {
   
   void compute_sizes_of_each_column_per_partition() {
     // compute sizes of each column in each partition, including alignment.
-    auto& my_num_src_bufs = num_src_bufs;
     auto& my_d_src_buf_info = d_src_buf_info;
+    auto& my_num_src_bufs = num_src_bufs;
     auto& my_offset_stack_partition_size = offset_stack_partition_size;
     auto& my_d_offset_stack = d_offset_stack;
     auto& my_d_indices = d_indices;
 
-    std::cout << "do_work with num_bufs " << num_bufs << " num_src_bufs " << num_src_bufs << std::endl;
-    
     thrust::transform(
       rmm::exec_policy(stream),
       thrust::make_counting_iterator<std::size_t>(0),
@@ -1628,7 +1630,7 @@ struct the_state {
     return !is_empty && remaining_bufs != 0;
   }
 
-  std::size_t num_partitions;
+  //std::size_t num_partitions;
 
   // number of source buffers including children * number of splits
   std::size_t num_bufs;
