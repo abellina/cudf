@@ -1274,7 +1274,6 @@ struct the_state {
   }
 
   void reserve(std::size_t num_partitions) {
-    // should be 1 buffer
     // allocate output partition buffers
     if (user_provided_out_buffer == nullptr) {
       out_buffers.reserve(num_partitions);
@@ -1548,19 +1547,20 @@ struct the_state {
         return i == my_num_bufs ? 0 : num_chunks(i);
       });
 
-    std::cout << "before exclusive_scan" << std::endl;
     thrust::exclusive_scan(rmm::exec_policy(stream),
                            buf_count_iter,
                            buf_count_iter + num_bufs + 1,
                            chunk_offsets.begin(),
                            0);
-    std::cout << "after exclusive_scan" << std::endl;
 
-    computed_chunks = new chunk_infos {std::move(chunks), std::move(chunk_offsets)};
+    // used during the copy
+    computed_chunks = new chunk_infos { std::move(chunks), std::move(chunk_offsets) };
   }
 
-  cudf::size_type perform_copy() {
-    auto& cis = *computed_chunks; 
+  cudf::size_type perform_chunked_copy() {
+    // TODO: perhaps this happens on intialization
+    CUDF_EXPECTS(user_provided_out_buffer != nullptr,
+      "Cannot perform chunked contiguous split without a user buffer");
     //
     // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
     //            already be in place - only the dst buf info will have changed. this is fine
@@ -1573,20 +1573,16 @@ struct the_state {
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
 
-    auto out_buffer_size = user_provided_out_buffer != nullptr ? 
-      user_provided_out_buffer_size : out_buffers[0].size();
+    auto out_buffer_size = user_provided_out_buffer_size;
     cudf::size_type buf_count_to_copy = 0;
     
     if (remaining_bufs == -1) {
       // apply the chunking.
       auto const num_chunks =
-        cudf::detail::make_counting_transform_iterator(0, num_chunks_func{cis.chunks.begin()});
+        cudf::detail::make_counting_transform_iterator(0, num_chunks_func{computed_chunks->chunks.begin()});
       size_type const new_buf_count =
-        thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + cis.chunks.size());
+        thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + computed_chunks->chunks.size());
 
-      std::cout << "chunks.size: " << cis.chunks.size() << " new_buf_count: " << new_buf_count
-                << " num bufs: " << num_bufs << std::endl;
-      
       // each chunk is 1MB, so we want to figure out how many 1MB chunks fit in the user-provided buffer
       auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
       buffs_to_copy = out_buffer_size/desired_chunk_size;
@@ -1597,8 +1593,8 @@ struct the_state {
 
     // perform the copy.
     auto bytes_copied = copy_data(
-      cis.chunks,
-      cis.chunk_offsets,
+      computed_chunks->chunks,
+      computed_chunks->chunk_offsets,
       num_bufs, 
       num_src_bufs, 
       d_src_bufs, 
@@ -1613,21 +1609,21 @@ struct the_state {
     remaining_bufs -= buf_count_to_copy;
     total_size += bytes_copied;
     
-    //
-    // CHUNKED D: In the chunked case, this is technically unnecessary - we will be doing no splits
-    //            so the null counts can just be retrieved from the original table/columns.
-    //
-    // DtoH dst info (to retrieve null counts)
-    //CUDF_CUDA_TRY(cudaMemcpyAsync(
-    //  h_dst_buf_info, d_dst_buf_info, dst_buf_info_size, cudaMemcpyDefault, stream.value()));
-
-    //stream.synchronize();
-
     return bytes_copied;
+  }
+
+  //non-chunked
+  cudf::size_type perform_copy() {
+    //TODO
+    return 0;
   }
 
   bool has_next() {
     return !is_empty && remaining_bufs != 0;
+  }
+
+  ~the_state() {
+    delete computed_chunks;
   }
 
   //std::size_t num_partitions;
@@ -1641,12 +1637,22 @@ struct the_state {
   // number of top-level columns in the input table_view
   std::size_t num_root_columns;
 
-  std::vector<uint8_t> h_buf_sizes_and_dst_info;
+  // buffer sizes and destination info, used during copies
+  std::size_t buf_sizes_size;
   std::size_t dst_buf_info_size;
-  std::size_t offset_stack_size;
+
+  std::vector<uint8_t> h_buf_sizes_and_dst_info;
+  std::size_t* h_buf_sizes;
+  dst_buf_info* h_dst_buf_info;
+
+  rmm::device_buffer d_buf_sizes_and_dst_info;
+  std::size_t* d_buf_sizes;
+  dst_buf_info* d_dst_buf_info;
 
   // source and destination pointers, packed in a single
   // src_bufs_size + dst_bufs_size buffer
+  std::vector<uint8_t> h_src_and_dst_buffers;
+  rmm::device_buffer d_src_and_dst_buffers;
   std::size_t src_bufs_size; 
   std::size_t dst_bufs_size; 
   const uint8_t** h_src_bufs;
@@ -1654,36 +1660,27 @@ struct the_state {
   uint8_t** h_dst_bufs;
   uint8_t** d_dst_bufs;
 
-  std::size_t buf_sizes_size;
-
   std::vector<rmm::device_buffer> out_buffers;
   uint8_t* user_provided_out_buffer;
   std::size_t user_provided_out_buffer_size;
 
   int offset_stack_partition_size;
+  std::size_t offset_stack_size;
   size_type* d_offset_stack;
   
-  std::size_t* h_buf_sizes;
-  std::size_t* d_buf_sizes;
   size_type* d_indices;
   size_type* h_indices;
   std::size_t indices_size;
   std::size_t src_buf_info_size;
 
-
   rmm::cuda_stream_view stream;
   rmm::mr::device_memory_resource* mr;
   
-  dst_buf_info* h_dst_buf_info;
-  dst_buf_info* d_dst_buf_info;
-  src_buf_info* h_src_buf_info;
-  src_buf_info* d_src_buf_info;
-
   std::vector<uint8_t> h_indices_and_source_info;
+  src_buf_info* h_src_buf_info;
+
   rmm::device_buffer d_indices_and_source_info;
-  std::vector<uint8_t> h_src_and_dst_buffers;
-  rmm::device_buffer d_buf_sizes_and_dst_info;
-  rmm::device_buffer d_src_and_dst_buffers;
+  src_buf_info* d_src_buf_info;
 
   // state around the iterator pattern
   bool is_empty;
@@ -1717,7 +1714,7 @@ bool chunked_contiguous_split::has_next() const {
 }
 
 std::size_t chunked_contiguous_split::next() {
-  return state->perform_copy();
+  return state->perform_chunked_copy();
 }
 
 std::vector<packed_columns::metadata> const& 
