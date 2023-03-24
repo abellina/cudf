@@ -831,7 +831,6 @@ struct num_chunks_func {
 struct chunk_byte_size_function {
   __device__ std::size_t operator()(const dst_buf_info& i) const { 
     const std::size_t bytes = (i.num_elements * i.element_size);
-    // TODO: ask diff between round_up_unsafe and round_up_safe
     return util::round_up_unsafe(bytes, split_align);
   }
 };
@@ -925,7 +924,7 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
       chunk_byte_size_function(),
       0,
       thrust::plus<cudf::size_type>());
-  
+
   return std::make_pair(std::move(d_dst_buf_info), byte_size_copied);
 }
 
@@ -1158,6 +1157,7 @@ struct the_state {
     }
   }
 
+  // TODO: ask: can I get a primer on the stack?
   void setup_stack(cudf::table_view const& input, std::size_t num_partitions) {
     offset_stack_partition_size = compute_offset_stack_size(input.begin(), input.end());
     offset_stack_size = offset_stack_partition_size * num_partitions * sizeof(size_type);
