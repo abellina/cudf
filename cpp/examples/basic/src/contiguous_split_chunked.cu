@@ -1002,6 +1002,75 @@ struct chunk_infos {
   rmm::device_uvector<offset_type> chunk_offsets;
 };
 
+// TODO: ask: would something like this make sense?
+// would it be ok to define in cuh or does it need to be defined in .cu
+class buffer_provider {
+  public:
+    bool is_chunked();
+    void request(std::size_t* h_buf_sizes,
+                 size_type num_buffers,
+                 rmm::cuda_stream_view stream,
+                 rmm::mr::device_memory_resource* mr) {}
+    std::pair<uint8_t*, std::size_t> get_device_buffer_and_size();
+};
+
+class chunked_buffer_provider : public buffer_provider {
+  public:
+   chunked_buffer_provider(uint8_t* _buffer, std::size_t _size) : buffer(_buffer), size(_size) {}
+
+   bool is_chunked() { return true; }
+
+   void request(std::size_t* h_buf_sizes,
+                size_type num_buffers,
+                rmm::cuda_stream_view stream,
+                rmm::mr::device_memory_resource* mr)
+   {
+    CUDF_EXPECTS(num_buffers == 1, "user_chunked_buffer_provider supports 1 buffer only!");
+   }
+
+   std::pair<uint8_t*, std::size_t> get_device_buffer_and_size(size_type ix)
+   {
+    CUDF_EXPECTS(ix == 0, "user_chunked_buffer_provider supports 1 buffer only!");
+    return std::make_pair(buffer, size);
+   }
+
+  private:
+    uint8_t* buffer;
+    std::size_t size;
+};
+
+
+class default_buffer_provider : public buffer_provider {
+  public:
+    default_buffer_provider(){}
+
+    bool is_chunked() {
+      return false;
+    }
+
+    void request(std::size_t* h_buf_sizes,
+                 size_type num_buffers,
+                 rmm::cuda_stream_view stream,
+                 rmm::mr::device_memory_resource* mr)
+    {
+      out_buffers.reserve(num_buffers);
+      std::transform(h_buf_sizes,
+                    h_buf_sizes + num_buffers,
+                    std::back_inserter(out_buffers),
+                    [stream = stream, mr = mr](std::size_t bytes) {
+                      return rmm::device_buffer{bytes, stream, mr};
+                    });
+    }
+
+    std::pair<uint8_t*, std::size_t> get_device_buffer_and_size(size_type ix) {
+      // TODO: ask: when uint8_t* 
+      return std::make_pair((uint8_t*)out_buffers[ix].data(), out_buffers[ix].size());
+    }
+
+  private:
+    std::vector<rmm::device_buffer> out_buffers;
+};
+
 struct the_state {
   //
   // CHUNKED A:  This section of code gets refactored out and is called during the first 
