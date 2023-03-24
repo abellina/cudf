@@ -929,6 +929,7 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
   return std::make_pair(std::move(d_dst_buf_info), byte_size_copied);
 }
 
+// TODO: ask: should we try to handle non-chunked copy data with the refactored code.. I think yes.
 cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
                           rmm::device_uvector<offset_type>& chunk_offsets,
                           int num_bufs,
@@ -937,7 +938,7 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
                           uint8_t** d_dst_bufs,
                           dst_buf_info* _d_dst_buf_info,
                           cudf::size_type starting_buf,
-                          cudf::size_type copied_so_far,
+                          cudf::size_type bytes_copied_so_far,
                           cudf::size_type buf_count_to_copy,
                           rmm::cuda_stream_view stream)
 {
@@ -950,7 +951,7 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
       _d_dst_buf_info, 
       starting_buf,
       buf_count_to_copy,
-      copied_so_far,
+      bytes_copied_so_far,
       stream);
   auto& d_dst_buf_info = dst_buf_infos.first;
   
@@ -1021,7 +1022,7 @@ struct the_state {
     user_provided_out_buffer(nullptr),
     stream(stream), 
     mr(mr),
-    total_size(0),
+    bytes_copied_so_far(0),
     starting_buf(0),
     remaining_bufs(-1),
     buffs_to_copy(0){}
@@ -1032,7 +1033,6 @@ struct the_state {
                   uint8_t* out_buffer,
                   std::size_t out_buffer_size) {
     is_empty = check_inputs(input, splits);
-    num_root_columns = input.num_columns();
     std::size_t num_partitions = get_num_partitions(splits);
     num_src_bufs = count_src_bufs(input.begin(), input.end());
     num_bufs   = num_src_bufs * num_partitions;
@@ -1381,7 +1381,6 @@ struct the_state {
     // so we will take the actual set of outgoing source/destination buffers and further partition
     // them into much smaller chunks in order to drive up the number of blocks and overall
     // occupancy.
-    //auto const desired_chunk_size = std::size_t{16};
     auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
     rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
     thrust::transform(
@@ -1482,7 +1481,7 @@ struct the_state {
 
     auto cur_dst_buf_info = h_dst_buf_info;
     for (std::size_t idx = 0; idx < num_partitions; idx++) {
-      metadata_builder mb(num_root_columns);
+      metadata_builder mb(input.num_columns());
 
       // traverse the buffers and build the columns.
       cur_dst_buf_info = build_output_columns(
@@ -1542,14 +1541,16 @@ struct the_state {
       d_dst_bufs, 
       d_dst_buf_info, 
       starting_buf,
-      total_size,
+      bytes_copied_so_far,
       buf_count_to_copy,
       stream);
 
     starting_buf += buf_count_to_copy;
     remaining_bufs -= buf_count_to_copy;
-    total_size += bytes_copied;
-    
+    bytes_copied_so_far += bytes_copied;
+
+    // TODO: ask: the original code synchronized here before making the packed metadata result. Do we need to do that?
+    // we are making the packed columns result ahead of time 
     return bytes_copied;
   }
 
@@ -1571,18 +1572,16 @@ struct the_state {
     delete computed_chunks;
   }
 
-  //std::size_t num_partitions;
-
+  rmm::cuda_stream_view stream;
+  rmm::mr::device_memory_resource* mr;
+  
   // number of source buffers including children * number of splits
   std::size_t num_bufs;
 
   // number of source buffers including children
   size_type num_src_bufs;
 
-  // number of top-level columns in the input table_view
-  std::size_t num_root_columns;
-
-  // buffer sizes and destination info, used during copies
+  // buffer sizes and destination info (used in chunked copies)
   std::size_t buf_sizes_size;
   std::size_t dst_buf_info_size;
 
@@ -1596,6 +1595,7 @@ struct the_state {
 
   // source and destination pointers, packed in a single
   // src_bufs_size + dst_bufs_size buffer
+  // used in chunked copies
   std::vector<uint8_t> h_src_and_dst_buffers;
   rmm::device_buffer d_src_and_dst_buffers;
   std::size_t src_bufs_size; 
@@ -1605,6 +1605,9 @@ struct the_state {
   uint8_t** h_dst_bufs;
   uint8_t** d_dst_bufs;
 
+  // TODO: ask: should we create an out_buffer provider, where
+  // there could be a user_out_buffer_provider that provides the buffer/size
+  // and a regular one that allocates device_buffers, and provides buffer/size upon request
   std::vector<rmm::device_buffer> out_buffers;
   uint8_t* user_provided_out_buffer;
   std::size_t user_provided_out_buffer_size;
@@ -1618,9 +1621,6 @@ struct the_state {
   std::size_t indices_size;
   std::size_t src_buf_info_size;
 
-  rmm::cuda_stream_view stream;
-  rmm::mr::device_memory_resource* mr;
-  
   std::vector<uint8_t> h_indices_and_source_info;
   src_buf_info* h_src_buf_info;
 
@@ -1629,7 +1629,7 @@ struct the_state {
 
   // state around the iterator pattern
   bool is_empty;
-  cudf::size_type total_size;
+  cudf::size_type bytes_copied_so_far;
   cudf::size_type starting_buf;
   cudf::size_type remaining_bufs;
   cudf::size_type buffs_to_copy;
