@@ -48,13 +48,6 @@ struct serialized_column {
       num_children(_num_children),
       pad(0)
   {
-    std::cout << "instantiated serialized_column "
-      << " type: " << (int32_t) type.id()
-      << " size: " << size 
-      << " null count: " << null_count
-      << " data offset: " << data_offset 
-      << " null mask offset: " << null_mask_offset 
-      << " children " << num_children << std::endl;
   }
 
   data_type type;
