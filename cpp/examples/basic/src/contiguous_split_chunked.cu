@@ -709,7 +709,8 @@ BufInfo build_output_columns(InputIter begin,
       (size_type) size, 
       (size_type) null_count, 
       src.num_children() > 0 ? -1 : data_offset,
-      src.null_count() == 0 ? -1 : bitmask_offset, 
+      src.nullable() == 0 ? -1 : bitmask_offset,
+      //src.null_count() == 0 ? -1 : bitmask_offset, 
       src.num_children());
 
     ++current_info;
@@ -906,6 +907,7 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
                        : rows_per_chunk;
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
+      // TODO: so  pre-compue bytes_copied_so_far as an array, and then use it here thrust::exclusive_scan
       out.dst_offset        = in.dst_offset + (chunk_index * chunk_size) - bytes_copied_so_far;
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
@@ -972,6 +974,7 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
   };
 
   //
+  // TODO: we do need this for the regular contig split case
   // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
   //             can just use the null count of the original columns
   // postprocess valid_counts
@@ -1000,75 +1003,6 @@ std::size_t get_num_partitions(std::vector<size_type> const& splits) {
 struct chunk_infos {
   rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks;
   rmm::device_uvector<offset_type> chunk_offsets;
-};
-
-// TODO: ask: would something like this make sense?
-// would it be ok to define in cuh or does it need to be defined in .cu
-class buffer_provider {
-  public:
-    bool is_chunked();
-    void request(std::size_t* h_buf_sizes,
-                 size_type num_buffers,
-                 rmm::cuda_stream_view stream,
-                 rmm::mr::device_memory_resource* mr) {}
-    std::pair<uint8_t*, std::size_t> get_device_buffer_and_size();
-};
-
-class chunked_buffer_provider : public buffer_provider {
-  public:
-   chunked_buffer_provider(uint8_t* _buffer, std::size_t _size) : buffer(_buffer), size(_size) {}
-
-   bool is_chunked() { return true; }
-
-   void request(std::size_t* h_buf_sizes,
-                size_type num_buffers,
-                rmm::cuda_stream_view stream,
-                rmm::mr::device_memory_resource* mr)
-   {
-    CUDF_EXPECTS(num_buffers == 1, "user_chunked_buffer_provider supports 1 buffer only!");
-   }
-
-   std::pair<uint8_t*, std::size_t> get_device_buffer_and_size(size_type ix)
-   {
-    CUDF_EXPECTS(ix == 0, "user_chunked_buffer_provider supports 1 buffer only!");
-    return std::make_pair(buffer, size);
-   }
-
-  private:
-    uint8_t* buffer;
-    std::size_t size;
-};
-
-
-class default_buffer_provider : public buffer_provider {
-  public:
-    default_buffer_provider(){}
-
-    bool is_chunked() {
-      return false;
-    }
-
-    void request(std::size_t* h_buf_sizes,
-                 size_type num_buffers,
-                 rmm::cuda_stream_view stream,
-                 rmm::mr::device_memory_resource* mr)
-    {
-      out_buffers.reserve(num_buffers);
-      std::transform(h_buf_sizes,
-                    h_buf_sizes + num_buffers,
-                    std::back_inserter(out_buffers),
-                    [stream = stream, mr = mr](std::size_t bytes) {
-                      return rmm::device_buffer{bytes, stream, mr};
-                    });
-    }
-
-    std::pair<uint8_t*, std::size_t> get_device_buffer_and_size(size_type ix) {
-      // TODO: ask: when uint8_t* 
-      return std::make_pair((uint8_t*)out_buffers[ix].data(), out_buffers[ix].size());
-    }
-
-  private:
-    std::vector<rmm::device_buffer> out_buffers;
 };
 
 struct the_state {
@@ -1111,6 +1045,9 @@ struct the_state {
       user_provided_out_buffer_size = out_buffer_size;
     }
 
+    // TODO: ask: would it make sense for us to split up these chunks of code into structs
+    // that own the buffers and provide the specific pointers like h_dst_buf_info
+    //  ---> yes try structs
     // TODO: can we skip all of this if empty
     compute_split_indices_and_src_buf_infos(input, splits, num_partitions);
     setup_stack(input, num_partitions);
@@ -1273,6 +1210,7 @@ struct the_state {
     }
 
     // TODO: ASK: why do we add offset_stack_size here
+    //  --> not needed actually, we can remove
     // device-side
     d_src_and_dst_buffers = rmm::device_buffer(src_bufs_size + dst_bufs_size + offset_stack_size,
                                              stream,
@@ -1428,6 +1366,7 @@ struct the_state {
     //               seperately.
     //               - verify that the ordering of the chunks is linear with the overall output
     //                 buffer. that is,
+    // TODO: I do not think I have succeeded at verifying this:
     //                 d_dst_buf_info[N] is copying to the destination location exactly where
     //                 d_dst_buf_info[N-1] ends.
     //               - the intermediate chunked struct would store d_dst_buf_info across calls as
@@ -1454,6 +1393,7 @@ struct the_state {
     // them into much smaller chunks in order to drive up the number of blocks and overall
     // occupancy.
     auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
+    // TODO: should probably call this something differently instead of just chunks.
     rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
     thrust::transform(
       rmm::exec_policy(stream),
@@ -1503,13 +1443,13 @@ struct the_state {
   std::vector<packed_columns::metadata> make_empty_column_metadata(
     cudf::table_view const& input,
     std::size_t num_partitions) {
-    // TODO: ask: why needed? sanitize the inputs (to handle corner cases like sliced tables)
+    // TODO: ASK: why needed? sanitize the inputs (to handle corner cases like sliced tables)
     std::size_t empty_num_partitions   = num_partitions;
     std::vector<std::unique_ptr<column>> empty_columns;
     empty_columns.reserve(input.num_columns());
     std::transform(
       input.begin(), input.end(), std::back_inserter(empty_columns), [](column_view const& col) {
-        return cudf::empty_like(col);
+        return cudf::empty_like(col); // return new empty column
       });
     std::vector<cudf::column_view> empty_column_views;
     empty_column_views.reserve(input.num_columns());
@@ -1599,6 +1539,7 @@ struct the_state {
       auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
       buffs_to_copy = out_buffer_size/desired_chunk_size;
 
+      // TODO: variable naming here is odd.. bufs/chunks
       remaining_bufs = new_buf_count;
     }
     buf_count_to_copy = std::min(buffs_to_copy, remaining_bufs);
@@ -1733,12 +1674,9 @@ chunked_contiguous_split::chunked_contiguous_split(cudf::table_view const& input
                                                    rmm::cuda_stream_view stream,
                                                    rmm::mr::device_memory_resource* mr)
 {
-  state = new detail::the_state(stream, mr);
-  state->initialize(input, {}, (uint8_t*)user_buffer, user_buffer_size);
-}
-
-chunked_contiguous_split::~chunked_contiguous_split() {
-  delete state;
+  // TODO: just static allocate
+  state = detail::the_state(stream, mr);
+  state.initialize(input, {}, (uint8_t*)user_buffer, user_buffer_size);
 }
 
 bool chunked_contiguous_split::has_next() const {
