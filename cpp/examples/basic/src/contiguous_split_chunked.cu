@@ -829,8 +829,10 @@ struct num_chunks_func {
  * @brief Get the size in bytes of a chunk described by `dst_buf_info`.
 */
 struct chunk_byte_size_function {
-  __device__ int operator()(const dst_buf_info& i) const { 
-    return (i.num_elements * i.element_size);
+  __device__ std::size_t operator()(const dst_buf_info& i) const { 
+    const std::size_t bytes = (i.num_elements * i.element_size);
+    // TODO: ask diff between round_up_unsafe and round_up_safe
+    return util::round_up_unsafe(bytes, split_align);
   }
 };
 
@@ -924,9 +926,7 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
       0,
       thrust::plus<cudf::size_type>());
   
-  auto aligned_bytes = cudf::util::round_up_safe(byte_size_copied, cudf::size_type(split_align));
-  std::cout << "byte size copied: " << byte_size_copied << " aligned to: " << aligned_bytes << std::endl;
-  return std::make_pair(std::move(d_dst_buf_info), aligned_bytes);
+  return std::make_pair(std::move(d_dst_buf_info), byte_size_copied);
 }
 
 cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
