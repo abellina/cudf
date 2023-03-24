@@ -116,9 +116,11 @@ int main(int argc, char** argv)
   rmm::device_buffer bounce_buff(100000000, cudf::get_default_stream(), &mr);
   rmm::device_buffer final_buff(500000000, cudf::get_default_stream(), &mr);
 
+  // TODO: we'd new this up in JNI
   auto cs = cudf::chunked::chunked_contiguous_split(
     tv, 
-    bounce_buff.data(), 
+    // TODO: make this a device_span
+    bounce_buff.data(),  // TODO: do not use void*
     bounce_buff.size(),
     cudf::get_default_stream(),
     rmm::mr::get_current_device_resource());
@@ -142,6 +144,8 @@ int main(int argc, char** argv)
             << packed_columns.size() << " results" << std::endl;
   
   auto meta = packed_columns[0].data();
+
+  // TODO: revisit unpack iterface passing the packed_columns themselves
   auto unpacked= cudf::unpack(
     meta,
     (const uint8_t*)final_buff.data());
