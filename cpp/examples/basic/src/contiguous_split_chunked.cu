@@ -1046,8 +1046,9 @@ struct the_state {
     // TODO: can we skip all of this if empty
     compute_split_indices_and_src_buf_infos(input, splits, num_partitions);
     setup_stack(input, num_partitions);
+    // this name is not good.. we don't calc anything, we just allocate
     calc_dst_buf_info(num_partitions);
-    compute_sizes_of_each_column_per_partition();
+    compute_sizes_of_each_column_per_partition(); // this one does calc dst_buf_info
     compute_total_size_of_each_partition();
     compute_num_rows();
     copy_sizes_and_col_info_back_to_host();
@@ -1282,6 +1283,8 @@ struct the_state {
         int parent_offsets_index = src_info.parent_offsets_index;
         int stack_size           = 0;
         int root_column_offset   = src_info.column_offset;
+
+        // TODO: ask: what is this loop doing
         while (parent_offsets_index >= 0) {
           offset_stack[stack_size++] = parent_offsets_index;
           root_column_offset         = my_d_src_buf_info[parent_offsets_index].column_offset;
