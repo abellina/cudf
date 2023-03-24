@@ -1612,28 +1612,43 @@ struct the_state {
   uint8_t* user_provided_out_buffer;
   std::size_t user_provided_out_buffer_size;
 
-  int offset_stack_partition_size;
-  std::size_t offset_stack_size;
-  size_type* d_offset_stack;
-  
-  size_type* d_indices;
+  // compute_split_indices_and_src_buf_infos
   size_type* h_indices;
   std::size_t indices_size;
   std::size_t src_buf_info_size;
-
   std::vector<uint8_t> h_indices_and_source_info;
   src_buf_info* h_src_buf_info;
 
+  // setup_stack
+  int offset_stack_partition_size;
+  std::size_t offset_stack_size;
+  size_type* d_offset_stack;
+  size_type* d_indices;
   rmm::device_buffer d_indices_and_source_info;
   src_buf_info* d_src_buf_info;
 
-  // state around the iterator pattern
-  bool is_empty;
-  cudf::size_type bytes_copied_so_far;
-  cudf::size_type starting_buf;
-  cudf::size_type remaining_bufs;
-  cudf::size_type buffs_to_copy;
+  //
+  // State around the iterator pattern
+  //
+
+  // the chunk data computed once on initialization
   chunk_infos* computed_chunks;
+
+  // whether the table was empty to begin with
+  // TODO: ask: empty columns vs columns but no rows
+  bool is_empty;
+
+  // amount of bytes copied so far. This gets updated on subsequent calls to copy
+  cudf::size_type bytes_copied_so_far;
+
+  // the current starting buffer. This gets updated on subsequent calls to copy
+  cudf::size_type starting_buf;
+  
+  // the number of buffer chunks that we still need to copy.
+  cudf::size_type remaining_bufs;
+
+  // amount of buffer chunks we are fitting at most each time we call copy
+  cudf::size_type buffs_to_copy;
 
   // we compute the packed_metata on initialization and store it here
   std::vector<packed_columns::metadata> packed_metadata;
