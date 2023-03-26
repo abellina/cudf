@@ -119,9 +119,7 @@ int main(int argc, char** argv)
   // TODO: we'd new this up in JNI
   auto cs = cudf::chunked::chunked_contiguous_split(
     tv, 
-    // TODO: make this a device_span
-    bounce_buff.data(),  // TODO: do not use void*
-    bounce_buff.size(),
+    cudf::device_span<uint8_t>(static_cast<uint8_t*>(bounce_buff.data()), bounce_buff.size()), 
     cudf::get_default_stream(),
     rmm::mr::get_current_device_resource());
 
@@ -150,6 +148,27 @@ int main(int argc, char** argv)
     meta,
     (const uint8_t*)final_buff.data());
   write_csv(unpacked, "4stock_5day_avg_close_cs.csv");
+
+
+  std::vector<cudf::size_type> splits{tv.num_rows()/2};
+
+  auto reg_cs = cudf::chunked::contiguous_split(
+    tv, 
+    splits,
+    cudf::get_default_stream(),
+    rmm::mr::get_current_device_resource());
+
+  auto packed_tables = reg_cs.make_packed_columns();
+
+  // Write out result
+  std::cout << "reg: writing result out, see " 
+            << packed_columns.size() << " results" << std::endl;
+
+  auto unpacked2 = cudf::unpack(packed_tables[0].first.data(), (uint8_t*)packed_tables[0].second.data());
+  auto unpacked3 = cudf::unpack(packed_tables[1].first.data(), (uint8_t*)packed_tables[1].second.data());
+
+  write_csv(unpacked2, "4stock_5day_avg_close_cs_reg_first.csv");
+  write_csv(unpacked3, "4stock_5day_avg_close_cs_reg_second.csv");
 
   return 0;
 }
