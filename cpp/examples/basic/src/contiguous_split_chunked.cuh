@@ -18,8 +18,7 @@ class chunked_contiguous_split {
   public:
     explicit chunked_contiguous_split(
         cudf::table_view const& input,
-        void* user_buffer,
-        std::size_t user_buffer_size,
+        cudf::device_span<uint8_t> const& user_buffer,
         rmm::cuda_stream_view stream,
         rmm::mr::device_memory_resource* mr);
 
@@ -33,7 +32,24 @@ class chunked_contiguous_split {
 
   private:
     // internal state of contiguous split
-    detail::contiguous_split_state* state;
+    std::unique_ptr<detail::contiguous_split_state> state;
+};
+
+class contiguous_split {
+  public:
+    explicit contiguous_split(
+        cudf::table_view const& input,
+        std::vector<size_type> const& splits,
+        rmm::cuda_stream_view stream,
+        rmm::mr::device_memory_resource* mr);
+
+    ~contiguous_split();
+
+    std::vector<std::pair<packed_columns::metadata, rmm::device_buffer>> make_packed_columns();
+
+  private:
+    // internal state of contiguous split
+    std::unique_ptr<detail::contiguous_split_state> state;
 };
 
 }};
