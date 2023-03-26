@@ -18,6 +18,7 @@
 #include <cudf/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/io/csv.hpp>
+#include <cudf/io/parquet.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/copying.hpp>
 
@@ -44,6 +45,7 @@ void write_csv(cudf::table_view const& tbl_view, std::string const& file_path)
 {
   auto sink_info = cudf::io::sink_info(file_path);
   auto builder   = cudf::io::csv_writer_options::builder(sink_info, tbl_view);
+  builder.na_rep(std::string("null"));
   auto options   = builder.build();
   cudf::io::write_csv(options);
 }
@@ -100,17 +102,26 @@ int main(int argc, char** argv)
   rmm::mr::set_current_device_resource(&mr);
 
   // Read data
-  std::cout << "reading some csv" << std::endl;
-  auto stock_table_with_metadata = read_csv("/home/abellina/mock.csv");
+  //std::cout << "reading some csv" << std::endl;
+  //auto stock_table_with_metadata = read_csv("/home/abellina/mock.csv");
+  std::cout << "reading some parquet" << std::endl;
+  auto source  = cudf::io::source_info("/home/abellina/mock2.snappy.parquet");
+  auto options = cudf::io::parquet_reader_options::builder(source);
+  auto stock_table_with_metadata = cudf::io::read_parquet(options);
 
   // Process
   std::cout << "doing some compute" << std::endl;
-  auto result = average_closing_price(*stock_table_with_metadata.tbl);
+  auto& t = stock_table_with_metadata.tbl;
+  std::cout << "original has: " << t->get_column(0).null_count() << " nulls in key col" << std::endl;
+  //auto result = average_closing_price(*stock_table_with_metadata.tbl);
   // write it the normal way
-  write_csv(*result, "4stock_5day_avg_close.csv");
+  //std::cout << "result has: " << result->get_column(0).null_count() << " nulls in key col" << std::endl;
+  //write_csv(*result, "4stock_5day_avg_close.csv");
+  auto tv = t->view();
+  write_csv(tv, "4stock_5day_avg_close.csv");
 
   // contig split it
-  auto tv = result->select(std::vector<cudf::size_type>{0,1});
+  //auto tv = result->select(std::vector<cudf::size_type>{0,1});
   std::cout << "calling contig split" << std::endl;
 
   rmm::device_buffer bounce_buff(100000000, cudf::get_default_stream(), &mr);
