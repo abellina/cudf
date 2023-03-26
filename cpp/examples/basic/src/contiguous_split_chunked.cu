@@ -836,11 +836,14 @@ struct chunk_byte_size_function {
   }
 };
 
+};  // anonymous namespace
+
+namespace detail {
 
 // CHUNKED A
 // packed block of memory 1. split indices and src_buf_info structs
 struct packed_split_indices_and_src_buf_info {
-  packed_split_indices_and_src_buf_info(cudf::table_view const& input,
+  explicit packed_split_indices_and_src_buf_info(cudf::table_view const& input,
                                         std::vector<size_type> const& splits,
                                         std::size_t num_partitions,
                                         cudf::size_type num_src_bufs,
@@ -906,7 +909,7 @@ struct packed_partition_buf_size_and_dst_buf_info {
   packed_partition_buf_size_and_dst_buf_info(std::size_t num_partitions,
                                              cudf::size_type num_src_bufs,
                                              std::size_t num_bufs,
-                                             packed_split_indices_and_src_buf_info const& split_indices_and_src_buf_info,
+                                             std::unique_ptr<packed_split_indices_and_src_buf_info> split_indices_and_src_buf_info,
                                              uint8_t* user_provided_buffer,
                                              std::size_t user_provided_buffer_size,
                                              rmm::cuda_stream_view stream,
@@ -929,7 +932,7 @@ struct packed_partition_buf_size_and_dst_buf_info {
     d_dst_buf_info = reinterpret_cast<dst_buf_info*>(
       static_cast<uint8_t*>(d_buf_sizes_and_dst_info.data()) + buf_sizes_size);
 
-    initialize(num_src_bufs, num_bufs, split_indices_and_src_buf_info, stream, mr);
+    initialize(num_src_bufs, num_bufs, split_indices_and_src_buf_info.get(), stream, mr);
 
     user_provided_out_buffer = user_provided_buffer;
     user_provided_out_buffer_size = user_provided_buffer_size;
@@ -948,13 +951,13 @@ struct packed_partition_buf_size_and_dst_buf_info {
 
   void initialize(cudf::size_type num_src_bufs,
                   std::size_t num_bufs,
-                  packed_split_indices_and_src_buf_info const& split_indices_and_src_buf_info,
+                  packed_split_indices_and_src_buf_info* split_indices_and_src_buf_info,
                   rmm::cuda_stream_view stream,
                   rmm::mr::device_memory_resource* mr) {
-    auto const d_src_buf_info        = split_indices_and_src_buf_info.d_src_buf_info;
-    auto offset_stack_partition_size = split_indices_and_src_buf_info.offset_stack_partition_size;
-    auto d_offset_stack              = split_indices_and_src_buf_info.d_offset_stack;
-    auto d_indices                   = split_indices_and_src_buf_info.d_indices;
+    auto const d_src_buf_info        = split_indices_and_src_buf_info->d_src_buf_info;
+    auto offset_stack_partition_size = split_indices_and_src_buf_info->offset_stack_partition_size;
+    auto d_offset_stack              = split_indices_and_src_buf_info->d_offset_stack;
+    auto d_indices                   = split_indices_and_src_buf_info->d_indices;
 
     // compute sizes of each column in each partition, including alignment.
     thrust::transform(
@@ -1103,7 +1106,7 @@ struct packed_src_and_dst_pointers {
   packed_src_and_dst_pointers(cudf::table_view const& input,
                               std::size_t num_partitions,
                               cudf::size_type num_src_bufs,
-                              packed_partition_buf_size_and_dst_buf_info& buf_info,
+                              packed_partition_buf_size_and_dst_buf_info* buf_info,
                               rmm::cuda_stream_view stream,
                               rmm::mr::device_memory_resource* mr):stream(stream)
   {
@@ -1123,12 +1126,12 @@ struct packed_src_and_dst_pointers {
     //            by the caller.
     //
     // setup dst buffers
-    if (buf_info.user_provided_out_buffer == nullptr) {
-      std::transform(buf_info.out_buffers.begin(), buf_info.out_buffers.end(), h_dst_bufs, [](auto& buf) {
+    if (buf_info->user_provided_out_buffer == nullptr) {
+      std::transform(buf_info->out_buffers.begin(), buf_info->out_buffers.end(), h_dst_bufs, [](auto& buf) {
         return static_cast<uint8_t*>(buf.data());
       });
     } else {
-      h_dst_bufs[0] = buf_info.user_provided_out_buffer;
+      h_dst_bufs[0] = buf_info->user_provided_out_buffer;
     }
 
     // TODO: ASK: why do we add offset_stack_size here
@@ -1318,15 +1321,17 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
                         */
 }
 
-};  // anonymous namespace
-
-namespace detail {
-
 std::size_t get_num_partitions(std::vector<size_type> const& splits) {
   return splits.size() + 1;
 }
 
 struct chunk_infos {
+  chunk_infos(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> _chunks,
+              rmm::device_uvector<offset_type> _chunk_offsets)
+    : chunks(std::move(_chunks)), chunk_offsets(std::move(_chunk_offsets))
+  {
+  }
+
   rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks;
   rmm::device_uvector<offset_type> chunk_offsets;
 };
@@ -1355,7 +1360,7 @@ bool check_inputs(cudf::table_view const& input, std::vector<size_type> const& s
   return input.column(0).size() == 0;
 }
 
-struct the_state {
+struct contiguous_split_state {
   //
   // CHUNKED A:  This section of code gets refactored out and is called during the first 
   //             chunked pack call. Everything it computes will be valid across calls except
@@ -1369,33 +1374,30 @@ struct the_state {
   //   and children flattened
   // num_partitions will be 1 (0 splits)
 
-  the_state(cudf::table_view const& input,
+  contiguous_split_state(cudf::table_view const& input,
             std::vector<size_type> const& splits,
             uint8_t* out_buffer,
             std::size_t out_buffer_size,
+            std::unique_ptr<packed_partition_buf_size_and_dst_buf_info> _partition_buf_size_and_dst_buf_info,
             rmm::cuda_stream_view stream,
             rmm::mr::device_memory_resource* mr)
-    : stream(stream), mr(mr),
+    : stream(stream),
+      mr(mr),
       bytes_copied_so_far(0),
       starting_buf(0),
       remaining_bufs(-1),
       buffs_to_copy(0),
-      is_empty(check_inputs(input, splits)),
-      num_partitions(get_num_partitions(splits)),
-      num_src_bufs(count_src_bufs(input.begin(), input.end())),
-      num_bufs(num_src_bufs * num_partitions),
-      split_indices_and_src_buf_infos{
-        input, splits, num_partitions, num_src_bufs, stream, mr},
-      partition_buf_size_and_dst_buf_info{
-        num_partitions, num_src_bufs, /*num_bufs*/ num_src_bufs * num_partitions, 
-        split_indices_and_src_buf_infos, out_buffer, out_buffer_size, stream, mr},
-      src_and_dst_pointers{
-        input, num_partitions, num_src_bufs, partition_buf_size_and_dst_buf_info, stream, mr}
+      partition_buf_size_and_dst_buf_info(std::move(_partition_buf_size_and_dst_buf_info))
   {
+    is_empty = check_inputs(input, splits);
+    num_partitions = get_num_partitions(splits);
+    num_src_bufs = count_src_bufs(input.begin(), input.end());
     num_bufs = num_src_bufs * num_partitions;
 
-    compute_chunks();
+    src_and_dst_pointers = std::make_unique<packed_src_and_dst_pointers>(
+        input, num_partitions, num_src_bufs, partition_buf_size_and_dst_buf_info.get(), stream, mr);
 
+    compute_chunks();
     packed_metadata = make_packed_column_metadata(input, num_partitions);
   }  // pass the new packed structs here?
 
@@ -1438,7 +1440,7 @@ struct the_state {
     auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
     // TODO: should probably call this something differently instead of just chunks.
     rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
-    auto& d_dst_buf_info = partition_buf_size_and_dst_buf_info.d_dst_buf_info;
+    auto& d_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
     thrust::transform(
       rmm::exec_policy(stream),
       d_dst_buf_info,
@@ -1480,7 +1482,7 @@ struct the_state {
                            0);
 
     // used during the copy
-    computed_chunks = new chunk_infos { std::move(chunks), std::move(chunk_offsets) };
+    computed_chunks = std::make_unique<chunk_infos>(std::move(chunks), std::move(chunk_offsets));
   }
 
   // TODO: could we merge this with the regular packed columns?
@@ -1535,7 +1537,7 @@ struct the_state {
     std::vector<packed_columns::metadata> result;
     result.reserve(num_partitions);
 
-    auto& h_dst_buf_info = partition_buf_size_and_dst_buf_info.h_dst_buf_info;
+    auto& h_dst_buf_info = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
     auto cur_dst_buf_info = h_dst_buf_info;
     for (std::size_t idx = 0; idx < num_partitions; idx++) {
       metadata_builder mb(input.num_columns());
@@ -1556,7 +1558,7 @@ struct the_state {
 
   cudf::size_type perform_chunked_copy() {
     // TODO: perhaps this happens on intialization
-    CUDF_EXPECTS(partition_buf_size_and_dst_buf_info.user_provided_out_buffer != nullptr,
+    CUDF_EXPECTS(partition_buf_size_and_dst_buf_info->user_provided_out_buffer != nullptr,
       "Cannot perform chunked contiguous split without a user buffer");
     //
     // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
@@ -1564,12 +1566,9 @@ struct the_state {
     //            though. the data is small.
     //
     // HtoD src and dest buffers
-    // TODO: ask why when we copy h_src_bufs to device we copy with src_bufs_size + dst_bufs_size...
-    // TODO: ask: I think this is setting up d_dst_bufs and d_src_bufs
-    // by copying starting at h_src_bufs and going _over_ its size (src+dst)
-    src_and_dst_pointers.copy_to_device();
+    src_and_dst_pointers->copy_to_device();
     
-    auto out_buffer_size = partition_buf_size_and_dst_buf_info.user_provided_out_buffer_size;
+    auto out_buffer_size = partition_buf_size_and_dst_buf_info->user_provided_out_buffer_size;
     cudf::size_type buf_count_to_copy = 0;
     
     if (remaining_bufs == -1) {
@@ -1588,19 +1587,15 @@ struct the_state {
     }
     buf_count_to_copy = std::min(buffs_to_copy, remaining_bufs);
 
-    auto& d_dst_buf_info = partition_buf_size_and_dst_buf_info.d_dst_buf_info;
-    auto& d_src_bufs = src_and_dst_pointers.d_src_bufs;
-    auto& d_dst_bufs = src_and_dst_pointers.d_dst_bufs;
-
     // perform the copy.
     auto bytes_copied = copy_data(
       computed_chunks->chunks,
       computed_chunks->chunk_offsets,
       num_bufs, 
       num_src_bufs, 
-      d_src_bufs, 
-      d_dst_bufs, 
-      d_dst_buf_info, 
+      src_and_dst_pointers->d_src_bufs, 
+      src_and_dst_pointers->d_dst_bufs, 
+      partition_buf_size_and_dst_buf_info->d_dst_buf_info, 
       starting_buf,
       bytes_copied_so_far,
       buf_count_to_copy,
@@ -1629,9 +1624,6 @@ struct the_state {
     return packed_metadata;
   }
 
-  ~the_state() {
-    delete computed_chunks;
-  }
 
   rmm::cuda_stream_view stream;
   rmm::mr::device_memory_resource* mr;
@@ -1644,16 +1636,15 @@ struct the_state {
   // number of source buffers including children
   size_type num_src_bufs;
 
-  packed_split_indices_and_src_buf_info split_indices_and_src_buf_infos;
-  packed_partition_buf_size_and_dst_buf_info partition_buf_size_and_dst_buf_info;
-  packed_src_and_dst_pointers src_and_dst_pointers;
+  std::unique_ptr<packed_partition_buf_size_and_dst_buf_info> partition_buf_size_and_dst_buf_info;
+  std::unique_ptr<packed_src_and_dst_pointers> src_and_dst_pointers;
 
   //
   // State around the iterator pattern
   //
 
   // the chunk data computed once on initialization
-  chunk_infos* computed_chunks;
+  std::unique_ptr<chunk_infos> computed_chunks;
 
   // whether the table was empty to begin with
   // TODO: ask: empty columns vs columns but no rows
@@ -1683,7 +1674,33 @@ chunked_contiguous_split::chunked_contiguous_split(cudf::table_view const& input
                                                    rmm::mr::device_memory_resource* mr)
 {
   // TODO: just static allocate. Can't. type is defined within .cu file
-  state = new detail::the_state(input, {}, (uint8_t*) user_buffer, user_buffer_size, stream, mr);
+  auto num_partitions = 1;
+  auto num_src_bufs = count_src_bufs(input.begin(), input.end());
+  auto num_bufs = num_src_bufs * num_partitions;
+  auto no_splits = std::vector<size_type>();
+
+  auto split_indices_and_src_buf_infos = 
+    std::make_unique<detail::packed_split_indices_and_src_buf_info>(
+      input, no_splits, num_partitions, num_src_bufs, stream, mr);
+
+  auto partition_buf_size_and_dst_buf_info =
+    std::make_unique<detail::packed_partition_buf_size_and_dst_buf_info>(
+      num_partitions,
+      num_src_bufs,
+      num_bufs,
+      std::move(split_indices_and_src_buf_infos),
+      (uint8_t*)user_buffer,
+      user_buffer_size,
+      stream,
+      mr);
+
+  state = new detail::contiguous_split_state(input,
+                                             no_splits,
+                                             (uint8_t*)user_buffer,
+                                             user_buffer_size,
+                                             std::move(partition_buf_size_and_dst_buf_info),
+                                             stream,
+                                             mr);
 }
 
 chunked_contiguous_split::~chunked_contiguous_split() {
