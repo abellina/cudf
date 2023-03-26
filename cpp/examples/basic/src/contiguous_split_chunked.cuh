@@ -11,7 +11,7 @@ class table_view;
 namespace chunked {
 
 namespace detail {
-  struct the_state;
+  struct contiguous_split_state;
 };
 
 class chunked_contiguous_split {
@@ -32,7 +32,8 @@ class chunked_contiguous_split {
     std::vector<packed_columns::metadata> const& make_packed_columns() const;
 
   private:
-    detail::the_state* state;
+    // internal state of contiguous split
+    detail::contiguous_split_state* state;
 };
 
 }};
