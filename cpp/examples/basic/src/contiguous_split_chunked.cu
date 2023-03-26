@@ -906,6 +906,25 @@ struct packed_split_indices_and_src_buf_info {
 
 // packed block of memory 2. partition buffer sizes and dst_buf_info structs
 struct packed_partition_buf_size_and_dst_buf_info {
+  packed_partition_buf_size_and_dst_buf_info(
+    std::size_t num_partitions,
+    cudf::size_type num_src_bufs,
+    std::size_t num_bufs,
+    std::unique_ptr<packed_split_indices_and_src_buf_info> split_indices_and_src_buf_info,
+    rmm::cuda_stream_view stream,
+    rmm::mr::device_memory_resource* mr)
+    : packed_partition_buf_size_and_dst_buf_info(
+        num_partitions, 
+        num_src_bufs, 
+        num_bufs, 
+        std::move(split_indices_and_src_buf_info), 
+        nullptr, 
+        0, 
+        stream, 
+        mr)
+  {
+  }
+
   packed_partition_buf_size_and_dst_buf_info(std::size_t num_partitions,
                                              cudf::size_type num_src_bufs,
                                              std::size_t num_bufs,
@@ -1321,6 +1340,66 @@ cudf::size_type copy_data(rmm::device_uvector<thrust::pair<std::size_t, std::siz
                         */
 }
 
+// TODO: ask: should we try to handle non-chunked copy data with the refactored code.. I think yes.
+cudf::size_type copy_data_regular (rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
+                          rmm::device_uvector<offset_type>& chunk_offsets,
+                          int num_bufs,
+                          int num_src_bufs,
+                          uint8_t const** d_src_bufs,
+                          uint8_t** d_dst_bufs,
+                          dst_buf_info* _d_dst_buf_info,
+                          cudf::size_type starting_buf,
+                          cudf::size_type bytes_copied_so_far,
+                          cudf::size_type buf_count_to_copy,
+                          rmm::cuda_stream_view stream)
+{
+  auto dst_buf_infos = 
+    get_dst_buf_info(
+      chunks, 
+      chunk_offsets, 
+      num_bufs, 
+      num_src_bufs, 
+      _d_dst_buf_info, 
+      starting_buf,
+      buf_count_to_copy,
+      bytes_copied_so_far,
+      stream);
+  auto& d_dst_buf_info = dst_buf_infos.first;
+  
+  constexpr size_type block_size = 256;
+  copy_partitions<block_size><<<buf_count_to_copy, block_size, 0, stream.value()>>>(
+    d_src_bufs, 
+    d_dst_bufs, 
+    d_dst_buf_info.data());
+
+  auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
+    return static_cast<size_type>(
+             thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
+             chunk_offsets) -
+           1;
+  };
+
+  //
+  // TODO: we do need this for the regular contig split case
+  // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
+  //             can just use the null count of the original columns
+  // postprocess valid_counts
+  
+  auto keys = cudf::detail::make_counting_transform_iterator(
+    0, [out_to_in_index] __device__(size_type i) { return out_to_in_index(i); });
+  auto values = thrust::make_transform_iterator(
+    d_dst_buf_info.begin(), [] __device__(dst_buf_info const& info) { return info.valid_count; });
+  thrust::reduce_by_key(rmm::exec_policy(stream),
+                        keys,
+                        keys + buf_count_to_copy,
+                        values,
+                        thrust::make_discard_iterator(),
+                        dst_valid_count_output_iterator{_d_dst_buf_info});
+
+  return dst_buf_infos.second;
+}
+
+
 std::size_t get_num_partitions(std::vector<size_type> const& splits) {
   return splits.size() + 1;
 }
@@ -1376,8 +1455,6 @@ struct contiguous_split_state {
 
   contiguous_split_state(cudf::table_view const& input,
             std::vector<size_type> const& splits,
-            uint8_t* out_buffer,
-            std::size_t out_buffer_size,
             std::unique_ptr<packed_partition_buf_size_and_dst_buf_info> _partition_buf_size_and_dst_buf_info,
             rmm::cuda_stream_view stream,
             rmm::mr::device_memory_resource* mr)
@@ -1610,10 +1687,34 @@ struct contiguous_split_state {
     return bytes_copied;
   }
 
-  //non-chunked
-  cudf::size_type perform_copy() {
-    //TODO
-    return 0;
+  void perform_regular_copy() {
+    //
+    // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
+    //            already be in place - only the dst buf info will have changed. this is fine
+    //            though. the data is small.
+    //
+    // HtoD src and dest buffers
+    src_and_dst_pointers->copy_to_device();
+    
+    // apply the chunking.
+    auto const num_chunks =
+      cudf::detail::make_counting_transform_iterator(0, num_chunks_func{computed_chunks->chunks.begin()});
+    size_type const new_buf_count =
+      thrust::reduce(rmm::exec_policy(stream), num_chunks, num_chunks + computed_chunks->chunks.size());
+
+    // perform the copy.
+    auto bytes_copied = copy_data_regular(
+      computed_chunks->chunks,
+      computed_chunks->chunk_offsets,
+      num_bufs, 
+      num_src_bufs, 
+      src_and_dst_pointers->d_src_bufs, 
+      src_and_dst_pointers->d_dst_bufs, 
+      partition_buf_size_and_dst_buf_info->d_dst_buf_info, 
+      starting_buf,
+      0,
+      new_buf_count,
+      stream);
   }
 
   bool has_next() {
@@ -1624,6 +1725,17 @@ struct contiguous_split_state {
     return packed_metadata;
   }
 
+  std::vector<std::pair<packed_columns::metadata, rmm::device_buffer>> make_packed_columns() {
+    std::vector<std::pair<packed_columns::metadata, rmm::device_buffer>> result;
+    result.reserve(num_partitions);
+
+    for (int idx = 0; idx < num_partitions; ++idx) {
+      auto& out_buffer = partition_buf_size_and_dst_buf_info->out_buffers[idx];
+      result.push_back(std::make_pair(packed_metadata[idx], std::move(out_buffer)));
+    }
+
+    return result;
+  }
 
   rmm::cuda_stream_view stream;
   rmm::mr::device_memory_resource* mr;
@@ -1668,12 +1780,10 @@ struct contiguous_split_state {
 };  // namespace detail
 
 chunked_contiguous_split::chunked_contiguous_split(cudf::table_view const& input,
-                                                   void* user_buffer,
-                                                   std::size_t user_buffer_size,
+                                                   cudf::device_span<uint8_t> const & user_buffer,
                                                    rmm::cuda_stream_view stream,
                                                    rmm::mr::device_memory_resource* mr)
 {
-  // TODO: just static allocate. Can't. type is defined within .cu file
   auto num_partitions = 1;
   auto num_src_bufs = count_src_bufs(input.begin(), input.end());
   auto num_bufs = num_src_bufs * num_partitions;
@@ -1689,23 +1799,20 @@ chunked_contiguous_split::chunked_contiguous_split(cudf::table_view const& input
       num_src_bufs,
       num_bufs,
       std::move(split_indices_and_src_buf_infos),
-      (uint8_t*)user_buffer,
-      user_buffer_size,
+      user_buffer.data(),
+      user_buffer.size(),
       stream,
       mr);
 
-  state = new detail::contiguous_split_state(input,
+  state = std::make_unique<detail::contiguous_split_state>(input,
                                              no_splits,
-                                             (uint8_t*)user_buffer,
-                                             user_buffer_size,
                                              std::move(partition_buf_size_and_dst_buf_info),
                                              stream,
                                              mr);
 }
 
-chunked_contiguous_split::~chunked_contiguous_split() {
-  delete state;
-}
+// required for the unique_ptr to work with a non-complete type (contiguous_split_state)
+chunked_contiguous_split::~chunked_contiguous_split() = default;
 
 bool chunked_contiguous_split::has_next() const {
   return state->has_next();
@@ -1718,6 +1825,41 @@ std::size_t chunked_contiguous_split::next() {
 std::vector<packed_columns::metadata> const& 
 chunked_contiguous_split::make_packed_columns() const {
   return state->get_packed_metadata();
+}
+
+contiguous_split::contiguous_split(
+        cudf::table_view const& input,
+        std::vector<size_type> const& splits,
+        rmm::cuda_stream_view stream,
+        rmm::mr::device_memory_resource* mr)
+{
+  auto num_partitions = detail::get_num_partitions(splits);
+  auto num_src_bufs = count_src_bufs(input.begin(), input.end());
+  auto num_bufs = num_src_bufs * num_partitions;
+
+  auto split_indices_and_src_buf_infos = 
+    std::make_unique<detail::packed_split_indices_and_src_buf_info>(
+      input, splits, num_partitions, num_src_bufs, stream, mr);
+
+  auto partition_buf_size_and_dst_buf_info =
+    std::make_unique<detail::packed_partition_buf_size_and_dst_buf_info>(
+      num_partitions,
+      num_src_bufs,
+      num_bufs,
+      std::move(split_indices_and_src_buf_infos),
+      stream,
+      mr);
+
+  state = std::make_unique<detail::contiguous_split_state>(
+    input, splits, std::move(partition_buf_size_and_dst_buf_info), stream, mr);
+}
+
+contiguous_split::~contiguous_split() = default;
+
+std::vector<std::pair<packed_columns::metadata, rmm::device_buffer>> 
+contiguous_split::make_packed_columns() {
+  state->perform_regular_copy();
+  return state->make_packed_columns();
 }
 
 }};  // namespace cudf
