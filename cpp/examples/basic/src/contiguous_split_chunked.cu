@@ -710,17 +710,12 @@ BufInfo build_output_columns(InputIter begin,
       (size_type) null_count, 
       src.num_children() > 0 ? -1 : data_offset,
       src.nullable() == 0 ? -1 : bitmask_offset,
-      //src.null_count() == 0 ? -1 : bitmask_offset, 
       src.num_children());
 
     ++current_info;
 
     // children
-    current_info = build_output_columns(
-      src.child_begin(), 
-      src.child_end(), 
-      current_info, 
-      mb);
+    current_info = build_output_columns(src.child_begin(), src.child_end(), current_info, mb);
   });
 
   return current_info;
