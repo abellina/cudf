@@ -124,7 +124,7 @@ int main(int argc, char** argv)
   //auto tv = result->select(std::vector<cudf::size_type>{0,1});
   std::cout << "calling contig split" << std::endl;
 
-  rmm::device_buffer bounce_buff(100000000, cudf::get_default_stream(), &mr);
+  rmm::device_buffer bounce_buff(10485760, cudf::get_default_stream(), &mr);
   rmm::device_buffer final_buff(500000000, cudf::get_default_stream(), &mr);
 
   // TODO: we'd new this up in JNI
