@@ -855,12 +855,6 @@ struct chunk_byte_size_func {
     return util::round_up_unsafe(bytes, split_align);
   }
 };
-struct buf_multiples_func{
-  std::size_t buf_size;
-  __device__ std::size_t operator()(size_type i) const { 
-    return i  * buf_size;
-  }
-};
 
 };  // anonymous namespace
 
@@ -1305,95 +1299,86 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   std::unique_ptr<iteration_state> istate; 
   if (user_buffer_size) {
     auto user_buffer_sz = user_buffer_size.value();
-    rmm::device_uvector<std::size_t> sizes(num_chunks, stream);
-    thrust::transform(
-      rmm::exec_policy(stream), 
-      d_dst_buf_info.begin(), 
-      d_dst_buf_info.end(), 
-      sizes.begin(),
-      chunk_byte_size_function());
 
-    std::vector<std::size_t> h_sizes(sizes.size());
-    CUDF_CUDA_TRY(cudaMemcpyAsync(h_sizes.data(),
-                                  sizes.data(),
-                                  sizeof(std::size_t) * sizes.size(),
-                                  cudaMemcpyDefault,
-                                  stream.value()));
+    // copy the chunk sizes back to host
+    std::vector<std::size_t> h_sizes(num_chunks);
+    {
+      rmm::device_uvector<std::size_t> sizes(num_chunks, stream);
+      thrust::transform(rmm::exec_policy(stream),
+                        d_dst_buf_info.begin(),
+                        d_dst_buf_info.end(),
+                        sizes.begin(),
+                        chunk_byte_size_function());
+      
+      CUDF_CUDA_TRY(cudaMemcpyAsync(h_sizes.data(),
+                                    sizes.data(),
+                                    sizeof(std::size_t) * sizes.size(),
+                                    cudaMemcpyDefault,
+                                    stream.value()));
 
-    stream.synchronize();
+      stream.synchronize();
+    }
 
-    // pairs of number of buffers and size in bytes
+    // compute the chunks size and offsets
     std::vector<std::size_t> offset_per_chunk(num_chunks);
     std::vector<std::size_t> num_chunks_per_split;
     std::vector<std::size_t> size_of_chunks_per_split;
     std::vector<std::size_t> accum_size_per_split;
-    std::size_t current_split_num_chunks = 0;
-    std::size_t current_split_size = 0;
-    std::size_t accum_size = 0;
+    {
+      std::size_t current_split_num_chunks = 0;
+      std::size_t current_split_size       = 0;
+      std::size_t accum_size               = 0;
 
-    int current_split = 0;
-    for (int i = 0; i < h_sizes.size(); ++i) {
-      auto curr_size = h_sizes[i];
-      if (current_split_size + curr_size > user_buffer_sz) {
+      int current_split = 0;
+      for (int i = 0; i < h_sizes.size(); ++i) {
+        auto curr_size = h_sizes[i];
+        if (current_split_size + curr_size > user_buffer_sz) {
+          num_chunks_per_split.push_back(current_split_num_chunks);
+          size_of_chunks_per_split.push_back(current_split_size);
+          accum_size_per_split.push_back(accum_size);
+          current_split_num_chunks = 0;
+          current_split_size       = 0;
+          ++current_split;
+        }
+        offset_per_chunk[i] = current_split;
+        current_split_size += curr_size;
+        accum_size += curr_size;
+        ++current_split_num_chunks;
+      }
+      if (current_split_num_chunks > 0) {
         num_chunks_per_split.push_back(current_split_num_chunks);
         size_of_chunks_per_split.push_back(current_split_size);
         accum_size_per_split.push_back(accum_size);
-        current_split_num_chunks = 0;
-        current_split_size = 0;
-        ++current_split;
       }
-      offset_per_chunk[i] = current_split;
-      current_split_size += curr_size;
-      accum_size += curr_size;
-      ++current_split_num_chunks;
-    }
-    if (current_split_num_chunks > 0) {
-      num_chunks_per_split.push_back(current_split_num_chunks);
-      size_of_chunks_per_split.push_back(current_split_size);
-      accum_size_per_split.push_back(accum_size);
-    }
 
-    for (int i = 0; i < num_chunks_per_split.size(); ++i) {
-      std::cout << "per split i " << i << " num_chunks: " << num_chunks_per_split[i]
-                << " size_of_chunks " << size_of_chunks_per_split[i]
-                << " accum size: " << accum_size_per_split[i] << std::endl;
+      for (int i = 0; i < num_chunks_per_split.size(); ++i) {
+        std::cout << "per split i " << i << " num_chunks: " << num_chunks_per_split[i]
+                  << " size_of_chunks " << size_of_chunks_per_split[i]
+                  << " accum size: " << accum_size_per_split[i] << std::endl;
+      }
     }
 
     // apply changed offset
     {
       rmm::device_uvector<std::size_t> d_offset_per_chunk(num_chunks, stream);
-      rmm::device_uvector<std::size_t> d_size_of_chunks_per_split(size_of_chunks_per_split.size(), stream);
       rmm::device_uvector<std::size_t> d_accum_size_per_split(accum_size_per_split.size(), stream);
 
       CUDF_CUDA_TRY(cudaMemcpyAsync(
         d_offset_per_chunk.data(), offset_per_chunk.data(), num_chunks * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
       CUDF_CUDA_TRY(cudaMemcpyAsync(
-        d_size_of_chunks_per_split.data(), size_of_chunks_per_split.data(), size_of_chunks_per_split.size() * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
-      CUDF_CUDA_TRY(cudaMemcpyAsync(
         d_accum_size_per_split.data(), accum_size_per_split.data(), accum_size_per_split.size() * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
 
-      auto iter = thrust::make_counting_iterator(0);
+      // we want to update the offset of chunks in the second to last copy
+      auto num_chunks_in_first_split = num_chunks_per_split[0];
+      auto iter = thrust::make_counting_iterator(num_chunks_in_first_split);
       thrust::for_each(rmm::exec_policy(stream),
                        iter,
-                       iter + num_chunks,
+                       iter + num_chunks - num_chunks_in_first_split,
                        [d_dst_buf_info = d_dst_buf_info.begin(),
                         d_accum_size_per_split = d_accum_size_per_split.begin(),
-                        d_offset_per_chunk = d_offset_per_chunk.begin(),
-                        d_size_of_chunks_per_split = d_size_of_chunks_per_split.begin()] __device__(size_type i) {
+                        d_offset_per_chunk = d_offset_per_chunk.begin()] __device__(size_type i) {
                           auto split = d_offset_per_chunk[i];
-                          if (split > 0) {
-                            printf("updating offset for ix: %i split: %i from old: %i to new %i\n", 
-                              (int)i,
-                              (int)split,
-                              (int)d_dst_buf_info[i].dst_offset,
-                              (int)(d_dst_buf_info[i].dst_offset - d_accum_size_per_split[split - 1]));
-                            d_dst_buf_info[i].dst_offset -= d_accum_size_per_split[split - 1];
-                          } else {
-                            printf("NOT updating offset for ix: %i split: %i from old: %i\n", 
-                              (int)i,
-                              (int)split,
-                              (int)d_dst_buf_info[i].dst_offset);
-                          }
+                          d_dst_buf_info[i].dst_offset -= d_accum_size_per_split[split - 1];
                        });
     }
     istate = std::make_unique<iteration_state>(std::move(d_dst_buf_info), num_chunks_per_split.size());
