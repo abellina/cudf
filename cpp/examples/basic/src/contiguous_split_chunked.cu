@@ -826,8 +826,38 @@ struct num_chunks_func {
 */
 struct chunk_byte_size_function {
   __device__ std::size_t operator()(const dst_buf_info& i) const { 
+    // TODO: ask: is this correct, or should we be using the chunk_size?
+    // it seems that the chunk size is 1MB most of the time, but the num_elements * element_size is variable:
+    //chunk_index: 0 chunk_size 1048576 so far 0 el size: 1048576
+    //chunk_index: 1 chunk_size 1048576 so far 0 el size: 201424
+    //chunk_index: 2 chunk_size 0 so far 0 el size: 0
+    //chunk_index: 3 chunk_size 1048576 so far 0 el size: 1048576
+    //chunk_index: 4 chunk_size 1048576 so far 0 el size: 1048576
+
     const std::size_t bytes = (i.num_elements * i.element_size);
     return util::round_up_unsafe(bytes, split_align);
+  }
+};
+
+struct chunk_byte_size_func {
+  dst_buf_info const* d_dst_buf_info;
+  __device__ std::size_t operator()(size_type i) const { 
+    // TODO: ask: is this correct, or should we be using the chunk_size?
+    // it seems that the chunk size is 1MB most of the time, but the num_elements * element_size is variable:
+    //chunk_index: 0 chunk_size 1048576 so far 0 el size: 1048576
+    //chunk_index: 1 chunk_size 1048576 so far 0 el size: 201424
+    //chunk_index: 2 chunk_size 0 so far 0 el size: 0
+    //chunk_index: 3 chunk_size 1048576 so far 0 el size: 1048576
+    //chunk_index: 4 chunk_size 1048576 so far 0 el size: 1048576
+    auto el = d_dst_buf_info[i];
+    const std::size_t bytes = (el.num_elements * el.element_size);
+    return util::round_up_unsafe(bytes, split_align);
+  }
+};
+struct buf_multiples_func{
+  std::size_t buf_size;
+  __device__ std::size_t operator()(size_type i) const { 
+    return i  * buf_size;
   }
 };
 
@@ -1197,10 +1227,22 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
            1;
   };
 
-  auto iter = thrust::make_counting_iterator(starting_buf);
+  std::cout << "copying from: " << starting_buf << " and up to " << new_buf_count << std::endl;
+
+  
+  //auto iteration_ix = thrust::make_counting_iterator(0);
+  //rmm::device_uvector<std::size_t> iteration(num_bufs, stream);
+  //thrust::make_transform_iterator(
+  //  iteration_ix, [d_dst_buf_info = d_dst_buf_info.begin()] __device__(size_type i) {
+  //    dst_buf_info& info = d_dst_buf_info[i];
+  //  });
+
+
+  auto iter         = thrust::make_counting_iterator(starting_buf);
 
   // load up the chunks as d_dst_buf_info
   rmm::device_uvector<dst_buf_info> d_dst_buf_info(new_buf_count, stream);
+  rmm::device_uvector<std::size_t> dst_buf_copy_index(new_buf_count, stream);
 
   // TODO: ask: I think we can create the chunk d_dst_buf_info once in device memory
   // then just make sure we start at the right index, rather than create new d_dst_buf_info
@@ -1213,6 +1255,7 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
      d_dst_buf_info = d_dst_buf_info.begin(),
      chunks         = chunks.begin(),
      chunk_offsets  = chunk_offsets.begin(),
+     dst_buf_copy_index = dst_buf_copy_index.begin(),
      num_bufs,
      num_src_bufs,
      out_to_in_index,
@@ -1221,6 +1264,7 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
       size_type const in_buf_index = out_to_in_index(i);
       size_type const chunk_index  = i - chunk_offsets[in_buf_index];
       auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
+      
       dst_buf_info const& in       = _d_dst_buf_info[in_buf_index];
 
       // adjust info
@@ -1250,27 +1294,115 @@ std::pair<rmm::device_uvector<dst_buf_info>, cudf::size_type> get_dst_buf_info(
                        : rows_per_chunk;
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
-      // TODO: so  pre-compue bytes_copied_so_far as an array, and then use it here thrust::exclusive_scan
       out.dst_offset        = in.dst_offset + (chunk_index * chunk_size) - bytes_copied_so_far;
+
+      dst_buf_copy_index[i] = util::round_up_unsafe(out.dst_offset + (out.element_size * out.num_elements), split_align)/ (100*1024*1024);
+      if (i>= 90 && i <= 110) {
+      printf(
+        "dst_buf_index: %i chunk_index: %i dst_offset: %i chunk_size %i so far %i el size: %i\n",
+        out.dst_buf_index,
+        i,
+        (int)out.dst_offset,
+        (int)chunk_size,
+        (int)bytes_copied_so_far,
+        (int)(out.element_size * out.num_elements));
+      }
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
       // purely intermediate for the purposes of doing more uniform copying of data
       // underneath the final structure of the output
     });
-  //
-  // CHUNKED F: end
-  //
-  size_type const byte_size_copied =
-    thrust::transform_reduce(
-      rmm::exec_policy(stream), 
-      d_dst_buf_info.begin(), 
-      d_dst_buf_info.end(),
-      chunk_byte_size_function(),
-      0,
-      thrust::plus<cudf::size_type>());
 
-  return std::make_pair(std::move(d_dst_buf_info), byte_size_copied);
+  auto size_iter = cudf::detail::make_counting_transform_iterator(
+    0, chunk_byte_size_func{d_dst_buf_info.begin()});
+
+  // TODO size_t?
+  rmm::device_uvector<std::size_t> size_scan(new_buf_count, stream);
+  thrust::inclusive_scan(
+    rmm::exec_policy(stream), size_iter, size_iter + new_buf_count, size_scan.begin());
+
+  auto bounds = cudf::detail::make_counting_transform_iterator(
+    1, buf_multiples_func{100 * 1024 * 1024});
+
+  rmm::device_uvector<std::size_t> indices(new_buf_count, stream);
+
+ auto last_size = size_scan.back_element(stream);
+ auto num_expected_copies = (last_size / (100 * 1024 * 1024)) + 1;
+ std::cout << "need to go up to: " << last_size << " or " << num_expected_copies << " iterations" << std::endl;
+
+ thrust::lower_bound(
+   rmm::exec_policy(stream),
+   bounds,
+   bounds + num_expected_copies,
+   size_scan.begin(),
+   size_scan.end(),
+   indices.begin(),
+   thrust::less<std::size_t>()
+ );
+
+ auto size_iter2 =
+   cudf::detail::make_counting_transform_iterator(0, chunk_byte_size_func{d_dst_buf_info.begin()});
+ auto offset_indices = rmm::device_uvector<std::size_t>(new_buf_count, stream);
+
+ thrust::exclusive_scan_by_key(
+   rmm::exec_policy(stream), indices.begin(), indices.end(), size_iter2, offset_indices.begin());
+
+  auto keys_out = rmm::device_uvector<std::size_t>(num_expected_copies, stream);
+  auto values_out = rmm::device_uvector<std::size_t>(num_expected_copies, stream);
+  thrust::reduce_by_key(
+    rmm::exec_policy(stream),
+    dst_buf_copy_index.begin(),
+    dst_buf_copy_index.end(),
+    thrust::make_constant_iterator<std::size_t>(1),
+    keys_out.begin(),
+    values_out.begin());
+
+  {
+    auto scan_ix = thrust::make_counting_iterator(0);
+    thrust::for_each(
+      rmm::exec_policy(stream),
+      scan_ix,
+      scan_ix + num_expected_copies,
+      [keys = keys_out.begin(), values = values_out.begin()] __device__(size_type i) {
+        printf("key ix: %i key: %i num: %i\n", i, (int)keys[i], (int)values[i]);
+      });
+  }
+
+ auto scan_ix = thrust::make_counting_iterator(0);
+ thrust::for_each(
+   rmm::exec_policy(stream),
+   scan_ix,
+   scan_ix + new_buf_count,
+   [size_scan          = size_scan.begin(),
+    indices            = indices.begin(),
+    dst_buf_copy_index = dst_buf_copy_index.begin(),
+    offset_indices     = offset_indices.begin()] __device__(size_type i) {
+      if (i>= 90 && i <= 110) {
+       printf(
+         "chunk_index: %i prefix_sum: %i dst_buf_copy_index: %i index: %i offset_indices: %i\n",
+         i,
+         (int)size_scan[i],
+         (int)dst_buf_copy_index[i],
+         (int)indices[i],
+         (int)offset_indices[i]);
+     }
+   });
+
+
+ stream.synchronize();
+
+ //
+ // CHUNKED F: end
+ //
+ size_type const byte_size_copied = thrust::transform_reduce(rmm::exec_policy(stream),
+                                                             d_dst_buf_info.begin(),
+                                                             d_dst_buf_info.end(),
+                                                             chunk_byte_size_function(),
+                                                             0,
+                                                             thrust::plus<cudf::size_type>());
+
+ return std::make_pair(std::move(d_dst_buf_info), byte_size_copied);
 }
 
 // TODO: ask: should we try to handle non-chunked copy data with the refactored code.. I think yes.
@@ -1799,11 +1931,8 @@ chunked_contiguous_split::chunked_contiguous_split(cudf::table_view const& input
       stream,
       mr);
 
-  state = std::make_unique<detail::contiguous_split_state>(input,
-                                             no_splits,
-                                             std::move(partition_buf_size_and_dst_buf_info),
-                                             stream,
-                                             mr);
+  state = std::make_unique<detail::contiguous_split_state>(
+    input, no_splits, std::move(partition_buf_size_and_dst_buf_info), stream, mr);
 }
 
 // required for the unique_ptr to work with a non-complete type (contiguous_split_state)
