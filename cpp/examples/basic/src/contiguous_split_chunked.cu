@@ -1232,8 +1232,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   int num_src_bufs,
   dst_buf_info* _d_dst_buf_info,
   std::optional<std::size_t> user_buffer_size,
-  cudf::size_type starting_buf,
-  cudf::size_type bytes_copied_so_far,
   rmm::cuda_stream_view stream) {
 
   auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
@@ -1243,18 +1241,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
            1;
   };
 
-  std::cout << "copying from: " << starting_buf << " and up to " << num_chunks << std::endl;
-
-  
-  //auto iteration_ix = thrust::make_counting_iterator(0);
-  //rmm::device_uvector<std::size_t> iteration(num_bufs, stream);
-  //thrust::make_transform_iterator(
-  //  iteration_ix, [d_dst_buf_info = d_dst_buf_info.begin()] __device__(size_type i) {
-  //    dst_buf_info& info = d_dst_buf_info[i];
-  //  });
-
-
-  auto iter         = thrust::make_counting_iterator(0);
+  auto iter = thrust::make_counting_iterator(0);
 
   // load up the chunks as d_dst_buf_info
   rmm::device_uvector<dst_buf_info> d_dst_buf_info(num_chunks, stream);
@@ -1272,9 +1259,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
      chunk_offsets  = chunk_offsets.begin(),
      num_bufs,
      num_src_bufs,
-     out_to_in_index,
-     starting_buf,
-     bytes_copied_so_far] __device__(size_type i) {
+     out_to_in_index] __device__(size_type i) {
       size_type const in_buf_index = out_to_in_index(i);
       size_type const chunk_index  = i - chunk_offsets[in_buf_index];
       auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
@@ -1308,18 +1293,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
                        : rows_per_chunk;
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
-      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size); // - bytes_copied_so_far;
-
-      if (i>= 90 && i <= 110) {
-      printf(
-        "dst_buf_index: %i chunk_index: %i dst_offset: %i chunk_size %i so far %i el size: %i\n",
-        out.dst_buf_index,
-        i,
-        (int)out.dst_offset,
-        (int)chunk_size,
-        (int)bytes_copied_so_far,
-        (int)(out.element_size * out.num_elements));
-      }
+      out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
@@ -1334,7 +1308,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   rmm::device_uvector<std::size_t> size_scan(num_chunks, stream);
   thrust::inclusive_scan(
     rmm::exec_policy(stream), size_iter, size_iter + num_chunks, size_scan.begin());
-  auto last_size           = size_scan.back_element(stream);
+  auto last_size = size_scan.back_element(stream);
 
   std::unique_ptr<iteration_state> istate; 
   if (user_buffer_size) {
@@ -1344,10 +1318,11 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
 
     rmm::device_uvector<std::size_t> indices(num_chunks, stream);
 
-    auto num_expected_copies = (last_size / (user_buffer_sz)) + 1;
+    auto num_expected_copies = (last_size / user_buffer_sz) + 1;
     std::cout << "need to go up to: " << last_size << " or " << num_expected_copies << " iterations"
               << std::endl;
 
+    // find the iterations that each chunk copy belongs to
     thrust::lower_bound(rmm::exec_policy(stream),
                         bounds,
                         bounds + num_expected_copies,
@@ -1355,14 +1330,20 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
                         size_scan.end(),
                         indices.begin(),
                         thrust::less<std::size_t>());
-
-    auto size_iter2 = cudf::detail::make_counting_transform_iterator(
-      0, chunk_byte_size_func{d_dst_buf_info.begin()});
     auto offset_indices = rmm::device_uvector<std::size_t>(num_chunks, stream);
 
-    thrust::exclusive_scan_by_key(
-      rmm::exec_policy(stream), indices.begin(), indices.end(), size_iter2, offset_indices.begin());
+    // compute the correct offset using the iteration as a key
+    {
+      auto size_iter = cudf::detail::make_counting_transform_iterator(
+        0, chunk_byte_size_func{d_dst_buf_info.begin()});
+      thrust::exclusive_scan_by_key(rmm::exec_policy(stream),
+                                    indices.begin(),
+                                    indices.end(),
+                                    size_iter,
+                                    offset_indices.begin());
+    }
 
+    // apply changed offset
     {
       auto iter = thrust::make_counting_iterator(0);
       thrust::for_each(rmm::exec_policy(stream),
@@ -1370,34 +1351,50 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
                        iter + num_chunks,
                        [d_dst_buf_info = d_dst_buf_info.begin(),
                         offset_indices = offset_indices.begin()] __device__(size_type i) {
-                         printf("will change dst_offset : %i, to %i\n",
-                                (int)d_dst_buf_info[i].dst_offset,
-                                (int)offset_indices[i]);
                          d_dst_buf_info[i].dst_offset = offset_indices[i];
                        });
     }
 
     auto keys_out   = rmm::device_uvector<std::size_t>(num_expected_copies, stream);
     auto values_out = rmm::device_uvector<std::size_t>(num_expected_copies, stream);
-    thrust::pair<std::size_t*, std::size_t*> x =
-      thrust::reduce_by_key(rmm::exec_policy(stream),
-                            indices.begin(),
-                            indices.end(),
-                            thrust::make_constant_iterator<std::size_t>(1),
-                            keys_out.begin(),
-                            values_out.begin());
+    thrust::reduce_by_key(rmm::exec_policy(stream),
+                          indices.begin(),
+                          indices.end(),
+                          thrust::make_constant_iterator<std::size_t>(1),
+                          keys_out.begin(),
+                          values_out.begin());
 
     auto keys_out2  = rmm::device_uvector<std::size_t>(num_expected_copies, stream);
     auto sizes_out  = rmm::device_uvector<std::size_t>(num_expected_copies, stream);
     auto size_iter3 = cudf::detail::make_counting_transform_iterator(
       0, chunk_byte_size_func{d_dst_buf_info.begin()});
 
-    thrust::pair<std::size_t*, std::size_t*> y = thrust::reduce_by_key(rmm::exec_policy(stream),
-                                                                       indices.begin(),
-                                                                       indices.end(),
-                                                                       size_iter3,
-                                                                       keys_out2.begin(),
-                                                                       sizes_out.begin());
+    thrust::reduce_by_key(rmm::exec_policy(stream),
+                          indices.begin(),
+                          indices.end(),
+                          size_iter3,
+                          keys_out2.begin(),
+                          sizes_out.begin());
+
+    auto scan_ix = thrust::make_counting_iterator(0);
+    auto size_iter4 = cudf::detail::make_counting_transform_iterator(
+      0, chunk_byte_size_func{d_dst_buf_info.begin()});
+    thrust::for_each(rmm::exec_policy(stream),
+                     scan_ix,
+                     scan_ix + num_chunks,
+                     [size_scan      = size_scan.begin(),
+                      sizes_out      = sizes_out.begin(),
+                      size_iter4     = size_iter4,
+                      indices        = indices.begin(),
+                      offset_indices = offset_indices.begin()] __device__(size_type i) {
+                       printf("chunk_index: %i size: %i total_size_for_index: %i prefix_sum: %i index: %i offset_indices: %i\n",
+                              i,
+                              (int)size_iter4[i],
+                              (int)sizes_out[indices[i]],
+                              (int)size_scan[i],
+                              (int)indices[i],
+                              (int)offset_indices[i]);
+                     });
     istate = std::make_unique<iteration_state>(std::move(d_dst_buf_info), num_expected_copies);
     auto& h_keys = istate->h_keys;
     auto& h_num_buffs_per_key     = istate->h_num_buffs_per_key;
@@ -1419,19 +1416,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
                     cudaMemcpyDefault,
                     stream.value());
 
-    auto scan_ix = thrust::make_counting_iterator(0);
-    thrust::for_each(rmm::exec_policy(stream),
-                     scan_ix,
-                     scan_ix + num_chunks,
-                     [size_scan      = size_scan.begin(),
-                      indices        = indices.begin(),
-                      offset_indices = offset_indices.begin()] __device__(size_type i) {
-                       printf("chunk_index: %i prefix_sum: %i index: %i offset_indices: %i\n",
-                              i,
-                              (int)size_scan[i],
-                              (int)indices[i],
-                              (int)offset_indices[i]);
-                     });
 
   } else {
     istate = std::make_unique<iteration_state>(std::move(d_dst_buf_info), 1);
@@ -1755,8 +1739,6 @@ struct contiguous_split_state {
                               num_src_bufs,
                               partition_buf_size_and_dst_buf_info->d_dst_buf_info,
                               out_buffer_size,
-                              starting_buf,
-                              bytes_copied_so_far,
                               stream);
     state = std::move(s);
   }
