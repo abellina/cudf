@@ -1305,9 +1305,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   std::unique_ptr<iteration_state> istate; 
   if (user_buffer_size) {
     auto user_buffer_sz = user_buffer_size.value();
-    auto size_iter = cudf::detail::make_counting_transform_iterator(
-      0, chunk_byte_size_func{d_dst_buf_info.begin()});
-
     rmm::device_uvector<std::size_t> sizes(num_chunks, stream);
     thrust::transform(
       rmm::exec_policy(stream), 
@@ -1329,8 +1326,10 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
     std::vector<std::size_t> offset_per_chunk(num_chunks);
     std::vector<std::size_t> num_chunks_per_split;
     std::vector<std::size_t> size_of_chunks_per_split;
+    std::vector<std::size_t> accum_size_per_split;
     std::size_t current_split_num_chunks = 0;
     std::size_t current_split_size = 0;
+    std::size_t accum_size = 0;
 
     int current_split = 0;
     for (int i = 0; i < h_sizes.size(); ++i) {
@@ -1338,36 +1337,63 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       if (current_split_size + curr_size > user_buffer_sz) {
         num_chunks_per_split.push_back(current_split_num_chunks);
         size_of_chunks_per_split.push_back(current_split_size);
+        accum_size_per_split.push_back(accum_size);
         current_split_num_chunks = 0;
         current_split_size = 0;
         ++current_split;
       }
       offset_per_chunk[i] = current_split;
       current_split_size += curr_size;
+      accum_size += curr_size;
       ++current_split_num_chunks;
     }
     if (current_split_num_chunks > 0) {
       num_chunks_per_split.push_back(current_split_num_chunks);
       size_of_chunks_per_split.push_back(current_split_size);
+      accum_size_per_split.push_back(accum_size);
+    }
+
+    for (int i = 0; i < num_chunks_per_split.size(); ++i) {
+      std::cout << "per split i " << i << " num_chunks: " << num_chunks_per_split[i]
+                << " size_of_chunks " << size_of_chunks_per_split[i]
+                << " accum size: " << accum_size_per_split[i] << std::endl;
     }
 
     // apply changed offset
     {
+      rmm::device_uvector<std::size_t> d_offset_per_chunk(num_chunks, stream);
       rmm::device_uvector<std::size_t> d_size_of_chunks_per_split(size_of_chunks_per_split.size(), stream);
+      rmm::device_uvector<std::size_t> d_accum_size_per_split(accum_size_per_split.size(), stream);
 
-      CUDF_CUDA_TRY(cudaMemcpyAsync(d_size_of_chunks_per_split.data(),
-                                    size_of_chunks_per_split.data(),
-                                    size_of_chunks_per_split.size() * sizeof(std::size_t),
-                                    cudaMemcpyDefault,
-                                    stream.value()));
+      CUDF_CUDA_TRY(cudaMemcpyAsync(
+        d_offset_per_chunk.data(), offset_per_chunk.data(), num_chunks * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
+      CUDF_CUDA_TRY(cudaMemcpyAsync(
+        d_size_of_chunks_per_split.data(), size_of_chunks_per_split.data(), size_of_chunks_per_split.size() * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
+      CUDF_CUDA_TRY(cudaMemcpyAsync(
+        d_accum_size_per_split.data(), accum_size_per_split.data(), accum_size_per_split.size() * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
 
       auto iter = thrust::make_counting_iterator(0);
       thrust::for_each(rmm::exec_policy(stream),
                        iter,
                        iter + num_chunks,
-                       [d_dst_buf_info = d_dst_buf_info.begin() + num_chunks_per_split[0],
+                       [d_dst_buf_info = d_dst_buf_info.begin(),
+                        d_accum_size_per_split = d_accum_size_per_split.begin(),
+                        d_offset_per_chunk = d_offset_per_chunk.begin(),
                         d_size_of_chunks_per_split = d_size_of_chunks_per_split.begin()] __device__(size_type i) {
-                          d_dst_buf_info[i].dst_offset -= d_size_of_chunks_per_split[i];
+                          auto split = d_offset_per_chunk[i];
+                          if (split > 0) {
+                            printf("updating offset for ix: %i split: %i from old: %i to new %i\n", 
+                              (int)i,
+                              (int)split,
+                              (int)d_dst_buf_info[i].dst_offset,
+                              (int)(d_dst_buf_info[i].dst_offset - d_accum_size_per_split[split - 1]));
+                            d_dst_buf_info[i].dst_offset -= d_accum_size_per_split[split - 1];
+                          } else {
+                            printf("NOT updating offset for ix: %i split: %i from old: %i\n", 
+                              (int)i,
+                              (int)split,
+                              (int)d_dst_buf_info[i].dst_offset);
+                          }
                        });
     }
     istate = std::make_unique<iteration_state>(std::move(d_dst_buf_info), num_chunks_per_split.size());
@@ -1710,13 +1736,11 @@ struct contiguous_split_state {
       "Cannot perform chunked contiguous split without a user buffer");
     
     auto num_chunks_to_copy = state->h_num_buffs_per_key[copy_iteration];
-    auto starting_chunk = 
-      copy_iteration == 0 ? 0 : state->h_num_buffs_per_key[copy_iteration - 1];
     auto bytes_copied = state->h_size_of_buffs_per_key[copy_iteration];
 
     // perform the copy.
     copy_data(num_chunks_to_copy,
-              starting_chunk,
+              starting_buf,
               src_and_dst_pointers->d_src_bufs,
               src_and_dst_pointers->d_dst_bufs,
               state->d_dst_buf_info,
@@ -1724,6 +1748,7 @@ struct contiguous_split_state {
 
     ++copy_iteration;
     bytes_copied_so_far += bytes_copied;
+    starting_buf += num_chunks_to_copy;
 
     // TODO: ask: the original code synchronized here before making the packed metadata result. Do we need to do that?
     // we are making the packed columns result ahead of time 
