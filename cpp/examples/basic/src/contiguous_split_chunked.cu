@@ -702,9 +702,6 @@ BufInfo build_output_columns(InputIter begin,
     int64_t data_offset =
       size == 0 || src.head() == nullptr ? 0 : current_info->dst_offset;
     
-    std::cout << "adding column meta " << (int32_t)src.type().id() << " " 
-            << "num_children: " << src.num_children() << std::endl;
-
     mb.add_column_to_meta(
       src.type(), 
       (size_type) size, 
@@ -1350,12 +1347,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
         size_of_chunks_per_split.push_back(current_split_size);
         accum_size_per_split.push_back(accum_size);
       }
-
-      for (int i = 0; i < num_chunks_per_split.size(); ++i) {
-        std::cout << "per split i " << i << " num_chunks: " << num_chunks_per_split[i]
-                  << " size_of_chunks " << size_of_chunks_per_split[i]
-                  << " accum size: " << accum_size_per_split[i] << std::endl;
-      }
     }
 
     // apply changed offset
@@ -1396,7 +1387,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
     istate->h_size_of_buffs_per_key[0] = last_size; 
   }
 
- stream.synchronize();
  return std::move(istate);
 }
 
@@ -1870,6 +1860,7 @@ bool chunked_contiguous_split::has_next() const {
 }
 
 std::size_t chunked_contiguous_split::next() {
+  CUDF_FUNC_RANGE()
   return state->perform_chunked_copy();
 }
 
@@ -1884,6 +1875,7 @@ contiguous_split::contiguous_split(
         rmm::cuda_stream_view stream,
         rmm::mr::device_memory_resource* mr)
 {
+  CUDF_FUNC_RANGE()
   auto num_partitions = detail::get_num_partitions(splits);
   auto num_src_bufs = count_src_bufs(input.begin(), input.end());
   auto num_bufs = num_src_bufs * num_partitions;
