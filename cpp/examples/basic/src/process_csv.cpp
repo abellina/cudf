@@ -125,7 +125,7 @@ int main(int argc, char** argv)
   std::cout << "calling contig split" << std::endl;
 
   //rmm::device_buffer bounce_buff(10485760, cudf::get_default_stream(), &mr);
-  rmm::device_buffer bounce_buff(50000000, cudf::get_default_stream(), &mr);
+  rmm::device_buffer bounce_buff(10000000, cudf::get_default_stream(), &mr);
   rmm::device_buffer final_buff(500000000, cudf::get_default_stream(), &mr);
 
   // TODO: we'd new this up in JNI
