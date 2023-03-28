@@ -823,32 +823,9 @@ struct num_chunks_func {
  * @brief Get the size in bytes of a chunk described by `dst_buf_info`.
 */
 struct chunk_byte_size_function {
-  __device__ std::size_t operator()(const dst_buf_info& i) const { 
-    // TODO: ask: is this correct, or should we be using the chunk_size?
-    // it seems that the chunk size is 1MB most of the time, but the num_elements * element_size is variable:
-    //chunk_index: 0 chunk_size 1048576 so far 0 el size: 1048576
-    //chunk_index: 1 chunk_size 1048576 so far 0 el size: 201424
-    //chunk_index: 2 chunk_size 0 so far 0 el size: 0
-    //chunk_index: 3 chunk_size 1048576 so far 0 el size: 1048576
-    //chunk_index: 4 chunk_size 1048576 so far 0 el size: 1048576
-
-    const std::size_t bytes = (i.num_elements * i.element_size);
-    return util::round_up_unsafe(bytes, split_align);
-  }
-};
-
-struct chunk_byte_size_func {
-  dst_buf_info const* d_dst_buf_info;
-  __device__ std::size_t operator()(size_type i) const { 
-    // TODO: ask: is this correct, or should we be using the chunk_size?
-    // it seems that the chunk size is 1MB most of the time, but the num_elements * element_size is variable:
-    //chunk_index: 0 chunk_size 1048576 so far 0 el size: 1048576
-    //chunk_index: 1 chunk_size 1048576 so far 0 el size: 201424
-    //chunk_index: 2 chunk_size 0 so far 0 el size: 0
-    //chunk_index: 3 chunk_size 1048576 so far 0 el size: 1048576
-    //chunk_index: 4 chunk_size 1048576 so far 0 el size: 1048576
-    auto el = d_dst_buf_info[i];
-    const std::size_t bytes = (el.num_elements * el.element_size);
+  __device__ std::size_t operator()(const dst_buf_info& buf) const { 
+    std::size_t const bytes =
+      static_cast<std::size_t>(buf.num_elements) * static_cast<std::size_t>(buf.element_size);
     return util::round_up_unsafe(bytes, split_align);
   }
 };
@@ -857,15 +834,14 @@ struct chunk_byte_size_func {
 
 namespace detail {
 
-// CHUNKED A
-// packed block of memory 1. split indices and src_buf_info structs
+// packed block of memory 1: split indices and src_buf_info structs
 struct packed_split_indices_and_src_buf_info {
   explicit packed_split_indices_and_src_buf_info(cudf::table_view const& input,
-                                        std::vector<size_type> const& splits,
-                                        std::size_t num_partitions,
-                                        cudf::size_type num_src_bufs,
-                                        rmm::cuda_stream_view stream,
-                                        rmm::mr::device_memory_resource* mr)
+                                                 std::vector<size_type> const& splits,
+                                                 std::size_t num_partitions,
+                                                 cudf::size_type num_src_bufs,
+                                                 rmm::cuda_stream_view stream,
+                                                 rmm::mr::device_memory_resource* mr)
   {
     indices_size = cudf::util::round_up_safe((num_partitions + 1) * sizeof(size_type), split_align);
     src_buf_info_size = cudf::util::round_up_safe(num_src_bufs * sizeof(src_buf_info), split_align);
@@ -921,7 +897,7 @@ struct packed_split_indices_and_src_buf_info {
   size_type* d_offset_stack;
 };
 
-// packed block of memory 2. partition buffer sizes and dst_buf_info structs
+// packed block of memory 2: partition buffer sizes and dst_buf_info structs
 struct packed_partition_buf_size_and_dst_buf_info {
   packed_partition_buf_size_and_dst_buf_info(
     std::size_t num_partitions,
@@ -1202,15 +1178,37 @@ struct packed_src_and_dst_pointers {
 
 struct iteration_state {
   iteration_state(rmm::device_uvector<dst_buf_info> _d_dst_buf_info, int num_expected_copies)
-    : d_dst_buf_info(std::move(_d_dst_buf_info)),
-      h_keys(num_expected_copies),
+    : num_iterations(num_expected_copies),
+      current_iteration(0),
+      d_dst_buf_info(std::move(_d_dst_buf_info)),
       h_num_buffs_per_key(num_expected_copies),
       h_size_of_buffs_per_key(num_expected_copies)
   {
   }
+  
+  std::size_t get_current_iter_buffs() const {
+    CUDF_EXPECTS(current_iteration < num_iterations, 
+      "current_iteration cannot exceed than num_iterations");
+    return h_num_buffs_per_key[current_iteration];
+  }
 
+  std::size_t get_current_iter_size_of_buffs() const {
+    CUDF_EXPECTS(current_iteration < num_iterations,
+      "current_iteration cannot exceed num_iterations");
+    return h_size_of_buffs_per_key[current_iteration];
+  }
+
+  void advance_iteration() { 
+    ++current_iteration;
+  }
+
+  bool has_more_copies() const { 
+    return current_iteration < num_iterations;
+  }
+
+  int num_iterations;
+  int current_iteration;
   rmm::device_uvector<dst_buf_info> d_dst_buf_info;
-  std::vector<std::size_t> h_keys;
   std::vector<std::size_t> h_num_buffs_per_key;
   std::vector<std::size_t> h_size_of_buffs_per_key;
 };
@@ -1376,13 +1374,9 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
     istate->h_num_buffs_per_key = std::move(num_chunks_per_split);
     istate->h_size_of_buffs_per_key = std::move(size_of_chunks_per_split);
   } else {
-    auto size_iter = cudf::detail::make_counting_transform_iterator(
-      0, chunk_byte_size_func{d_dst_buf_info.begin()});
-
+    auto size_iter = thrust::make_transform_iterator(d_dst_buf_info.begin(), chunk_byte_size_function());
     auto last_size = thrust::reduce(rmm::exec_policy(stream), size_iter, size_iter + num_chunks);
-
     istate = std::make_unique<iteration_state>(std::move(d_dst_buf_info), 1);
-    istate->h_keys[0] = 0;
     istate->h_num_buffs_per_key[0] = num_chunks;
     istate->h_size_of_buffs_per_key[0] = last_size; 
   }
@@ -1504,8 +1498,6 @@ struct contiguous_split_state {
       mr(mr),
       bytes_copied_so_far(0),
       starting_buf(0),
-      buffs_to_copy(0),
-      copy_iteration(0),
       partition_buf_size_and_dst_buf_info(std::move(_partition_buf_size_and_dst_buf_info))
   {
     is_empty = check_inputs(input, splits);
@@ -1710,8 +1702,8 @@ struct contiguous_split_state {
     CUDF_EXPECTS(partition_buf_size_and_dst_buf_info->user_provided_out_buffer != nullptr,
       "Cannot perform chunked contiguous split without a user buffer");
     
-    auto num_chunks_to_copy = state->h_num_buffs_per_key[copy_iteration];
-    auto bytes_copied = state->h_size_of_buffs_per_key[copy_iteration];
+    auto num_chunks_to_copy = state->get_current_iter_buffs();
+    auto bytes_copied = state->get_current_iter_size_of_buffs();
 
     // perform the copy.
     copy_data(num_chunks_to_copy,
@@ -1721,7 +1713,7 @@ struct contiguous_split_state {
               state->d_dst_buf_info,
               stream);
 
-    ++copy_iteration;
+    state->advance_iteration();
     bytes_copied_so_far += bytes_copied;
     starting_buf += num_chunks_to_copy;
 
@@ -1757,11 +1749,11 @@ struct contiguous_split_state {
       state->d_dst_buf_info, 
       stream);
 
-    ++copy_iteration;
+    state->advance_iteration();
   }
 
   bool has_next() {
-    return !is_empty && copy_iteration < state->h_keys.size(); 
+    return !is_empty && state->has_more_copies();
   }
 
   std::vector<packed_columns::metadata> const& get_packed_metadata() {
@@ -1811,13 +1803,8 @@ struct contiguous_split_state {
   // the current starting buffer. This gets updated on subsequent calls to copy
   cudf::size_type starting_buf;
   
-  // amount of buffer chunks we are fitting at most each time we call copy
-  cudf::size_type buffs_to_copy;
-
   // we compute the packed_metata on initialization and store it here
   std::vector<packed_columns::metadata> packed_metadata;
-  
-  int copy_iteration;
 
   std::unique_ptr<iteration_state> state;
   };
