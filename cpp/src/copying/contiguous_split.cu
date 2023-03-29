@@ -1961,17 +1961,13 @@ struct contiguous_split_state {
   //   and children flattened
   // num_partitions will be 1 (0 splits)
   contiguous_split_state(cudf::table_view const& input,
-                         std::vector<size_type> const& splits,
                          cudf::device_span<uint8_t> const& user_buffer,
-                         std::unique_ptr<packed_partition_buf_size_and_dst_buf_info>
-                           _partition_buf_size_and_dst_buf_info,
                          rmm::cuda_stream_view stream,
                          rmm::mr::device_memory_resource* mr)
     : contiguous_split_state(input,
-                             splits,
+                             {},
                              user_buffer.data(),
                              user_buffer.size(),
-                             std::move(_partition_buf_size_and_dst_buf_info),
                              stream,
                              mr)
   {
@@ -1979,12 +1975,10 @@ struct contiguous_split_state {
 
   contiguous_split_state(cudf::table_view const& input,
                          std::vector<size_type> const& splits,
-                         std::unique_ptr<packed_partition_buf_size_and_dst_buf_info>
-                           _partition_buf_size_and_dst_buf_info,
                          rmm::cuda_stream_view stream,
                          rmm::mr::device_memory_resource* mr)
     : contiguous_split_state(
-        input, splits, nullptr, 0, std::move(_partition_buf_size_and_dst_buf_info), stream, mr)
+        input, splits, nullptr, 0, stream, mr)
   {
   }
 
@@ -1992,7 +1986,6 @@ struct contiguous_split_state {
             std::vector<size_type> const& splits,
             uint8_t* user_buffer,
             std::size_t user_buffer_size,
-            std::unique_ptr<packed_partition_buf_size_and_dst_buf_info> _partition_buf_size_and_dst_buf_info,
             rmm::cuda_stream_view stream,
             rmm::mr::device_memory_resource* mr)
     : input(input),
@@ -2000,7 +1993,6 @@ struct contiguous_split_state {
       mr(mr),
       bytes_copied_so_far(0),
       starting_buf(0),
-      partition_buf_size_and_dst_buf_info(std::move(_partition_buf_size_and_dst_buf_info)),
       user_provided_out_buffer(user_buffer),
       user_provided_out_buffer_size(user_buffer_size)
   {
@@ -2008,6 +2000,23 @@ struct contiguous_split_state {
     num_partitions = get_num_partitions(splits);
     num_src_bufs = count_src_bufs(input.begin(), input.end());
     num_bufs = num_src_bufs * num_partitions;
+    if (is_empty) {
+      packed_metadata = make_empty_column_metadata(input, num_partitions);
+      return;
+    }
+
+    auto split_indices_and_src_buf_infos =
+      std::make_unique<detail::packed_split_indices_and_src_buf_info>(
+        input, splits, num_partitions, num_src_bufs, stream, mr);
+
+    partition_buf_size_and_dst_buf_info =
+      std::make_unique<detail::packed_partition_buf_size_and_dst_buf_info>(
+        num_partitions,
+        num_src_bufs,
+        num_bufs,
+        std::move(split_indices_and_src_buf_infos),
+        stream,
+        mr);
 
     // allocate output partition buffers, if needed
     if (user_provided_out_buffer == nullptr) {
@@ -2255,6 +2264,9 @@ struct contiguous_split_state {
   void perform_regular_copy() {
     CUDF_EXPECTS(user_provided_out_buffer == nullptr,
       "Cannot contiguous split with a user buffer");
+    if(is_empty) {
+      return;
+    }
     //
     // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
     //            already be in place - only the dst buf info will have changed. this is fine
@@ -2304,6 +2316,42 @@ struct contiguous_split_state {
   }
 
   std::vector<packed_table> make_packed_tables() {
+    if (input.num_columns() == 0) {
+      return std::vector<packed_table>();
+    }
+    if (is_empty) {
+      // sanitize the inputs (to handle corner cases like sliced tables)
+      std::vector<std::unique_ptr<column>> empty_columns;
+      empty_columns.reserve(input.num_columns());
+      std::transform(
+        input.begin(), input.end(), std::back_inserter(empty_columns), [](column_view const& col) {
+          return cudf::empty_like(col);
+        });
+      std::vector<cudf::column_view> empty_column_views;
+      empty_column_views.reserve(input.num_columns());
+      std::transform(empty_columns.begin(),
+                     empty_columns.end(),
+                     std::back_inserter(empty_column_views),
+                     [](std::unique_ptr<column> const& col) { return col->view(); });
+      table_view empty_inputs(empty_column_views);
+
+      // build the empty results
+      std::vector<packed_table> result;
+      result.reserve(num_partitions);
+      auto iter = thrust::make_counting_iterator(0);
+      std::transform(iter,
+                     iter + num_partitions,
+                     std::back_inserter(result),
+                     [&empty_inputs](int partition_index) {
+                       return packed_table{
+                         empty_inputs,
+                         packed_columns{std::make_unique<packed_columns::metadata>(pack_metadata(
+                                          empty_inputs, static_cast<uint8_t const*>(nullptr), 0)),
+                                        std::make_unique<rmm::device_buffer>()}};
+                     });
+
+      return result;
+    }
     std::vector<packed_table> result;
     result.reserve(num_partitions);
     std::vector<column_view> cols;
@@ -2395,26 +2443,9 @@ chunked_contiguous_split::chunked_contiguous_split(cudf::table_view const& input
 {
   // chunked contiguous split only makes sense when we are not partitioning the data
   // into splits
-  auto num_partitions = 1;
-  auto num_src_bufs = count_src_bufs(input.begin(), input.end());
-  auto num_bufs = num_src_bufs * num_partitions;
-  auto no_splits = std::vector<size_type>();
-
-  auto split_indices_and_src_buf_infos = 
-    std::make_unique<detail::packed_split_indices_and_src_buf_info>(
-      input, no_splits, num_partitions, num_src_bufs, stream, mr);
-
-  auto partition_buf_size_and_dst_buf_info =
-    std::make_unique<detail::packed_partition_buf_size_and_dst_buf_info>(
-      num_partitions,
-      num_src_bufs,
-      num_bufs,
-      std::move(split_indices_and_src_buf_infos),
-      stream,
-      mr);
-
+  CUDF_FUNC_RANGE()
   state = std::make_unique<detail::contiguous_split_state>(
-    input, no_splits, user_buffer, std::move(partition_buf_size_and_dst_buf_info), stream, mr);
+    input, user_buffer, stream, mr);
 }
 
 // required for the unique_ptr to work with a non-complete type (contiguous_split_state)
@@ -2441,25 +2472,8 @@ contiguous_split::contiguous_split(
         rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE()
-  auto num_partitions = detail::get_num_partitions(splits);
-  auto num_src_bufs = count_src_bufs(input.begin(), input.end());
-  auto num_bufs = num_src_bufs * num_partitions;
-
-  auto split_indices_and_src_buf_infos = 
-    std::make_unique<detail::packed_split_indices_and_src_buf_info>(
-      input, splits, num_partitions, num_src_bufs, stream, mr);
-
-  auto partition_buf_size_and_dst_buf_info =
-    std::make_unique<detail::packed_partition_buf_size_and_dst_buf_info>(
-      num_partitions,
-      num_src_bufs,
-      num_bufs,
-      std::move(split_indices_and_src_buf_infos),
-      stream,
-      mr);
-
   state = std::make_unique<detail::contiguous_split_state>(
-    input, splits, std::move(partition_buf_size_and_dst_buf_info), stream, mr);
+    input, splits, stream, mr);
 }
 
 contiguous_split::~contiguous_split() = default;
