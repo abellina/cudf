@@ -24,11 +24,11 @@ class chunked_contiguous_split {
 
     ~chunked_contiguous_split();
 
-    bool has_next() const;
+    [[nodiscard]] bool has_next() const;
 
-    std::size_t next();
+    [[nodiscard]] std::size_t next();
 
-    std::vector<packed_columns::metadata> const& make_packed_columns() const;
+    [[nodiscard]] std::vector<packed_columns::metadata> const& make_packed_columns() const;
 
   private:
     // internal state of contiguous split
@@ -45,7 +45,7 @@ class contiguous_split {
 
     ~contiguous_split();
 
-    std::vector<std::pair<packed_columns::metadata, rmm::device_buffer>> make_packed_columns();
+    [[nodiscard]] std::vector<packed_columns> make_packed_columns();
 
   private:
     // internal state of contiguous split

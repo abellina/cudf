@@ -166,7 +166,7 @@ int main(int argc, char** argv)
     cudf::get_default_stream(),
     rmm::mr::get_current_device_resource());
   auto packed_tables_no_splits = reg_cs_no_splits.make_packed_columns();
-  auto unpacked_no_splits= cudf::unpack(packed_tables_no_splits[0].first.data(), (uint8_t*)packed_tables_no_splits[0].second.data());
+  auto unpacked_no_splits= cudf::unpack(packed_tables_no_splits[0]);
   write_csv(unpacked_no_splits, "4stock_5day_avg_close_cs_reg_no_splits.csv");
 
   std::vector<cudf::size_type> splits{tv.num_rows()/2};
@@ -183,8 +183,8 @@ int main(int argc, char** argv)
   std::cout << "reg: writing result out, see " 
             << packed_columns.size() << " results" << std::endl;
 
-  auto unpacked2 = cudf::unpack(packed_tables[0].first.data(), (uint8_t*)packed_tables[0].second.data());
-  auto unpacked3 = cudf::unpack(packed_tables[1].first.data(), (uint8_t*)packed_tables[1].second.data());
+  auto unpacked2 = cudf::unpack(packed_tables[0]);
+  auto unpacked3 = cudf::unpack(packed_tables[1]);
 
   write_csv(unpacked2, "4stock_5day_avg_close_cs_reg_first.csv");
   write_csv(unpacked3, "4stock_5day_avg_close_cs_reg_second.csv");
