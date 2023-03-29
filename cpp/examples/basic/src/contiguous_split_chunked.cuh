@@ -45,7 +45,7 @@ class contiguous_split {
 
     ~contiguous_split();
 
-    [[nodiscard]] std::vector<packed_columns> make_packed_columns();
+    [[nodiscard]] std::vector<packed_columns> make_packed_columns() const;
 
   private:
     // internal state of contiguous split
