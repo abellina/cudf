@@ -2410,7 +2410,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       size_type const in_buf_index = out_to_in_index(i);
       size_type const chunk_index  = i - chunk_offsets[in_buf_index];
       auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
-      
       dst_buf_info const& in       = _d_dst_buf_info[in_buf_index];
 
       // adjust info
@@ -2681,7 +2680,8 @@ struct contiguous_split_state {
             std::unique_ptr<packed_partition_buf_size_and_dst_buf_info> _partition_buf_size_and_dst_buf_info,
             rmm::cuda_stream_view stream,
             rmm::mr::device_memory_resource* mr)
-    : stream(stream),
+    : input(input),
+      stream(stream),
       mr(mr),
       bytes_copied_so_far(0),
       starting_buf(0),
@@ -2976,20 +2976,37 @@ struct contiguous_split_state {
     return packed_metadata;
   }
 
-  std::vector<packed_columns> make_packed_columns() {
-    std::vector<packed_columns> result;
+  std::vector<packed_table> make_packed_tables() {
+    std::vector<packed_table> result;
     result.reserve(num_partitions);
+    std::vector<column_view> cols;
+    cols.reserve(input.num_columns());
 
-    for (std::size_t idx = 0; idx < num_partitions; ++idx) {
-      auto& out_buffer = out_buffers[idx];
-      result.emplace_back(
-        std::make_unique<packed_columns::metadata>(std::move(packed_metadata[idx])), 
-        std::make_unique<rmm::device_buffer>(std::move(out_buffer)));
+    auto& h_dst_buf_info = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
+    auto& h_dst_bufs = src_and_dst_pointers->h_dst_bufs;
+
+    auto cur_dst_buf_info = h_dst_buf_info;
+    for (std::size_t idx = 0; idx < num_partitions; idx++) {
+      // traverse the buffers and build the columns.
+      cur_dst_buf_info = cudf::build_output_columns(
+        input.begin(), input.end(), cur_dst_buf_info, std::back_inserter(cols), h_dst_bufs[idx]);
+
+      // pack the columns
+      cudf::table_view t{cols};
+      result.push_back(packed_table{
+        t,
+        packed_columns{
+        std::make_unique<packed_columns::metadata>(cudf::pack_metadata(
+              t, reinterpret_cast<uint8_t const*>(out_buffers[idx].data()), out_buffers[idx].size())),
+          std::make_unique<rmm::device_buffer>(std::move(out_buffers[idx]))}});
+
+      cols.clear();
     }
 
     return result;
   }
 
+  cudf::table_view const& input;
   rmm::cuda_stream_view stream;
   rmm::mr::device_memory_resource* mr;
 
@@ -3120,10 +3137,11 @@ contiguous_split::contiguous_split(
 
 contiguous_split::~contiguous_split() = default;
 
-std::vector<packed_columns> contiguous_split::make_packed_columns() const
+std::vector<packed_table> contiguous_split::make_packed_tables() const
 {
   state->perform_regular_copy();
-  return state->make_packed_columns();
+  
+  return state->make_packed_tables();
 }
 } // chunked
 
@@ -3132,8 +3150,9 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
                                            rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  return detail::contiguous_split(input, splits, cudf::get_default_stream(), mr);
-  //auto cs = chunked::contiguous_split(input, splits, cudf::get_default_stream(), mr);
+  //return detail::contiguous_split(input, splits, cudf::get_default_stream(), mr);
+  auto cs = chunked::contiguous_split(input, splits, cudf::get_default_stream(), mr);
+  return cs.make_packed_tables();
 }
 
 
