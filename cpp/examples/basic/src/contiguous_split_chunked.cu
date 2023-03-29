@@ -1756,11 +1756,11 @@ struct contiguous_split_state {
     state->advance_iteration();
   }
 
-  bool has_next() {
+  bool has_next() const {
     return !is_empty && state->has_more_copies();
   }
 
-  std::vector<packed_columns::metadata> const& get_packed_metadata() {
+  std::vector<packed_columns::metadata> const& get_packed_metadata() const {
     return packed_metadata;
   }
 
@@ -1908,7 +1908,7 @@ contiguous_split::contiguous_split(
 
 contiguous_split::~contiguous_split() = default;
 
-std::vector<packed_columns> contiguous_split::make_packed_columns()
+std::vector<packed_columns> contiguous_split::make_packed_columns() const
 {
   state->perform_regular_copy();
   return state->make_packed_columns();
