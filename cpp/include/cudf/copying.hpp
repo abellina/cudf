@@ -729,7 +729,7 @@ class contiguous_split {
 
     ~contiguous_split();
 
-    [[nodiscard]] std::vector<packed_columns> make_packed_columns() const;
+    [[nodiscard]] std::vector<packed_table> make_packed_tables() const;
 
   private:
     // internal state of contiguous split
