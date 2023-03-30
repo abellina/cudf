@@ -687,9 +687,6 @@ BufInfo build_output_columns(InputIter begin,
             ? nullptr
             : reinterpret_cast<bitmask_type const*>(base_ptr + current_info->dst_offset);
         
-        std::cout << "curr_info num_elements: " << current_info->num_elements
-                  << " curr_info num_rows: " << current_info->num_rows 
-                  << " curr_info valid_count: " << current_info->valid_count << std::endl;
         auto const null_count = current_info->num_elements == 0
                                   ? 0
                                   : (current_info->num_rows - current_info->valid_count);
@@ -712,7 +709,6 @@ BufInfo build_output_columns(InputIter begin,
     current_info = build_output_columns(
       src.child_begin(), src.child_end(), current_info, std::back_inserter(children), base_ptr);
 
-    std::cout << "making a column view with null_count " << null_count << std::endl;
     return column_view{src.type(), size, data_ptr, bitmask_ptr, null_count, 0, std::move(children)};
   });
 
@@ -784,10 +780,7 @@ struct dst_valid_count_output_iterator {
   reference operator* __device__() { return dereference(c); }
 
  private:
-  reference __device__ dereference(dst_buf_info* c) { 
-    printf("at deref valid_count: %i\n", (int)c->valid_count);
-    return c->valid_count; 
-    }
+  reference __device__ dereference(dst_buf_info* c) { return c->valid_count; }
 };
 
 /**
@@ -906,7 +899,6 @@ void copy_data(int num_bufs,
       out.element_size  = in.element_size;
       out.value_shift   = in.value_shift;
       out.bit_shift     = in.bit_shift;
-      printf("old: my valid count for %i is %i\n", (int)i, (int)in.valid_count);
       out.valid_count =
         in.valid_count;  // valid count will be set to 1 if this is a validity buffer
       out.src_buf_index = in.src_buf_index;
@@ -1309,9 +1301,6 @@ BufInfo build_output_columns(InputIter begin,
             ? 0 
             // TODO: ask: why is this ptr the same as data_ptr?
             : current_info->dst_offset;
-        std::cout << "curr_info num_elements: " << current_info->num_elements
-                  << " curr_info num_rows: " << current_info->num_rows 
-                  << " curr_info valid_count: " << current_info->valid_count << std::endl;
         auto const null_count = current_info->num_elements == 0
                                   ? 0
                                   : (current_info->num_rows - current_info->valid_count);
@@ -1651,26 +1640,28 @@ struct iteration_state {
   iteration_state(rmm::device_uvector<dst_buf_info> _d_dst_buf_info, int num_expected_copies)
     : num_iterations(num_expected_copies),
       current_iteration(0),
+      starting_buff(0),
       d_dst_buf_info(std::move(_d_dst_buf_info)),
       h_num_buffs_per_key(num_expected_copies),
       h_size_of_buffs_per_key(num_expected_copies)
   {
   }
   
-  std::size_t get_current_iter_buffs() const {
+  std::pair<std::size_t, std::size_t> get_current_starting_index_and_buff_count() const {
     CUDF_EXPECTS(current_iteration < num_iterations, 
       "current_iteration cannot exceed than num_iterations");
-    return h_num_buffs_per_key[current_iteration];
+    auto count_for_current = h_num_buffs_per_key[current_iteration];
+    std::cout << "iter: " << current_iteration 
+              << " starting at: " << starting_buff 
+              << " current count: " << count_for_current << std::endl;
+    return std::make_pair(starting_buff, count_for_current);
   }
-
-  std::size_t get_current_iter_size_of_buffs() const {
-    CUDF_EXPECTS(current_iteration < num_iterations,
-      "current_iteration cannot exceed num_iterations");
-    return h_size_of_buffs_per_key[current_iteration];
-  }
-
-  void advance_iteration() { 
+  
+  std::size_t advance_iteration() { 
+    std::size_t bytes_copied = h_size_of_buffs_per_key[current_iteration];
+    starting_buff += h_num_buffs_per_key[current_iteration];
     ++current_iteration;
+    return bytes_copied;
   }
 
   bool has_more_copies() const { 
@@ -1679,6 +1670,7 @@ struct iteration_state {
 
   int num_iterations;
   int current_iteration;
+  std::size_t starting_buff;
   rmm::device_uvector<dst_buf_info> d_dst_buf_info;
   std::vector<std::size_t> h_num_buffs_per_key;
   std::vector<std::size_t> h_size_of_buffs_per_key;
@@ -1730,7 +1722,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       out.element_size  = in.element_size;
       out.value_shift   = in.value_shift;
       out.bit_shift     = in.bit_shift;
-      printf("new: my valid count for %i is %i\n", (int)i, (int)in.valid_count);
       out.valid_count =
         in.valid_count;  // valid count will be set to 1 if this is a validity buffer
       out.src_buf_index = in.src_buf_index;
@@ -1991,7 +1982,6 @@ struct contiguous_split_state {
     : input(input),
       stream(stream),
       mr(mr),
-      bytes_copied_so_far(0),
       starting_buf(0),
       user_provided_out_buffer(user_buffer),
       user_provided_out_buffer_size(user_buffer_size)
@@ -2241,25 +2231,18 @@ struct contiguous_split_state {
     CUDF_EXPECTS(user_provided_out_buffer != nullptr,
       "Cannot perform chunked contiguous split without a user buffer");
 
-    // TODO: consider moving starting_buf and bytes_copied_so_far to the state object.
-    auto num_chunks_to_copy = state->get_current_iter_buffs();
-    auto bytes_copied = state->get_current_iter_size_of_buffs();
+    std::size_t starting_buff, num_chunks_to_copy;
+    std::tie(starting_buff, num_chunks_to_copy) = state->get_current_starting_index_and_buff_count();
 
     // perform the copy.
     copy_data(num_chunks_to_copy,
-              starting_buf,
+              starting_buff,
               src_and_dst_pointers->d_src_bufs,
               src_and_dst_pointers->d_dst_bufs,
               state->d_dst_buf_info,
               stream);
 
-    state->advance_iteration();
-    bytes_copied_so_far += bytes_copied;
-    starting_buf += num_chunks_to_copy;
-
-    // TODO: ask: the original code synchronized here before making the packed metadata result. Do we need to do that?
-    // we are making the packed columns result ahead of time 
-    return bytes_copied;
+    return state->advance_iteration();
   }
 
   std::vector<packed_table> contiguous_split() {
@@ -2269,11 +2252,6 @@ struct contiguous_split_state {
     if(is_empty || input.num_columns() == 0) {
       return make_packed_tables();
     }
-    //
-    // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
-    //            already be in place - only the dst buf info will have changed. this is fine
-    //            though. the data is small.
-    //
     
     // apply the chunking.
     auto const num_chunks =
@@ -2305,8 +2283,9 @@ struct contiguous_split_state {
       stream.value()));
 
     stream.synchronize();
-    // TODO: looks weird
+    
     state->advance_iteration();
+
     return make_packed_tables();
   }
 
@@ -2409,9 +2388,6 @@ struct contiguous_split_state {
   // whether the table was empty to begin with
   // TODO: ask: empty columns vs columns but no rows
   bool is_empty;
-
-  // amount of bytes copied so far. This gets updated on subsequent calls to copy
-  cudf::size_type bytes_copied_so_far;
 
   // the current starting buffer. This gets updated on subsequent calls to copy
   cudf::size_type starting_buf;

@@ -175,7 +175,6 @@ class metadata_builder_impl {
 
     void add_column_to_meta(column_view const& col, int64_t data_offset, int64_t null_mask_offset)
     {
-      std::cout<< "adding column to meta by col: " << col.null_count() << std::endl;
       add_column_to_meta(
         col.type(), col.size(), col.null_count(), data_offset, null_mask_offset, col.num_children());
     }
@@ -187,7 +186,6 @@ class metadata_builder_impl {
                             int64_t null_mask_offset,
                             size_type num_children)
     {
-      std::cout<< "adding column to meta: " << col_null_count<< std::endl;
       metadata.emplace_back(
         col_type, col_size, col_null_count, data_offset, null_mask_offset, num_children);
     }
