@@ -1541,6 +1541,69 @@ TEST_F(ContiguousSplitTableCornerCases, MixedColumnTypes)
   }
 }
 
+TEST_F(ContiguousSplitTableCornerCases, MixedColumnTypesChunked)
+{
+  cudf::size_type start = 0;
+  auto valids = cudf::detail::make_counting_transform_iterator(start, [](auto i) { return true; });
+
+  std::vector<std::string> strings[2] = {
+    {"", "this", "is", "a", "column", "of", "strings", "with", "in", "valid"},
+    {"", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"}};
+
+  std::vector<std::unique_ptr<cudf::column>> cols;
+
+  auto iter0 = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return (i); });
+  auto c0    = cudf::test::fixed_width_column_wrapper<int>(iter0, iter0 + 1000000, valids);
+  cols.push_back(c0.release());
+
+  auto iter1 = cudf::detail::make_counting_transform_iterator(10, [](auto i) { return (i); });
+  auto c1    = cudf::test::fixed_width_column_wrapper<int>(iter1, iter1 + 1000000, valids);
+  cols.push_back(c1.release());
+
+ //auto c2 = cudf::test::strings_column_wrapper(strings[0].begin(), strings[0].end(), valids);
+ //cols.push_back(c2.release());
+
+ //auto c3 = cudf::test::strings_column_wrapper(strings[1].begin(), strings[1].end(), valids);
+ //cols.push_back(c3.release());
+
+  auto iter4 = cudf::detail::make_counting_transform_iterator(20, [](auto i) { return (i); });
+  auto c4    = cudf::test::fixed_width_column_wrapper<int>(iter4, iter4 + 1000000, valids);
+  cols.push_back(c4.release());
+
+  auto tbl = cudf::table(std::move(cols));
+
+  std::vector<cudf::size_type> splits{1};
+
+  auto mr = rmm::mr::get_current_device_resource();
+  rmm::device_buffer bounce_buff(2000000, cudf::get_default_stream(), mr);
+  rmm::device_buffer final_buff(500000000, cudf::get_default_stream(), mr);
+  auto cs = 
+    cudf::chunked::chunked_contiguous_split(
+        tbl.view(), 
+        cudf::device_span<uint8_t>(static_cast<uint8_t*>(bounce_buff.data()), bounce_buff.size()), 
+        cudf::get_default_stream(), mr);
+
+  auto final_buff_offset = 0;
+  while (cs.has_next()) {
+    auto bytes_copied = cs.next();
+    cudaMemcpyAsync(
+      (uint8_t*)final_buff.data() + final_buff_offset,
+      bounce_buff.data(),
+      bytes_copied,
+      cudaMemcpyDefault,
+      cudf::get_default_stream());
+    std::cout << "copied in this iteration: " << bytes_copied << ". have next? " << cs.has_next() << std::endl;
+    final_buff_offset += bytes_copied;
+  }
+  auto packed_columns = cs.make_packed_columns();
+  auto meta = packed_columns[0].data();
+
+  // TODO: revisit unpack iterface passing the packed_columns themselves
+  auto unpacked = cudf::unpack(meta, (const uint8_t*)final_buff.data());
+
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(tbl, unpacked);
+}
+
 TEST_F(ContiguousSplitTableCornerCases, PreSplitTable)
 {
   auto valids =
