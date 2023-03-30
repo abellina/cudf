@@ -2236,7 +2236,8 @@ struct contiguous_split_state {
                               stream);
   }
 
-  cudf::size_type perform_chunked_copy() {
+  cudf::size_type contigous_split_chunk() {
+    CUDF_FUNC_RANGE()
     CUDF_EXPECTS(user_provided_out_buffer != nullptr,
       "Cannot perform chunked contiguous split without a user buffer");
 
@@ -2261,11 +2262,12 @@ struct contiguous_split_state {
     return bytes_copied;
   }
 
-  void perform_regular_copy() {
+  std::vector<packed_table> contiguous_split() {
+    CUDF_FUNC_RANGE()
     CUDF_EXPECTS(user_provided_out_buffer == nullptr,
       "Cannot contiguous split with a user buffer");
-    if(is_empty) {
-      return;
+    if(is_empty || input.num_columns() == 0) {
+      return make_packed_tables();
     }
     //
     // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
@@ -2305,6 +2307,7 @@ struct contiguous_split_state {
     stream.synchronize();
     // TODO: looks weird
     state->advance_iteration();
+    return make_packed_tables();
   }
 
   bool has_next() const {
@@ -2455,9 +2458,7 @@ bool chunked_contiguous_split::has_next() const { return state->has_next(); }
 
 std::size_t chunked_contiguous_split::next()
 {
-  // TODO: ask: does next need to be less generic? given we only use func ranges
-  CUDF_FUNC_RANGE()
-  return state->perform_chunked_copy();
+  return state->contigous_split_chunk();
 }
 
 std::vector<packed_columns::metadata> const& chunked_contiguous_split::make_packed_columns() const
@@ -2471,7 +2472,6 @@ contiguous_split::contiguous_split(
         rmm::cuda_stream_view stream,
         rmm::mr::device_memory_resource* mr)
 {
-  CUDF_FUNC_RANGE()
   state = std::make_unique<detail::contiguous_split_state>(
     input, splits, stream, mr);
 }
@@ -2480,9 +2480,9 @@ contiguous_split::~contiguous_split() = default;
 
 std::vector<packed_table> contiguous_split::make_packed_tables() const
 {
-  state->perform_regular_copy();
-  return state->make_packed_tables();
+  return state->contiguous_split();
 }
+
 } // chunked
 
 std::vector<packed_table> contiguous_split(cudf::table_view const& input,
@@ -2490,9 +2490,6 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
                                            rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  auto throw_away =
-    detail::contiguous_split(input, splits, cudf::get_default_stream(), mr);
-
   auto cs = chunked::contiguous_split(input, splits, cudf::get_default_stream(), mr);
   return cs.make_packed_tables();
 }
