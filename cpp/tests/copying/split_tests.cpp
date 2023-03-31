@@ -1164,21 +1164,9 @@ TEST_F(SplitNestedTypesTest, StructsOfList)
 template <typename T>
 struct ContiguousSplitTest : public cudf::test::BaseFixture {};
 
-struct chunked_contiguous_split_result {
-  chunked_contiguous_split_result(rmm::device_buffer _data,
-                                  cudf::table_view _result_from_chunked)
-    : data(std::move(_data)),
-      result_from_chunked(std::move(_result_from_chunked))
-  {
-  }
-  rmm::device_buffer data;
-  cudf::table_view result_from_chunked;
-};
-
-std::vector<chunked_contiguous_split_result> do_chunked_contiguous_split(
-    cudf::table_view const& input,
-    rmm::mr::device_memory_resource* mr){
-
+std::vector<cudf::packed_table> do_chunked_contiguous_split(
+    cudf::table_view const& input){
+  auto mr = rmm::mr::get_current_device_resource();
   // make the bounce buffer the smallest possible
   rmm::device_buffer bounce_buff(1*1024*1024, cudf::get_default_stream(), mr);
   auto bounce_buff_span = cudf::device_span<uint8_t>(
@@ -1206,14 +1194,20 @@ std::vector<chunked_contiguous_split_result> do_chunked_contiguous_split(
     std::cout << "copied in this iteration: " << bytes_copied << ". have next? " << cs->has_next() << std::endl;
     final_buff_offset += bytes_copied;
   }
-  auto packed_columns = cs->make_packed_columns();
-  auto meta = packed_columns[0].data();
+  auto packed_column_metas = cs->make_packed_columns();
+  auto pc = cudf::packed_columns(
+    std::make_unique<cudf::packed_columns::metadata>(std::move(packed_column_metas[0])), 
+    std::make_unique<rmm::device_buffer>(std::move(final_buff)));
 
   // TODO: revisit unpack iterface passing the packed_columns themselves
-  auto unpacked = cudf::unpack(meta, (const uint8_t*)final_buff.data());
-  std::vector<chunked_contiguous_split_result> result;
-  result.emplace_back(std::move(final_buff), std::move(unpacked));
+  auto unpacked = cudf::unpack(pc);
+
+  std::vector<cudf::packed_table> result(1);
+  cudf::packed_table pt{std::move(unpacked), std::move(pc)};
+  result[0] = std::move(pt);
+
   std::cout << "done unpacking" << std::endl;
+
   return result;
 }
 
@@ -1265,16 +1259,14 @@ TYPED_TEST(ContiguousSplitTest, LongColumnChunked)
 {
   split_custom_column<TypeParam>(
     [](cudf::table_view const& t, std::vector<cudf::size_type> const& splits) {
-      auto mr = rmm::mr::get_current_device_resource();
-      return do_chunked_contiguous_split(t, mr);
+      return do_chunked_contiguous_split(t);
     },
-    [](cudf::table_view const& expected, chunked_contiguous_split_result const& cresult) {
-      auto result = cresult.result_from_chunked;
+    [](cudf::table_view const& expected, cudf::packed_table const& result) {
       std::for_each(thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(expected.num_columns()),
                     [&expected, &result](cudf::size_type i) {
                       CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected.column(i),
-                                                          result.column(i));
+                                                          result.table.column(i));
                     });
     },
     100002,
@@ -1283,16 +1275,14 @@ TYPED_TEST(ContiguousSplitTest, LongColumnChunked)
 
   split_custom_column<TypeParam>(
     [](cudf::table_view const& t, std::vector<cudf::size_type> const& splits) {
-      auto mr = rmm::mr::get_current_device_resource();
-      return do_chunked_contiguous_split(t, mr);
+      return do_chunked_contiguous_split(t);
     },
-    [](cudf::table_view const& expected, chunked_contiguous_split_result const& cresult) {
-      auto result = cresult.result_from_chunked;
+    [](cudf::table_view const& expected, cudf::packed_table const& result) {
       std::for_each(thrust::make_counting_iterator(0),
                     thrust::make_counting_iterator(expected.num_columns()),
                     [&expected, &result](cudf::size_type i) {
                       CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected.column(i),
-                                                          result.column(i));
+                                                          result.table.column(i));
                     });
     },
     100002,
@@ -1397,6 +1387,46 @@ TEST_F(ContiguousSplitUntypedTest, ProgressiveSizes)
       },
       col_size,
       std::vector<cudf::size_type>{idx},
+      false);
+  }
+}
+
+TEST_F(ContiguousSplitUntypedTest, ProgressiveSizesChunked)
+{
+  constexpr int col_size = 4096;
+
+  // stress test copying a wide amount of bytes.
+  for (int idx = 2048; idx < col_size; idx+=128) {
+    split_custom_column<uint64_t>(
+      [](cudf::table_view const& t, std::vector<cudf::size_type> const& splits) {
+        return do_chunked_contiguous_split(t);
+      },
+      [](cudf::table_view const& expected, cudf::packed_table const& result) {
+        std::for_each(thrust::make_counting_iterator(0),
+                      thrust::make_counting_iterator(expected.num_columns()),
+                      [&expected, &result](cudf::size_type i) {
+                        CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected.column(i),
+                                                            result.table.column(i));
+                      });
+      },
+      col_size,
+      std::vector<cudf::size_type>{},
+      true);
+
+    split_custom_column<uint64_t>(
+      [](cudf::table_view const& t, std::vector<cudf::size_type> const& splits) {
+        return do_chunked_contiguous_split(t);
+      },
+      [](cudf::table_view const& expected, cudf::packed_table const& result) {
+        std::for_each(thrust::make_counting_iterator(0),
+                      thrust::make_counting_iterator(expected.num_columns()),
+                      [&expected, &result](cudf::size_type i) {
+                        CUDF_TEST_EXPECT_COLUMNS_EQUIVALENT(expected.column(i),
+                                                            result.table.column(i));
+                      });
+      },
+      col_size,
+      std::vector<cudf::size_type>{},
       false);
   }
 }
@@ -1670,9 +1700,8 @@ TEST_F(ContiguousSplitTableCornerCases, MixedColumnTypesChunked)
   cols.push_back(c4.release());
 
   auto tbl = cudf::table(std::move(cols));
-  auto mr = rmm::mr::get_current_device_resource();
-  auto results = do_chunked_contiguous_split(tbl.view(), mr);
-  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(tbl, results[0].result_from_chunked);
+  auto results = do_chunked_contiguous_split(tbl.view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(tbl, results[0].table);
 }
 
 TEST_F(ContiguousSplitTableCornerCases, PreSplitTable)
