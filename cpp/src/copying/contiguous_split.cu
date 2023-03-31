@@ -399,7 +399,9 @@ template <typename InputIter>
 size_type count_src_bufs(InputIter begin, InputIter end)
 {
   auto buf_iter = thrust::make_transform_iterator(begin, [](column_view const& col) {
-    return 1 + (col.nullable() ? 1 : 0) + count_src_bufs(col.child_begin(), col.child_end());
+    auto children_counts = count_src_bufs(col.child_begin(), col.child_end());
+    std::cout << (uint32_t) col.type().id() << ": 1 + " << col.nullable() << " + " << children_counts << std::endl;
+    return 1 + (col.nullable() ? 1 : 0) + children_counts;
   });
   return std::accumulate(buf_iter, buf_iter + std::distance(begin, end), 0);
 }
@@ -729,8 +731,11 @@ struct buf_size_functor {
  * The key is simply the partition index.
  */
 struct split_key_functor {
-  int num_columns;
-  int operator() __device__(int buf_index) { return buf_index / num_columns; }
+  int num_src_bufs;
+  int operator() __device__(int buf_index)
+  {
+    return buf_index / num_src_bufs;
+  }
 };
 
 /**
@@ -1546,7 +1551,7 @@ struct packed_partition_buf_size_and_dst_buf_info {
                             d_buf_sizes);
     }
 
-    // compute start offset for each output buffer
+    // compute start offset for each output buffer for each split
     {
       auto keys = cudf::detail::make_counting_transform_iterator(
         0, split_key_functor{static_cast<int>(num_src_bufs)});
@@ -1743,6 +1748,14 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
       out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
+      printf("in.dst_offset=%i out.dst_offset=%i buf_size=%i calc_size=%i chunk_index=%i chunk_size=%i\n",
+        (int)in.dst_offset, 
+        (int)out.dst_offset, 
+        (int)out.buf_size,
+        (int)util::round_up_unsafe(static_cast<std::size_t>(
+          out.num_elements * out.element_size), split_align),
+        (int)chunk_index, 
+        (int)chunk_size);
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
@@ -1804,6 +1817,11 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
         num_chunks_per_split.push_back(current_split_num_chunks);
         size_of_chunks_per_split.push_back(current_split_size);
         accum_size_per_split.push_back(accum_size);
+      }
+      for (std::size_t i = 0; i < num_chunks_per_split.size(); ++i) {
+        std::cout << "For iteration " << i 
+                  << " num chunks will be " << num_chunks_per_split[i]
+                  << " size of chunks is " << accum_size_per_split[i] << std::endl; 
       }
     }
 
@@ -2081,6 +2099,8 @@ struct contiguous_split_state {
     // occupancy.
     auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
     // TODO: should probably call this something differently instead of just chunks.
+    std::cout << "num src bufs * splits is: " << num_bufs <<std::endl;
+    std::cout << "num src bufs is: " << num_src_bufs <<std::endl;
     rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
     auto& d_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
     thrust::transform(
