@@ -692,8 +692,6 @@ class metadata_builder {
     detail::metadata_builder_impl* impl;
 };
 
-namespace chunked {
-
 namespace detail {
   struct contiguous_split_state;
 };
@@ -708,6 +706,8 @@ class chunked_contiguous_split {
 
     ~chunked_contiguous_split();
 
+    [[nodiscard]] std::size_t get_total_contiguous_size() const;
+
     [[nodiscard]] bool has_next() const;
 
     [[nodiscard]] std::size_t next();
@@ -717,26 +717,12 @@ class chunked_contiguous_split {
   private:
     // internal state of contiguous split
     std::unique_ptr<detail::contiguous_split_state> state;
-};
+  };
 
-class contiguous_split {
-  public:
-    explicit contiguous_split(
-        cudf::table_view const& input,
-        std::vector<size_type> const& splits,
-        rmm::cuda_stream_view stream,
-        rmm::mr::device_memory_resource* mr);
-
-    ~contiguous_split();
-
-    [[nodiscard]] std::vector<packed_table> make_packed_tables() const;
-
-  private:
-    // internal state of contiguous split
-    std::unique_ptr<detail::contiguous_split_state> state;
-};
-
-};
+std::unique_ptr<chunked_contiguous_split> make_chunked_contiguous_split(
+  cudf::table_view const& input,
+  cudf::device_span<uint8_t> const& user_buffer,
+  rmm::mr::device_memory_resource* mr);
 
 /**
  * @brief Deep-copy a `table_view` into a serialized contiguous memory format
