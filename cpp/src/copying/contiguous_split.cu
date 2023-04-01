@@ -1882,7 +1882,7 @@ void copy_data_regular(rmm::device_uvector<thrust::pair<std::size_t, std::size_t
                        int num_chunks_to_copy,
                        uint8_t const** d_src_bufs,
                        uint8_t** d_dst_bufs,
-                       dst_buf_info* _d_dst_buf_info,
+                       dst_buf_info* _d_dst_buf_info, // TODO: whey is there a _d_dst_buf_info
                        rmm::device_uvector<dst_buf_info>& d_dst_buf_info,
                        rmm::cuda_stream_view stream)
 {
