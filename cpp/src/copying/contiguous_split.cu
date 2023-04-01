@@ -652,6 +652,56 @@ std::pair<src_buf_info*, size_type> setup_source_buf_info(InputIter begin,
   return {current, offset_stack_pos};
 }
 
+template <typename BufInfo>
+BufInfo build_output_column_metadata(column_view const& src,
+                                     BufInfo current_info,
+                                     uint8_t const* const base_ptr,
+                                     metadata_builder& mb,
+                                     bitmask_type const*& bitmask_ptr,
+                                     size_type& null_count)
+{
+  auto [bitmask_offset, _null_count] = [&]() {
+    // -1 means nullptr
+    if (src.nullable()) {
+      // TODO: so, offsets in the existing metadata are int64_t's
+      // but here they are std::size_t
+      int64_t const bitmask_offset =
+        current_info->num_elements == 0
+          ? (int64_t) -1 
+          : (int64_t) current_info->dst_offset;
+      
+      size_type const null_count = current_info->num_elements == 0
+                                ? 0
+                                : (current_info->num_rows - current_info->valid_count);
+      ++current_info;
+      return std::pair(bitmask_offset, null_count);
+    }
+    return std::pair((int64_t) -1, 0);
+  }();
+
+  bitmask_ptr = base_ptr != nullptr && bitmask_offset != -1 
+                ? reinterpret_cast<bitmask_type const*>(base_ptr + bitmask_offset)
+                : nullptr;
+
+  null_count = _null_count;
+
+  // size/data pointer for the column
+  auto const size = current_info->num_elements;
+  int64_t const data_offset =
+    src.num_children() > 0 || size == 0 || src.head() == nullptr 
+      ? (int64_t) -1 
+      : (int64_t)current_info->dst_offset;
+
+  mb.add_column_to_meta(src.type(),
+                        (size_type)size,
+                        (size_type)_null_count,
+                        data_offset,
+                        bitmask_offset,
+                        src.num_children());
+
+  return current_info;
+}
+
 /**
  * @brief Given a set of input columns and processed split buffers, produce
  * output columns.
@@ -677,25 +727,17 @@ BufInfo build_output_columns(InputIter begin,
                              InputIter end,
                              BufInfo info_begin,
                              Output out_begin,
-                             uint8_t const* const base_ptr)
+                             uint8_t const* const base_ptr,
+                             metadata_builder& mb)
 {
   auto current_info = info_begin;
-  std::transform(begin, end, out_begin, [&current_info, base_ptr](column_view const& src) {
-    auto [bitmask_ptr, null_count] = [&]() {
-      if (src.nullable()) {
-        auto const ptr =
-          current_info->num_elements == 0
-            ? nullptr
-            : reinterpret_cast<bitmask_type const*>(base_ptr + current_info->dst_offset);
-        
-        auto const null_count = current_info->num_elements == 0
-                                  ? 0
-                                  : (current_info->num_rows - current_info->valid_count);
-        ++current_info;
-        return std::pair(ptr, null_count);
-      }
-      return std::pair(static_cast<bitmask_type const*>(nullptr), 0);
-    }();
+  std::transform(begin, end, out_begin, [&current_info, base_ptr, &mb](column_view const& src) {
+    bitmask_type const * bitmask_ptr;
+    size_type null_count;
+
+    current_info = 
+      build_output_column_metadata<BufInfo>(
+        src, current_info, base_ptr, mb, bitmask_ptr, null_count);
 
     // size/data pointer for the column
     auto const size = current_info->num_elements;
@@ -708,9 +750,21 @@ BufInfo build_output_columns(InputIter begin,
     children.reserve(src.num_children());
 
     current_info = build_output_columns(
-      src.child_begin(), src.child_end(), current_info, std::back_inserter(children), base_ptr);
+      src.child_begin(), 
+      src.child_end(), 
+      current_info, 
+      std::back_inserter(children), 
+      base_ptr, 
+      mb);
 
-    return column_view{src.type(), size, data_ptr, bitmask_ptr, null_count, 0, std::move(children)};
+    return column_view{
+      src.type(), 
+      size, 
+      data_ptr, 
+      bitmask_ptr, 
+      null_count, 
+      0, 
+      std::move(children)};
   });
 
   return current_info;
@@ -1905,16 +1959,23 @@ struct contiguous_split_state {
     auto cur_dst_buf_info = h_dst_buf_info;
     for (std::size_t idx = 0; idx < num_partitions; idx++) {
       // traverse the buffers and build the columns.
+      // add the base pointer. With the base pointer, the metadata builder can build columns
+      // TODO: metadata_builder mb(input.num_columns(), h_dst_bufs[idx]);
+      metadata_builder mb(input.num_columns());
       cur_dst_buf_info = cudf::build_output_columns(
-        input.begin(), input.end(), cur_dst_buf_info, std::back_inserter(cols), h_dst_bufs[idx]);
+        input.begin(), 
+        input.end(), 
+        cur_dst_buf_info, 
+        std::back_inserter(cols), 
+        h_dst_bufs[idx], 
+        mb);
 
       // pack the columns
       cudf::table_view t{cols};
       result.push_back(packed_table{
         t,
         packed_columns{
-          std::make_unique<packed_columns::metadata>(cudf::pack_metadata(
-            t, reinterpret_cast<uint8_t const*>(out_buffers[idx].data()), out_buffers[idx].size())),
+          std::make_unique<packed_columns::metadata>(mb.build()),
           std::make_unique<rmm::device_buffer>(std::move(out_buffers[idx]))}});
 
       cols.clear();
@@ -1972,6 +2033,15 @@ struct contiguous_split_state {
   std::vector<rmm::device_buffer> out_buffers;
 };
 
+std::vector<packed_table> contiguous_split(cudf::table_view const& input,
+                                           std::vector<size_type> const& splits,
+                                           rmm::cuda_stream_view stream,
+                                           rmm::mr::device_memory_resource* mr)
+{
+  auto state = contiguous_split_state(input, splits, stream, mr);
+  return state.contiguous_split();
+}
+
 };  // namespace detail
 
 std::vector<packed_table> contiguous_split(cudf::table_view const& input,
@@ -1979,11 +2049,8 @@ std::vector<packed_table> contiguous_split(cudf::table_view const& input,
                                            rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
-  auto state = detail::contiguous_split_state(
-    input, splits, cudf::get_default_stream(), mr);
-  return state.contiguous_split();
+  return detail::contiguous_split(input, splits, cudf::get_default_stream(), mr);
 }
-
 
 chunked_contiguous_split::chunked_contiguous_split(cudf::table_view const& input,
                                                    cudf::device_span<uint8_t> const& user_buffer,
