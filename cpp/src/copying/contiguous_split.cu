@@ -653,14 +653,12 @@ std::pair<src_buf_info*, size_type> setup_source_buf_info(InputIter begin,
 }
 
 template <typename BufInfo>
-BufInfo build_output_column_metadata(column_view const& src,
-                                     BufInfo current_info,
-                                     uint8_t const* const base_ptr,
-                                     metadata_builder& mb,
-                                     bitmask_type const*& bitmask_ptr,
-                                     size_type& null_count)
+std::tuple<size_type, int64_t, int64_t, size_type> build_output_column_metadata(
+  column_view const& src,
+  BufInfo& current_info,
+  metadata_builder& mb)
 {
-  auto [bitmask_offset, _null_count] = [&]() {
+  auto [bitmask_offset, null_count] = [&]() {
     // -1 means nullptr
     if (src.nullable()) {
       // TODO: so, offsets in the existing metadata are int64_t's
@@ -678,28 +676,23 @@ BufInfo build_output_column_metadata(column_view const& src,
     }
     return std::pair((int64_t) -1, 0);
   }();
-
-  bitmask_ptr = base_ptr != nullptr && bitmask_offset != -1 
-                ? reinterpret_cast<bitmask_type const*>(base_ptr + bitmask_offset)
-                : nullptr;
-
-  null_count = _null_count;
-
+  
   // size/data pointer for the column
-  auto const size = current_info->num_elements;
+  auto col_size = current_info->num_elements;
   int64_t const data_offset =
-    src.num_children() > 0 || size == 0 || src.head() == nullptr 
+    src.num_children() > 0 || col_size == 0 || src.head() == nullptr 
       ? (int64_t) -1 
       : (int64_t)current_info->dst_offset;
 
   mb.add_column_to_meta(src.type(),
-                        (size_type)size,
-                        (size_type)_null_count,
+                        (size_type)col_size,
+                        (size_type)null_count,
                         data_offset,
                         bitmask_offset,
                         src.num_children());
 
-  return current_info;
+  ++current_info;
+  return std::make_tuple(col_size, data_offset, bitmask_offset, null_count);
 }
 
 /**
@@ -732,18 +725,19 @@ BufInfo build_output_columns(InputIter begin,
 {
   auto current_info = info_begin;
   std::transform(begin, end, out_begin, [&current_info, base_ptr, &mb](column_view const& src) {
-    bitmask_type const * bitmask_ptr;
-    size_type null_count;
+    size_type col_size, null_count;
+    int64_t bitmask_offset;
+    int64_t data_offset;
+    std::tie(col_size, data_offset, bitmask_offset, null_count) =
+      build_output_column_metadata<BufInfo>(src, current_info, mb);
 
-    current_info = 
-      build_output_column_metadata<BufInfo>(
-        src, current_info, base_ptr, mb, bitmask_ptr, null_count);
+    auto bitmask_ptr = base_ptr != nullptr && bitmask_offset != -1
+                         ? reinterpret_cast<bitmask_type const*>(base_ptr + bitmask_offset)
+                         : nullptr;
 
     // size/data pointer for the column
-    auto const size = current_info->num_elements;
     uint8_t const* data_ptr =
-      size == 0 || src.head() == nullptr ? nullptr : base_ptr + current_info->dst_offset;
-    ++current_info;
+      col_size == 0 || src.head() == nullptr ? nullptr : base_ptr + data_offset;
 
     // children
     auto children = std::vector<column_view>{};
@@ -759,7 +753,7 @@ BufInfo build_output_columns(InputIter begin,
 
     return column_view{
       src.type(), 
-      size, 
+      col_size, 
       data_ptr, 
       bitmask_ptr, 
       null_count, 
@@ -904,36 +898,7 @@ BufInfo build_output_columns(InputIter begin,
 {
   auto current_info = info_begin;
   std::for_each(begin, end, [&current_info, &mb](column_view const& src) {
-    auto [bitmask_offset, null_count] = [&]() {
-      if (src.nullable()) {
-        auto const ptr =
-          current_info->num_elements == 0
-            ? 0 
-            // TODO: ask: why is this ptr the same as data_ptr?
-            : current_info->dst_offset;
-        auto const null_count = current_info->num_elements == 0
-                                  ? 0
-                                  : (current_info->num_rows - current_info->valid_count);
-        ++current_info;
-        return std::pair((int64_t)ptr, null_count);
-      }
-      return std::pair((int64_t)0, 0);
-    }();
-
-    // size/data pointer for the column
-    auto const size = current_info->num_elements;
-    int64_t data_offset =
-      size == 0 || src.head() == nullptr ? 0 : current_info->dst_offset;
-    
-    mb.add_column_to_meta(
-      src.type(), 
-      (size_type) size, 
-      (size_type) null_count, 
-      src.num_children() > 0 ? -1 : data_offset,
-      src.nullable() == 0 ? -1 : bitmask_offset,
-      src.num_children());
-
-    ++current_info;
+    build_output_column_metadata<BufInfo>(src, current_info, mb);
 
     // children
     current_info = build_output_columns(src.child_begin(), src.child_end(), current_info, mb);
