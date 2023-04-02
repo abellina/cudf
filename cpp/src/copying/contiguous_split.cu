@@ -765,6 +765,42 @@ BufInfo build_output_columns(InputIter begin,
 }
 
 /**
+ * @brief Given a set of input columns, processed split buffers, and a metadata_builder,
+ * append column metadata using the builder.
+ *
+ * After performing the split we are left with 1 large buffer per incoming split
+ * partition.  We need to traverse this buffer and distribute the individual
+ * subpieces that represent individual columns and children to produce the final
+ * output columns.
+ *
+ * This function is called recursively in the case of nested types.
+ *
+ * @param begin Beginning of input columns
+ * @param end End of input columns
+ * @param info_begin Iterator of dst_buf_info structs containing information about each
+ * copied buffer
+ * @param mb packed column metadata builder
+ *
+ * @returns new dst_buf_info iterator after processing this range of input columns
+ */
+template <typename InputIter, typename BufInfo>
+BufInfo build_output_columns(InputIter begin,
+                             InputIter end,
+                             BufInfo info_begin,
+                             metadata_builder& mb)
+{
+  auto current_info = info_begin;
+  std::for_each(begin, end, [&current_info, &mb](column_view const& src) {
+    build_output_column_metadata<BufInfo>(src, current_info, mb);
+
+    // children
+    current_info = build_output_columns(src.child_begin(), src.child_end(), current_info, mb);
+  });
+
+  return current_info;
+}
+
+/**
  * @brief Functor that retrieves the size of a destination buffer
  */
 struct buf_size_functor {
@@ -866,46 +902,6 @@ struct num_chunks_func {
   thrust::pair<std::size_t, std::size_t> const* chunks;
   __device__ std::size_t operator()(size_type i) const { return thrust::get<0>(chunks[i]); }
 };
-
-};  // anonymous namespace
-
-namespace {
-
-/**
- * @brief Given a set of input columns, processed split buffers, and a metadata_builder,
- * append column metadata using the builder.
- *
- * After performing the split we are left with 1 large buffer per incoming split
- * partition.  We need to traverse this buffer and distribute the individual
- * subpieces that represent individual columns and children to produce the final
- * output columns.
- *
- * This function is called recursively in the case of nested types.
- *
- * @param begin Beginning of input columns
- * @param end End of input columns
- * @param info_begin Iterator of dst_buf_info structs containing information about each
- * copied buffer
- * @param mb packed column metadata builder
- *
- * @returns new dst_buf_info iterator after processing this range of input columns
- */
-template <typename InputIter, typename BufInfo>
-BufInfo build_output_columns(InputIter begin,
-                             InputIter end,
-                             BufInfo info_begin,
-                             metadata_builder& mb)
-{
-  auto current_info = info_begin;
-  std::for_each(begin, end, [&current_info, &mb](column_view const& src) {
-    build_output_column_metadata<BufInfo>(src, current_info, mb);
-
-    // children
-    current_info = build_output_columns(src.child_begin(), src.child_end(), current_info, mb);
-  });
-
-  return current_info;
-}
 
 /**
  * @brief Get the size in bytes of a chunk described by `dst_buf_info`.
@@ -1717,74 +1713,6 @@ struct contiguous_split_state {
     computed_chunks = std::make_unique<chunk_infos>(std::move(chunks), std::move(chunk_offsets));
   }
 
-  // TODO: could we merge this with the regular packed columns?
-  std::vector<packed_columns::metadata> make_empty_column_metadata(cudf::table_view const& input,
-                                                                   std::size_t num_partitions)
-  {
-    // TODO: ASK: why needed? sanitize the inputs (to handle corner cases like sliced tables)
-    std::size_t empty_num_partitions = num_partitions;
-    std::vector<std::unique_ptr<column>> empty_columns;
-    empty_columns.reserve(input.num_columns());
-    std::transform(
-      input.begin(), input.end(), std::back_inserter(empty_columns), [](column_view const& col) {
-        return cudf::empty_like(col);  // return new empty column
-      });
-    std::vector<cudf::column_view> empty_column_views;
-    empty_column_views.reserve(input.num_columns());
-    std::transform(empty_columns.begin(),
-                   empty_columns.end(),
-                   std::back_inserter(empty_column_views),
-                   [](std::unique_ptr<column> const& col) { return col->view(); });
-    table_view empty_inputs(empty_column_views);
-
-    // build the empty results
-    std::vector<packed_columns::metadata> result;
-    result.reserve(empty_num_partitions);
-    auto iter = thrust::make_counting_iterator(0);
-    std::transform(iter,
-                   iter + empty_num_partitions,
-                   std::back_inserter(result),
-                   [&empty_inputs](int partition_index) {
-                     return cudf::pack_metadata(
-                       empty_inputs, static_cast<uint8_t const*>(nullptr), 0);
-                   });
-    return result;
-  }
-
-  std::vector<packed_columns::metadata> make_packed_column_metadata(cudf::table_view const& input,
-                                                                    std::size_t num_partitions)
-  {
-    if (is_empty) { return make_empty_column_metadata(input, num_partitions); }
-    //
-    // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does
-    // so
-    //            by first wrapping everything in column_views and a table_view and then calling
-    //            pack_metadata(). but in the chunked case, we're not going to have real pointers
-    //            or even any backing allocation (which pack_metadata relies on).
-    //
-    // build the output.
-    std::vector<packed_columns::metadata> result;
-    result.reserve(num_partitions);
-
-    auto& h_dst_buf_info  = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
-    auto cur_dst_buf_info = h_dst_buf_info;
-    for (std::size_t idx = 0; idx < num_partitions; idx++) {
-      metadata_builder mb(input.num_columns());
-
-      // traverse the buffers and build the columns.
-      cur_dst_buf_info = build_output_columns(
-        input.begin(),
-        input.end(),
-        cur_dst_buf_info,
-        mb);  // h_dst_bufs[idx]); //TODO: h_dst_bufs also points to out_buffers
-
-      // pack the columns
-      result.push_back(mb.build());
-    }
-
-    return result;
-  }
-
   void prepare_chunked_copy()
   {
     //
@@ -1875,6 +1803,74 @@ struct contiguous_split_state {
               stream);
 
     return state->advance_iteration();
+  }
+
+  // TODO: could we merge this with the regular packed columns?
+  std::vector<packed_columns::metadata> make_empty_column_metadata(cudf::table_view const& input,
+                                                                   std::size_t num_partitions)
+  {
+    // TODO: ASK: why needed? sanitize the inputs (to handle corner cases like sliced tables)
+    std::size_t empty_num_partitions = num_partitions;
+    std::vector<std::unique_ptr<column>> empty_columns;
+    empty_columns.reserve(input.num_columns());
+    std::transform(
+      input.begin(), input.end(), std::back_inserter(empty_columns), [](column_view const& col) {
+        return cudf::empty_like(col);  // return new empty column
+      });
+    std::vector<cudf::column_view> empty_column_views;
+    empty_column_views.reserve(input.num_columns());
+    std::transform(empty_columns.begin(),
+                   empty_columns.end(),
+                   std::back_inserter(empty_column_views),
+                   [](std::unique_ptr<column> const& col) { return col->view(); });
+    table_view empty_inputs(empty_column_views);
+
+    // build the empty results
+    std::vector<packed_columns::metadata> result;
+    result.reserve(empty_num_partitions);
+    auto iter = thrust::make_counting_iterator(0);
+    std::transform(iter,
+                   iter + empty_num_partitions,
+                   std::back_inserter(result),
+                   [&empty_inputs](int partition_index) {
+                     return cudf::pack_metadata(
+                       empty_inputs, static_cast<uint8_t const*>(nullptr), 0);
+                   });
+    return result;
+  }
+
+  std::vector<packed_columns::metadata> make_packed_column_metadata(cudf::table_view const& input,
+                                                                    std::size_t num_partitions)
+  {
+    if (is_empty) { return make_empty_column_metadata(input, num_partitions); }
+    //
+    // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does
+    // so
+    //            by first wrapping everything in column_views and a table_view and then calling
+    //            pack_metadata(). but in the chunked case, we're not going to have real pointers
+    //            or even any backing allocation (which pack_metadata relies on).
+    //
+    // build the output.
+    std::vector<packed_columns::metadata> result;
+    result.reserve(num_partitions);
+
+    auto& h_dst_buf_info  = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
+    auto cur_dst_buf_info = h_dst_buf_info;
+    for (std::size_t idx = 0; idx < num_partitions; idx++) {
+      metadata_builder mb(input.num_columns());
+
+      // traverse the buffers and build the columns.
+      cur_dst_buf_info = build_output_columns(
+        input.begin(),
+        input.end(),
+        cur_dst_buf_info,
+        mb);  // h_dst_bufs[idx]); //TODO: h_dst_bufs also points to out_buffers
+
+      // pack the columns
+      result.push_back(mb.build());
+    }
+
+    return result;
   }
 
   std::vector<packed_table> make_packed_tables()
