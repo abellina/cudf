@@ -1844,28 +1844,19 @@ struct contiguous_split_state {
     return result;
   }
 
-  std::vector<packed_columns::metadata> make_packed_column_metadata()
+  std::unique_ptr<packed_columns::metadata> make_packed_column_metadata()
   {
     CUDF_EXPECTS(num_partitions == 1, 
       "make_packed_column_metadata supported only without splits");
 
-    if (input.num_columns() == 0) { return std::vector<packed_columns::metadata>(); }
+    if (input.num_columns() == 0) { return std::unique_ptr<packed_columns::metadata>(); }
 
-    std::vector<packed_columns::metadata> result(1);
     if (is_empty) { 
       // TODO: super ugly
       std::cout << "before calling make_empty_packed_table" << std::endl;
-      auto meta_ptr = make_empty_packed_table()[0].data.metadata_.get();
-      result[0] = std::move(*meta_ptr);
-      return result;
+      return std::move(make_empty_packed_table()[0].data.metadata_);
     }
-    //
-    // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does
-    // so
-    //            by first wrapping everything in column_views and a table_view and then calling
-    //            pack_metadata(). but in the chunked case, we're not going to have real pointers
-    //            or even any backing allocation (which pack_metadata relies on).
-    //
+
     auto& h_dst_buf_info  = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
     auto cur_dst_buf_info = h_dst_buf_info;
     metadata_builder mb(input.num_columns());
@@ -1873,8 +1864,7 @@ struct contiguous_split_state {
     // traverse the buffers and build the columns.
     build_output_columns(input.begin(), input.end(), cur_dst_buf_info, mb);
 
-    result[0] = std::move(mb.build());
-    return result;
+    return std::make_unique<packed_columns::metadata>(std::move(mb.build()));
   }
 
   std::vector<packed_table> make_packed_tables()
@@ -2005,7 +1995,7 @@ std::size_t chunked_contiguous_split::next()
   return state->contigous_split_chunk();
 }
 
-std::vector<packed_columns::metadata> chunked_contiguous_split::make_packed_columns() const
+std::unique_ptr<packed_columns::metadata> chunked_contiguous_split::make_packed_columns() const
 {
   return state->make_packed_column_metadata();
 }
