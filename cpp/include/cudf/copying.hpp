@@ -712,7 +712,7 @@ class chunked_contiguous_split {
 
     [[nodiscard]] std::size_t next();
 
-    [[nodiscard]] std::vector<packed_columns::metadata> make_packed_columns() const;
+    [[nodiscard]] std::unique_ptr<packed_columns::metadata> make_packed_columns() const;
 
   private:
     // internal state of contiguous split
