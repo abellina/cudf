@@ -1202,7 +1202,7 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
   if (packed_column_metas) {
     result = std::vector<cudf::packed_table>(1);
     auto pc = cudf::packed_columns(
-      std::make_unique<cudf::packed_columns::metadata>(std::move(packed_column_metas)),
+      std::move(packed_column_metas),
       std::make_unique<rmm::device_buffer>(std::move(final_buff)));
 
     // TODO: revisit unpack iterface passing the packed_columns themselves
