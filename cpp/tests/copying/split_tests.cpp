@@ -1196,14 +1196,15 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
     std::cout << "copied in this iteration: " << bytes_copied << ". have next? " << cs->has_next() << std::endl;
     final_buff_offset += bytes_copied;
   }
-  auto packed_column_metas = cs->make_packed_columns();
 
+  auto packed_column_metas = cs->make_packed_columns();
   // for chunked contig split, this is going to be a size 1 vector if we have
   // results, or a size 0 if the original table was empty (no columns)
-  std::vector<cudf::packed_table> result(packed_column_metas.size());
-  if (result.size() == 1) {
+  std::vector<cudf::packed_table> result;
+  if (packed_column_metas) {
+    result = std::vector<cudf::packed_table>(1);
     auto pc = cudf::packed_columns(
-      std::make_unique<cudf::packed_columns::metadata>(std::move(packed_column_metas[0])),
+      std::make_unique<cudf::packed_columns::metadata>(std::move(packed_column_metas)),
       std::make_unique<rmm::device_buffer>(std::move(final_buff)));
 
     // TODO: revisit unpack iterface passing the packed_columns themselves
