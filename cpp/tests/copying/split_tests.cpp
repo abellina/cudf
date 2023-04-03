@@ -1195,19 +1195,24 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
     final_buff_offset += bytes_copied;
   }
   auto packed_column_metas = cs->make_packed_columns();
-  auto pc = cudf::packed_columns(
-    std::make_unique<cudf::packed_columns::metadata>(std::move(packed_column_metas)), 
-    std::make_unique<rmm::device_buffer>(std::move(final_buff)));
 
-  // TODO: revisit unpack iterface passing the packed_columns themselves
-  auto unpacked = cudf::unpack(pc);
+  // for chunked contig split, this is going to be a size 1 vector if we have
+  // results, or a size 0 if the original table was empty (no columns)
+  std::vector<cudf::packed_table> result(packed_column_metas.size());
+  if (result.size() == 1) {
+    auto pc = cudf::packed_columns(
+      std::make_unique<cudf::packed_columns::metadata>(std::move(packed_column_metas[0])),
+      std::make_unique<rmm::device_buffer>(std::move(final_buff)));
 
-  std::vector<cudf::packed_table> result(1);
-  cudf::packed_table pt{std::move(unpacked), std::move(pc)};
-  result[0] = std::move(pt);
+    // TODO: revisit unpack iterface passing the packed_columns themselves
+    auto unpacked = cudf::unpack(pc);
 
-  std::cout << "done unpacking" << std::endl;
-
+    cudf::packed_table pt{std::move(unpacked), std::move(pc)};
+    std::cout << "got a table with " << pt.table.num_columns() << " cols" << std::endl;
+    std::cout << pt.table.num_columns() << std::endl;
+    result[0] = std::move(pt);
+    std::cout << "done unpacking" << std::endl;
+  }
   return result;
 }
 
