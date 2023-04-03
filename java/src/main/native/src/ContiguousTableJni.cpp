@@ -21,8 +21,12 @@ namespace {
 #define CONTIGUOUS_TABLE_CLASS "ai/rapids/cudf/ContiguousTable"
 #define CONTIGUOUS_TABLE_FACTORY_SIG(param_sig) "(" param_sig ")L" CONTIGUOUS_TABLE_CLASS ";"
 
+#define PACKED_COLUMNS_META_CLASS "ai/rapids/cudf/PackedColumnsMetadata"
+#define PACKED_COLUMNS_META_FACTORY_SIG(param_sig) "(" param_sig ")L" PACKED_COLUMNS_META_CLASS ";"
+
 jclass Contiguous_table_jclass;
 jmethodID From_packed_table_method;
+jmethodID From_packed_column_meta_method;
 
 #define GROUP_BY_RESULT_CLASS "ai/rapids/cudf/ContigSplitGroupByResult"
 jclass Contig_split_group_by_result_jclass;
@@ -43,6 +47,12 @@ bool cache_contiguous_table_jni(JNIEnv *env) {
   From_packed_table_method =
       env->GetStaticMethodID(cls, "fromPackedTable", CONTIGUOUS_TABLE_FACTORY_SIG("JJJJJ"));
   if (From_packed_table_method == nullptr) {
+    return false;
+  }
+
+  From_packed_column_meta_method =
+      env->GetStaticMethodID(cls, "fromPackedColumnMeta", PACKED_COLUMNS_META_FACTORY_SIG("J"));
+  if (From_packed_column_meta_method == nullptr) {
     return false;
   }
 
@@ -123,6 +133,13 @@ jobject contiguous_table_from(JNIEnv *env, cudf::packed_columns &split, long row
   }
 
   return contig_table_obj;
+}
+
+jobject packed_column_metadata_from(JNIEnv *env,
+                                    std::unique_ptr<cudf::packed_columns::metadata> split) {
+  jlong metadata_address = reinterpret_cast<jlong>(split.release());
+  return env->CallStaticObjectMethod(Contiguous_table_jclass, From_packed_column_meta_method,
+                                     metadata_address);
 }
 
 native_jobjectArray<jobject> contiguous_table_array(JNIEnv *env, jsize length) {
