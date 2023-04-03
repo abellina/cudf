@@ -3157,6 +3157,72 @@ JNIEXPORT jobjectArray JNICALL Java_ai_rapids_cudf_Table_contiguousSplit(JNIEnv 
   CATCH_STD(env, NULL);
 }
 
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_makeChunkedContiguousSplit(
+    JNIEnv *env, jclass, jlong input_table, jlong user_ptr, jlong user_ptr_size) {
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::table_view *n_table = reinterpret_cast<cudf::table_view *>(input_table);
+
+    auto user_buffer_span = cudf::device_span<uint8_t>(user_ptr, user_ptr_size);
+    auto mr = rmm::mr::get_current_device_resource();
+    auto chunked_contig_split = 
+      cudf::make_chunked_contiguous_split(*n_table, user_buffer_span, mr);
+    return chunked_contig_split.release();
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_chunkedContiguousSplitSize(
+    JNIEnv *env, jclass, jlong chunked_contig_split) {
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto cs = reinterpret_cast<chunked_contiguous_split>(chunked_contig_split);
+    return cs->get_total_contiguous_size();
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jboolean JNICALL Java_ai_rapids_cudf_Table_chunkedContiguousSplitHasNext(
+    JNIEnv *env, jclass, jlong chunked_contig_split) {
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto cs = reinterpret_cast<chunked_contiguous_split>(chunked_contig_split);
+    return cs->has_next();
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_chunkedContiguousSplitNext(
+    JNIEnv *env, jclass, jlong chunked_contig_split) {
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto cs = reinterpret_cast<chunked_contiguous_split>(chunked_contig_split);
+    return cs->next();
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jobject JNICALL Java_ai_rapids_cudf_Table_chunkedContiguousSplitMakePackedColumns(
+    JNIEnv *env, jclass, jlong chunked_contig_split) {
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    auto cs = reinterpret_cast<chunked_contiguous_split>(chunked_contig_split);
+    std::unique_ptr<packed_columns::metadata> result = cs->make_packed_columns();
+    return cudf::jni::packed_column_metadata_from(env, std::move(result));
+  }
+  CATCH_STD(env, NULL);
+}
+
 JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_rollingWindowAggregate(
     JNIEnv *env, jclass, jlong j_input_table, jintArray j_keys, jlongArray j_default_output,
     jintArray j_aggregate_column_indices, jlongArray j_agg_instances, jintArray j_min_periods,
