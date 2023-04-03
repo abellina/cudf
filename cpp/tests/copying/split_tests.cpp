@@ -1196,7 +1196,7 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
   }
   auto packed_column_metas = cs->make_packed_columns();
   auto pc = cudf::packed_columns(
-    std::make_unique<cudf::packed_columns::metadata>(std::move(packed_column_metas[0])), 
+    std::make_unique<cudf::packed_columns::metadata>(std::move(packed_column_metas)), 
     std::make_unique<rmm::device_buffer>(std::move(final_buff)));
 
   // TODO: revisit unpack iterface passing the packed_columns themselves
@@ -1583,6 +1583,13 @@ TEST_F(ContiguousSplitTableCornerCases, EmptyTable)
 {
   split_empty_table([](cudf::table_view const& t, std::vector<cudf::size_type> const& splits) {
     return cudf::contiguous_split(t, splits);
+  });
+}
+
+TEST_F(ContiguousSplitTableCornerCases, EmptyTableChunked)
+{
+  split_empty_table([](cudf::table_view const& t, std::vector<cudf::size_type> const& splits) {
+    return do_chunked_contiguous_split(t);
   });
 }
 

@@ -1568,10 +1568,9 @@ struct contiguous_split_state {
     num_partitions = get_num_partitions(splits);
     num_src_bufs   = count_src_bufs(input.begin(), input.end());
     num_bufs       = num_src_bufs * num_partitions;
-    if (is_empty) {
-      packed_metadata = make_empty_column_metadata(input, num_partitions);
-      return;
-    }
+    
+    if (is_empty) { return; }
+    
     auto split_indices_and_src_buf_infos =
       std::make_unique<detail::packed_split_indices_and_src_buf_info>(
         input, splits, num_partitions, num_src_bufs, stream, mr);
@@ -1608,7 +1607,6 @@ struct contiguous_split_state {
     src_and_dst_pointers->copy_to_device();
 
     compute_chunks();
-    packed_metadata = make_packed_column_metadata(input, num_partitions);
     prepare_chunked_copy();
   }
 
@@ -1621,11 +1619,6 @@ struct contiguous_split_state {
       total += state->h_size_of_buffs_per_key[i];
     }
     return total;
-  }
-
-  std::vector<packed_columns::metadata> const& get_packed_metadata() const
-  {
-    return packed_metadata;
   }
 
   void compute_chunks()
@@ -1805,17 +1798,13 @@ struct contiguous_split_state {
     return state->advance_iteration();
   }
 
-  // TODO: could we merge this with the regular packed columns?
-  std::vector<packed_columns::metadata> make_empty_column_metadata(cudf::table_view const& input,
-                                                                   std::size_t num_partitions)
-  {
-    // TODO: ASK: why needed? sanitize the inputs (to handle corner cases like sliced tables)
-    std::size_t empty_num_partitions = num_partitions;
+  std::vector<packed_table> make_empty_packed_table() {
+    // sanitize the inputs (to handle corner cases like sliced tables)
     std::vector<std::unique_ptr<column>> empty_columns;
     empty_columns.reserve(input.num_columns());
     std::transform(
       input.begin(), input.end(), std::back_inserter(empty_columns), [](column_view const& col) {
-        return cudf::empty_like(col);  // return new empty column
+        return cudf::empty_like(col);
       });
     std::vector<cudf::column_view> empty_column_views;
     empty_column_views.reserve(input.num_columns());
@@ -1826,23 +1815,34 @@ struct contiguous_split_state {
     table_view empty_inputs(empty_column_views);
 
     // build the empty results
-    std::vector<packed_columns::metadata> result;
-    result.reserve(empty_num_partitions);
+    std::vector<packed_table> result;
+    result.reserve(num_partitions);
     auto iter = thrust::make_counting_iterator(0);
     std::transform(iter,
-                   iter + empty_num_partitions,
+                   iter + num_partitions,
                    std::back_inserter(result),
                    [&empty_inputs](int partition_index) {
-                     return cudf::pack_metadata(
-                       empty_inputs, static_cast<uint8_t const*>(nullptr), 0);
+                     return packed_table{
+                       empty_inputs,
+                       packed_columns{std::make_unique<packed_columns::metadata>(pack_metadata(
+                                        empty_inputs, static_cast<uint8_t const*>(nullptr), 0)),
+                                      std::make_unique<rmm::device_buffer>()}};
                    });
+
     return result;
   }
 
-  std::vector<packed_columns::metadata> make_packed_column_metadata(cudf::table_view const& input,
-                                                                    std::size_t num_partitions)
+  packed_columns::metadata make_packed_column_metadata()
   {
-    if (is_empty) { return make_empty_column_metadata(input, num_partitions); }
+    CUDF_EXPECTS(num_partitions == 1, 
+      "make_packed_column_metadata supported only without splits");
+
+    if (input.num_columns() == 0) { return packed_columns::metadata(); }
+    if (is_empty) { 
+      // TODO: super ugly
+      auto meta_ptr = make_empty_packed_table()[0].data.metadata_.get();
+      return std::move(*meta_ptr);
+    }
     //
     // CHUNKED E: This is a little ugly.  This is the code that produces the metadata, but it does
     // so
@@ -1850,65 +1850,20 @@ struct contiguous_split_state {
     //            pack_metadata(). but in the chunked case, we're not going to have real pointers
     //            or even any backing allocation (which pack_metadata relies on).
     //
-    // build the output.
-    std::vector<packed_columns::metadata> result;
-    result.reserve(num_partitions);
-
     auto& h_dst_buf_info  = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
     auto cur_dst_buf_info = h_dst_buf_info;
-    for (std::size_t idx = 0; idx < num_partitions; idx++) {
-      metadata_builder mb(input.num_columns());
+    metadata_builder mb(input.num_columns());
 
-      // traverse the buffers and build the columns.
-      cur_dst_buf_info = build_output_columns(
-        input.begin(),
-        input.end(),
-        cur_dst_buf_info,
-        mb);  // h_dst_bufs[idx]); //TODO: h_dst_bufs also points to out_buffers
+    // traverse the buffers and build the columns.
+    build_output_columns(input.begin(), input.end(), cur_dst_buf_info, mb);
 
-      // pack the columns
-      result.push_back(mb.build());
-    }
-
-    return result;
+    return mb.build();
   }
 
   std::vector<packed_table> make_packed_tables()
   {
     if (input.num_columns() == 0) { return std::vector<packed_table>(); }
-    if (is_empty) {
-      // sanitize the inputs (to handle corner cases like sliced tables)
-      std::vector<std::unique_ptr<column>> empty_columns;
-      empty_columns.reserve(input.num_columns());
-      std::transform(
-        input.begin(), input.end(), std::back_inserter(empty_columns), [](column_view const& col) {
-          return cudf::empty_like(col);
-        });
-      std::vector<cudf::column_view> empty_column_views;
-      empty_column_views.reserve(input.num_columns());
-      std::transform(empty_columns.begin(),
-                     empty_columns.end(),
-                     std::back_inserter(empty_column_views),
-                     [](std::unique_ptr<column> const& col) { return col->view(); });
-      table_view empty_inputs(empty_column_views);
-
-      // build the empty results
-      std::vector<packed_table> result;
-      result.reserve(num_partitions);
-      auto iter = thrust::make_counting_iterator(0);
-      std::transform(iter,
-                     iter + num_partitions,
-                     std::back_inserter(result),
-                     [&empty_inputs](int partition_index) {
-                       return packed_table{
-                         empty_inputs,
-                         packed_columns{std::make_unique<packed_columns::metadata>(pack_metadata(
-                                          empty_inputs, static_cast<uint8_t const*>(nullptr), 0)),
-                                        std::make_unique<rmm::device_buffer>()}};
-                     });
-
-      return result;
-    }
+    if (is_empty){ return make_empty_packed_table(); }
     std::vector<packed_table> result;
     result.reserve(num_partitions);
     std::vector<column_view> cols;
@@ -1972,9 +1927,6 @@ struct contiguous_split_state {
   // TODO: ask: empty columns vs columns but no rows
   bool is_empty;
 
-  // we compute the packed_metata on initialization and store it here
-  std::vector<packed_columns::metadata> packed_metadata;
-
   std::unique_ptr<iteration_state> state;
 
   // two result buffer types are allowed:
@@ -2035,9 +1987,9 @@ std::size_t chunked_contiguous_split::next()
   return state->contigous_split_chunk();
 }
 
-std::vector<packed_columns::metadata> const& chunked_contiguous_split::make_packed_columns() const
+packed_columns::metadata chunked_contiguous_split::make_packed_columns() const
 {
-  return state->get_packed_metadata();
+  return state->make_packed_column_metadata();
 }
 
 std::unique_ptr<chunked_contiguous_split> make_chunked_contiguous_split(
