@@ -126,6 +126,7 @@ add_library(
   cudfjni
   src/Aggregation128UtilsJni.cpp
   src/AggregationJni.cpp
+  src/ChunkedContiguousSplitJni.cpp
   src/ChunkedReaderJni.cpp
   src/CudfJni.cpp
   src/CudaJni.cpp
