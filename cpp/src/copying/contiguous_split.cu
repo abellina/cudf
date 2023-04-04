@@ -400,7 +400,6 @@ size_type count_src_bufs(InputIter begin, InputIter end)
 {
   auto buf_iter = thrust::make_transform_iterator(begin, [](column_view const& col) {
     auto children_counts = count_src_bufs(col.child_begin(), col.child_end());
-    std::cout << (uint32_t) col.type().id() << ": 1 + " << col.nullable() << " + " << children_counts << std::endl;
     return 1 + (col.nullable() ? 1 : 0) + children_counts;
   });
   return std::accumulate(buf_iter, buf_iter + std::distance(begin, end), 0);
@@ -1322,14 +1321,14 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
       out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
-      printf("in.dst_offset=%i out.dst_offset=%i buf_size=%i calc_size=%i chunk_index=%i chunk_size=%i\n",
-        (int)in.dst_offset, 
-        (int)out.dst_offset, 
-        (int)out.buf_size,
-        (int)util::round_up_unsafe(static_cast<std::size_t>(
-          out.num_elements * out.element_size), split_align),
-        (int)chunk_index, 
-        (int)chunk_size);
+      //printf("in.dst_offset=%i out.dst_offset=%i buf_size=%i calc_size=%i chunk_index=%i chunk_size=%i\n",
+      //  (int)in.dst_offset, 
+      //  (int)out.dst_offset, 
+      //  (int)out.buf_size,
+      //  (int)util::round_up_unsafe(static_cast<std::size_t>(
+      //    out.num_elements * out.element_size), split_align),
+      //  (int)chunk_index, 
+      //  (int)chunk_size);
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
@@ -1570,14 +1569,11 @@ struct contiguous_split_state {
       user_provided_out_buffer(user_buffer),
       user_provided_out_buffer_size(user_buffer_size)
   {
-    std::cout << "at constructor..." << std::endl;
     is_empty       = check_inputs(input, splits);
     num_partitions = get_num_partitions(splits);
     num_src_bufs   = count_src_bufs(input.begin(), input.end());
     num_bufs       = num_src_bufs * num_partitions;
 
-    std::cout << "is empty? " << is_empty << std::endl;
-    
     if (is_empty) { return; }
     
     partition_buf_size_and_dst_buf_info =
@@ -1669,8 +1665,6 @@ struct contiguous_split_state {
     // occupancy.
     auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
     // TODO: should probably call this something differently instead of just chunks.
-    std::cout << "num src bufs * splits is: " << num_bufs <<std::endl;
-    std::cout << "num src bufs is: " << num_src_bufs <<std::endl;
     rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
     auto& d_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
     thrust::transform(
@@ -1733,8 +1727,6 @@ struct contiguous_split_state {
       0, num_chunks_func{computed_chunks->chunks.begin()});
     size_type const new_buf_count = thrust::reduce(
       rmm::exec_policy(stream), num_chunks, num_chunks + computed_chunks->chunks.size());
-
-    std::cout << "num chunks is: " << new_buf_count << std::endl;
 
     state = get_dst_buf_info(computed_chunks->chunks,
                              computed_chunks->chunk_offsets,
@@ -1838,8 +1830,6 @@ struct contiguous_split_state {
                                         empty_inputs, static_cast<uint8_t const*>(nullptr), 0)),
                                       std::make_unique<rmm::device_buffer>()}};
                    });
-
-    std::cout << "returning result. " << std::endl;
 
     return result;
   }
@@ -1978,7 +1968,6 @@ chunked_contiguous_split::chunked_contiguous_split(cudf::table_view const& input
                                                    rmm::mr::device_memory_resource* mr)
 {
   state = std::make_unique<detail::contiguous_split_state>(input, user_buffer, stream, mr);
-  std::cout << "done constructing the state" << std::endl;
 }
 
 // required for the unique_ptr to work with a non-complete type (contiguous_split_state)
