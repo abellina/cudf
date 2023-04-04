@@ -3139,7 +3139,7 @@ public class TableTest extends CudfTestBase {
         .build();
         DeviceMemoryBuffer userBuffer = DeviceMemoryBuffer.allocate(2*1024*1024);
         ChunkedContiguousSplit cs = 
-          t1.makeChunkedContiguousSplit(userBuffer.address, userBuffer.length)) {
+          t1.makeChunkedContiguousSplit(userBuffer)) {
       System.out.println("chunked contig split at: " + cs);
       System.out.println("hasNext? " + cs.hasNext());
       long bytesWritten = cs.next();

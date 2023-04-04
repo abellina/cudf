@@ -44,9 +44,9 @@ public class ChunkedContiguousSplit implements AutoCloseable {
     destroyChunkedContiguousSplit(nativePtr);
   }
 
-  private static native void destroyChunkedContiguousSplit(long nativePtr);
   private static native long chunkedContiguousSplitSize(long nativePtr);
   private static native boolean chunkedContiguousSplitHasNext(long nativePtr);
   private static native long chunkedContiguousSplitNext(long nativePtr);
   private static native PackedColumnMetadata chunkedContiguousSplitMakePackedColumns(long nativePtr);
+  private static native void destroyChunkedContiguousSplit(long nativePtr);
 }
