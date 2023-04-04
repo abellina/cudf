@@ -2173,9 +2173,9 @@ public final class Table implements AutoCloseable {
     return contiguousSplit(nativeHandle, indices);
   }
 
-  public ChunkedContiguousSplit makeChunkedContiguousSplit(long userBuffer, long userBufferSize) {
+  public ChunkedContiguousSplit makeChunkedContiguousSplit(BaseDeviceMemoryBuffer userBuffer) {
     return new ChunkedContiguousSplit(
-      makeChunkedContiguousSplit(nativeHandle, userBuffer, userBufferSize));
+      makeChunkedContiguousSplit(nativeHandle, userBuffer.address, userBuffer.length));
   }
 
   /**
