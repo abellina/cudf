@@ -27,8 +27,8 @@ import java.nio.ByteBuffer;
 public final class PackedColumnMetadata implements AutoCloseable {
   private long metadataHandle = 0;
   private ByteBuffer metadataBuffer = null;
-  // This method is invoked by JNI
 
+  // This method is invoked by JNI
   static PackedColumnMetadata fromPackedColumnMeta(long metadataHandle) {
     return new PackedColumnMetadata(metadataHandle);
   }
