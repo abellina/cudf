@@ -3177,47 +3177,6 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_makeChunkedContiguousSplit(
   CATCH_STD(env, 0);
 }
 
-JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_chunkedContiguousSplitSize(
-    JNIEnv *env, jclass, jlong chunked_contig_split) {
-  try {
-    cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split*>(chunked_contig_split);
-    return cs->get_total_contiguous_size();
-  }
-  CATCH_STD(env, 0);
-}
-
-JNIEXPORT jboolean JNICALL Java_ai_rapids_cudf_Table_chunkedContiguousSplitHasNext(
-    JNIEnv *env, jclass, jlong chunked_contig_split) {
-  try {
-    cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split*>(chunked_contig_split);
-    return cs->has_next();
-  }
-  CATCH_STD(env, 0);
-}
-
-JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_chunkedContiguousSplitNext(
-    JNIEnv *env, jclass, jlong chunked_contig_split) {
-  try {
-    cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split*>(chunked_contig_split);
-    return cs->next();
-  }
-  CATCH_STD(env, 0);
-}
-
-JNIEXPORT jobject JNICALL Java_ai_rapids_cudf_Table_chunkedContiguousSplitMakePackedColumns(
-    JNIEnv *env, jclass, jlong chunked_contig_split) {
-  try {
-    cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split*>(chunked_contig_split);
-    std::unique_ptr<cudf::packed_columns::metadata> result = cs->make_packed_columns();
-    return cudf::jni::packed_column_metadata_from(env, std::move(result));
-  }
-  CATCH_STD(env, NULL);
-}
-
 JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_rollingWindowAggregate(
     JNIEnv *env, jclass, jlong j_input_table, jintArray j_keys, jlongArray j_default_output,
     jintArray j_aggregate_column_indices, jlongArray j_agg_instances, jintArray j_min_periods,
