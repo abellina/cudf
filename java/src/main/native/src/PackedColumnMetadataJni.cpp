@@ -29,6 +29,13 @@ jmethodID From_packed_column_meta_method;
 namespace cudf {
 namespace jni {
 
+jobject packed_column_metadata_from(JNIEnv *env,
+                                    std::unique_ptr<cudf::packed_columns::metadata> meta) {
+  jlong metadata_address = reinterpret_cast<jlong>(meta.release());
+  return env->CallStaticObjectMethod(Packed_columns_meta_jclass, From_packed_column_meta_method,
+                                     metadata_address);
+}
+
 bool cache_packed_column_meta_jni(JNIEnv *env) {
   jclass cls = env->FindClass(PACKED_COLUMN_META_CLASS);
   if (cls == nullptr) {
@@ -54,13 +61,6 @@ void release_packed_column_meta_jni(JNIEnv *env) {
     env->DeleteGlobalRef(Packed_columns_meta_jclass);
     Packed_columns_meta_jclass = nullptr;
   }
-}
-
-jobject packed_column_metadata_from(JNIEnv *env,
-                                    std::unique_ptr<cudf::packed_columns::metadata> split) {
-  jlong metadata_address = reinterpret_cast<jlong>(split.release());
-  return env->CallStaticObjectMethod(Contiguous_table_jclass, From_packed_column_meta_method,
-                                     metadata_address);
 }
 
 } // namespace jni
