@@ -1173,7 +1173,7 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
     static_cast<uint8_t*>(bounce_buff.data()), 
     bounce_buff.size());
 
-  auto cs = cudf::make_chunked_contiguous_split(input, bounce_buff_span, mr);
+  auto cs = cudf::make_chunked_contiguous_split(input, bounce_buff_span.size(), mr);
 
   std::cout << "allocating: " << cs->get_total_contiguous_size() << " final buffer" << std::endl;
   // right size the final buffer
@@ -1184,7 +1184,7 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
 
   auto final_buff_offset = 0;
   while (cs->has_next()) {
-    auto bytes_copied = cs->next();
+    auto bytes_copied = cs->next(bounce_buff_span);
     cudaMemcpyAsync(
       (uint8_t*)final_buff.data() + final_buff_offset,
       bounce_buff.data(),
@@ -1201,12 +1201,16 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
   std::vector<cudf::packed_table> result;
   if (packed_column_metas) {
     result = std::vector<cudf::packed_table>(1);
+    auto unpacked = cudf::unpack(
+      packed_column_metas.get()->data(), 
+      reinterpret_cast<uint8_t const *>(final_buff.data()));
+
     auto pc = cudf::packed_columns(
       std::move(packed_column_metas),
       std::make_unique<rmm::device_buffer>(std::move(final_buff)));
 
     // TODO: revisit unpack iterface passing the packed_columns themselves
-    auto unpacked = cudf::unpack(pc);
+    // auto unpacked = cudf::unpack(pc);
 
     cudf::packed_table pt{std::move(unpacked), std::move(pc)};
     std::cout << "got a table with " << pt.table.num_columns() << " cols" << std::endl;
