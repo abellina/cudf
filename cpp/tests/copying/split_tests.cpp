@@ -1170,7 +1170,7 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
     cudf::table_view const& input){
   auto mr = rmm::mr::get_current_device_resource();
   // make the bounce buffer the smallest possible
-  rmm::device_buffer bounce_buff(1*1024*1024, cudf::get_default_stream(), mr);
+  rmm::device_buffer bounce_buff(10*1024*1024, cudf::get_default_stream(), mr);
   auto bounce_buff_span = cudf::device_span<uint8_t>(
     static_cast<uint8_t*>(bounce_buff.data()), 
     bounce_buff.size());
@@ -1712,6 +1712,28 @@ TEST_F(ContiguousSplitTableCornerCases, MixedColumnTypesChunked)
   auto iter4 = cudf::detail::make_counting_transform_iterator(20, [](auto i) { return (i); });
   auto c4    = cudf::test::fixed_width_column_wrapper<int>(iter4, iter4 + num_rows, valids);
   cols.push_back(c4.release());
+
+  auto tbl = cudf::table(std::move(cols));
+  auto results = do_chunked_contiguous_split(tbl.view());
+  CUDF_TEST_EXPECT_TABLES_EQUIVALENT(tbl, results[0].table);
+}
+
+TEST_F(ContiguousSplitTableCornerCases, MixedColumnTypesSingleRowChunked)
+{
+  cudf::size_type start = 0;
+  auto valids = cudf::detail::make_counting_transform_iterator(start, [](auto i) { return true; });
+
+  std::size_t num_rows = 1;
+
+  std::vector<std::unique_ptr<cudf::column>> cols;
+
+  auto iter0 = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return (i); });
+  auto c0    = cudf::test::fixed_width_column_wrapper<int32_t>(iter0, iter0 + num_rows, valids);
+  cols.push_back(c0.release());
+
+  auto iter1 = cudf::detail::make_counting_transform_iterator(1, [](auto i) { return (i); });
+  auto c1    = cudf::test::fixed_width_column_wrapper<int64_t>(iter1, iter1 + num_rows);
+  cols.push_back(c1.release());
 
   auto tbl = cudf::table(std::move(cols));
   auto results = do_chunked_contiguous_split(tbl.view());
