@@ -31,8 +31,8 @@ public class ChunkedContiguousSplit implements AutoCloseable {
     return chunkedContiguousSplitHasNext(nativePtr);
   }
 
-  public long next() {
-    return chunkedContiguousSplitNext(nativePtr);
+  public long next(DeviceMemoryBuffer userPtr) {
+    return chunkedContiguousSplitNext(nativePtr, userPtr.getAddress(), userPtr.getLength());
   }
 
   public PackedColumnMetadata getPackedColumnMetadata() {
@@ -46,7 +46,7 @@ public class ChunkedContiguousSplit implements AutoCloseable {
 
   private static native long chunkedContiguousSplitSize(long nativePtr);
   private static native boolean chunkedContiguousSplitHasNext(long nativePtr);
-  private static native long chunkedContiguousSplitNext(long nativePtr);
+  private static native long chunkedContiguousSplitNext(long nativePtr, long userPtr, long userPtrSize);
   private static native PackedColumnMetadata chunkedContiguousSplitMakePackedColumns(long nativePtr);
   private static native void destroyChunkedContiguousSplit(long nativePtr);
 }

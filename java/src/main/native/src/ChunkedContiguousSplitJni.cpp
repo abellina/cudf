@@ -48,11 +48,14 @@ JNIEXPORT jboolean JNICALL Java_ai_rapids_cudf_ChunkedContiguousSplit_chunkedCon
 }
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ChunkedContiguousSplit_chunkedContiguousSplitNext(
-    JNIEnv *env, jclass, jlong chunked_contig_split) {
+    JNIEnv *env, jclass, jlong chunked_contig_split, jlong user_ptr, jlong user_ptr_size) {
   try {
     cudf::jni::auto_set_device(env);
     auto cs = reinterpret_cast<cudf::chunked_contiguous_split*>(chunked_contig_split);
-    return cs->next();
+    auto user_buffer_span = cudf::device_span<uint8_t>(
+      reinterpret_cast<uint8_t*>(user_ptr), 
+      static_cast<std::size_t>(user_ptr_size));
+    return cs->next(bounce_buffer_span);
   }
   CATCH_STD(env, 0);
 }
