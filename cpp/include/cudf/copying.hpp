@@ -700,7 +700,7 @@ class chunked_contiguous_split {
   public:
     explicit chunked_contiguous_split(
         cudf::table_view const& input,
-        cudf::device_span<uint8_t> const& user_buffer,
+        std::size_t user_buffer_size,
         rmm::cuda_stream_view stream,
         rmm::mr::device_memory_resource* mr);
 
@@ -710,7 +710,7 @@ class chunked_contiguous_split {
 
     [[nodiscard]] bool has_next() const;
 
-    [[nodiscard]] std::size_t next();
+    [[nodiscard]] std::size_t next(cudf::device_span<uint8_t> const& user_buffer);
 
     [[nodiscard]] std::unique_ptr<packed_columns::metadata> make_packed_columns() const;
 
@@ -721,7 +721,7 @@ class chunked_contiguous_split {
 
 std::unique_ptr<chunked_contiguous_split> make_chunked_contiguous_split(
   cudf::table_view const& input,
-  cudf::device_span<uint8_t> const& user_buffer,
+  std::size_t user_buffer_size,
   rmm::mr::device_memory_resource* mr);
 
 /**
