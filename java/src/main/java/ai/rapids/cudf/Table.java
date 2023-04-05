@@ -187,7 +187,7 @@ public final class Table implements AutoCloseable {
 
   private static native ContiguousTable[] contiguousSplit(long inputTable, int[] indices);
 
-  private static native long makeChunkedContiguousSplit(long inputTable, long bounceBufferSize);
+  private static native long makeChunkedContiguousSplit(long inputTable, long bounceBufferSize, long memoryResource);
 
   private static native long[] partition(long inputTable, long partitionView,
       int numberOfPartitions, int[] outputOffsets);
@@ -2173,9 +2173,11 @@ public final class Table implements AutoCloseable {
     return contiguousSplit(nativeHandle, indices);
   }
 
-  public ChunkedContiguousSplit makeChunkedContiguousSplit(long bounceBufferSize) {
+  public ChunkedContiguousSplit makeChunkedContiguousSplit(
+      long bounceBufferSize, RmmDeviceMemoryResource deviceMemoryResource) {
+    long memoryResourceNativeHandle = deviceMemoryResource.getHandle();
     return new ChunkedContiguousSplit(
-      makeChunkedContiguousSplit(nativeHandle, bounceBufferSize));
+      makeChunkedContiguousSplit(nativeHandle, bounceBufferSize, memoryResourceNativeHandle));
   }
 
   /**
