@@ -951,7 +951,7 @@ struct packed_split_indices_and_src_buf_info {
     d_indices_and_source_info =
       rmm::device_buffer(indices_size + src_buf_info_size + offset_stack_size,
                          stream,
-                         rmm::mr::get_current_device_resource());
+                         mr);
     d_indices      = reinterpret_cast<size_type*>(d_indices_and_source_info.data());
     d_src_buf_info = reinterpret_cast<src_buf_info*>(
       reinterpret_cast<uint8_t*>(d_indices_and_source_info.data()) + indices_size);
@@ -1000,7 +1000,7 @@ struct packed_partition_buf_size_and_dst_buf_info {
 
     // device-side
     d_buf_sizes_and_dst_info = rmm::device_buffer(
-      buf_sizes_size + dst_buf_info_size, stream, rmm::mr::get_current_device_resource());
+      buf_sizes_size + dst_buf_info_size, stream, mr);
     d_buf_sizes = reinterpret_cast<std::size_t*>(d_buf_sizes_and_dst_info.data());
 
     //// destination buffer info
@@ -1185,7 +1185,7 @@ struct packed_src_and_dst_pointers {
     // device-side
     // TODO: removed offset_stack_size from this
     d_src_and_dst_buffers = rmm::device_buffer(
-      src_bufs_size + dst_bufs_size, stream, rmm::mr::get_current_device_resource());
+      src_bufs_size + dst_bufs_size, stream, mr);
     d_src_bufs = reinterpret_cast<uint8_t const**>(d_src_and_dst_buffers.data());
     d_dst_bufs = reinterpret_cast<uint8_t**>(
       reinterpret_cast<uint8_t*>(d_src_and_dst_buffers.data()) + src_bufs_size);
@@ -1259,7 +1259,8 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   int num_src_bufs,
   dst_buf_info* _d_dst_buf_info,
   std::size_t user_buffer_size,
-  rmm::cuda_stream_view stream) {
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr) {
 
   auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
     return static_cast<size_type>(
@@ -1271,7 +1272,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   auto iter = thrust::make_counting_iterator(0);
 
   // load up the chunks as d_dst_buf_info
-  rmm::device_uvector<dst_buf_info> d_dst_buf_info(num_chunks, stream);
+  rmm::device_uvector<dst_buf_info> d_dst_buf_info(num_chunks, stream, mr);
 
   // TODO: ask: I think we can create the chunk d_dst_buf_info once in device memory
   // then just make sure we start at the right index, rather than create new d_dst_buf_info
@@ -1341,7 +1342,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
     // copy the chunk sizes back to host
     std::vector<std::size_t> h_sizes(num_chunks);
     {
-      rmm::device_uvector<std::size_t> sizes(num_chunks, stream);
+      rmm::device_uvector<std::size_t> sizes(num_chunks, stream, mr);
       thrust::transform(rmm::exec_policy(stream),
                         d_dst_buf_info.begin(),
                         d_dst_buf_info.end(),
@@ -1397,8 +1398,8 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
 
     // apply changed offset
     {
-      rmm::device_uvector<std::size_t> d_offset_per_chunk(num_chunks, stream);
-      rmm::device_uvector<std::size_t> d_accum_size_per_split(accum_size_per_split.size(), stream);
+      rmm::device_uvector<std::size_t> d_offset_per_chunk(num_chunks, stream, mr);
+      rmm::device_uvector<std::size_t> d_accum_size_per_split(accum_size_per_split.size(), stream, mr);
 
       CUDF_CUDA_TRY(cudaMemcpyAsync(
         d_offset_per_chunk.data(), offset_per_chunk.data(), num_chunks * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
@@ -1661,7 +1662,7 @@ struct contiguous_split_state {
     // occupancy.
     auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
     // TODO: should probably call this something differently instead of just chunks.
-    rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream);
+    rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream, mr);
     auto& d_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
     thrust::transform(
       rmm::exec_policy(stream),
@@ -1689,7 +1690,7 @@ struct contiguous_split_state {
       });
 
     std::size_t& my_num_bufs = num_bufs;
-    rmm::device_uvector<offset_type> chunk_offsets(num_bufs + 1, stream);
+    rmm::device_uvector<offset_type> chunk_offsets(num_bufs + 1, stream, mr);
     auto buf_count_iter = cudf::detail::make_counting_transform_iterator(
       0, [my_num_bufs, num_chunks = num_chunks_func{chunks.begin()}] __device__(size_type i) {
         return i == my_num_bufs ? 0 : num_chunks(i);
@@ -1727,7 +1728,8 @@ struct contiguous_split_state {
                              num_src_bufs,
                              partition_buf_size_and_dst_buf_info->d_dst_buf_info,
                              user_buffer_size,
-                             stream);
+                             stream, 
+                             mr);
   }
 
   std::vector<packed_table> contiguous_split()
