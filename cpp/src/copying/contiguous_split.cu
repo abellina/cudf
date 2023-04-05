@@ -1226,9 +1226,9 @@ struct iteration_state {
     CUDF_EXPECTS(current_iteration < num_iterations, 
       "current_iteration cannot exceed than num_iterations");
     auto count_for_current = h_num_buffs_per_key[current_iteration];
-    std::cout << "iter: " << current_iteration 
-              << " starting at: " << starting_buff 
-              << " current count: " << count_for_current << std::endl;
+    //std::cout << "iter: " << current_iteration 
+    //          << " starting at: " << starting_buff 
+    //          << " current count: " << count_for_current << std::endl;
     return std::make_pair(starting_buff, count_for_current);
   }
   
@@ -1389,11 +1389,11 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
         size_of_chunks_per_split.push_back(current_split_size);
         accum_size_per_split.push_back(accum_size);
       }
-      for (std::size_t i = 0; i < num_chunks_per_split.size(); ++i) {
-        std::cout << "For iteration " << i 
-                  << " num chunks will be " << num_chunks_per_split[i]
-                  << " size of chunks is " << accum_size_per_split[i] << std::endl; 
-      }
+      //for (std::size_t i = 0; i < num_chunks_per_split.size(); ++i) {
+      //  std::cout << "For iteration " << i 
+      //            << " num chunks will be " << num_chunks_per_split[i]
+      //            << " size of chunks is " << accum_size_per_split[i] << std::endl; 
+      //}
     }
 
     // apply changed offset
@@ -1796,7 +1796,6 @@ struct contiguous_split_state {
 
   std::vector<packed_table> make_empty_packed_table() {
     // sanitize the inputs (to handle corner cases like sliced tables)
-    std::cout << "at make_empty_packed_table" << std::endl;
     std::vector<std::unique_ptr<column>> empty_columns;
     empty_columns.reserve(input.num_columns());
     std::transform(
@@ -1838,7 +1837,6 @@ struct contiguous_split_state {
 
     if (is_empty) { 
       // TODO: super ugly
-      std::cout << "before calling make_empty_packed_table" << std::endl;
       return std::move(make_empty_packed_table()[0].data.metadata_);
     }
 
