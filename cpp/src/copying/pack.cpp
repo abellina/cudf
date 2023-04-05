@@ -84,11 +84,6 @@ column_view deserialize_column(serialized_column serial_column,
       ? reinterpret_cast<bitmask_type const*>(base_ptr + serial_column.null_mask_offset)
       : nullptr;
 
-  std::cout << "deserializing column: " 
-    << " data_ptr: " << (uint64_t) data_ptr 
-    << " null mask ptr: " << (uint64_t) null_mask_ptr 
-    << std::endl;
-  
   return column_view(serial_column.type,
                      serial_column.size,
                      data_ptr,
@@ -222,15 +217,12 @@ table_view unpack(uint8_t const* metadata, uint8_t const* gpu_data)
   std::function<std::vector<column_view>(size_type)> get_columns;
   get_columns = [&serialized_columns, &current_index, base_ptr, &get_columns](size_t num_columns) {
     std::vector<column_view> cols;
-      std::cout <<" deserializing table with : " << num_columns << 
-        " and base ptr " << (uint64_t)base_ptr << std::endl;
     for (size_t i = 0; i < num_columns; i++) {
       auto serial_column = serialized_columns[current_index];
       current_index++;
 
       std::vector<column_view> children = get_columns(serial_column.num_children);
 
-      std::cout <<" working on column: " << i << std::endl;
       cols.emplace_back(deserialize_column(serial_column, children, base_ptr));
     }
 
