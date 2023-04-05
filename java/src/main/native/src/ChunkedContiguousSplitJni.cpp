@@ -55,7 +55,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ChunkedContiguousSplit_chunkedContig
     auto user_buffer_span = cudf::device_span<uint8_t>(
       reinterpret_cast<uint8_t*>(user_ptr), 
       static_cast<std::size_t>(user_ptr_size));
-    return cs->next(bounce_buffer_span);
+    return cs->next(user_buffer_span);
   }
   CATCH_STD(env, 0);
 }
