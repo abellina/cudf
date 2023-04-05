@@ -45,7 +45,6 @@
 
 #include <cstddef>
 #include <numeric>
-#include <optional>
 
 namespace cudf {
 namespace {
@@ -1259,7 +1258,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   int num_bufs,
   int num_src_bufs,
   dst_buf_info* _d_dst_buf_info,
-  std::optional<std::size_t> user_buffer_size,
+  std::size_t user_buffer_size,
   rmm::cuda_stream_view stream) {
 
   auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
@@ -1338,9 +1337,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
 
 
   std::unique_ptr<iteration_state> istate; 
-  if (user_buffer_size) {
-    auto user_buffer_sz = user_buffer_size.value();
-
+  if (user_buffer_size != 0) {
     // copy the chunk sizes back to host
     std::vector<std::size_t> h_sizes(num_chunks);
     {
@@ -1373,7 +1370,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       int current_split = 0;
       for (std::size_t i = 0; i < h_sizes.size(); ++i) {
         auto curr_size = h_sizes[i];
-        if (current_split_size + curr_size > user_buffer_sz) {
+        if (current_split_size + curr_size > user_buffer_size) {
           num_chunks_per_split.push_back(current_split_num_chunks);
           size_of_chunks_per_split.push_back(current_split_size);
           accum_size_per_split.push_back(accum_size);
