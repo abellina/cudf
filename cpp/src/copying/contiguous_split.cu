@@ -1606,7 +1606,6 @@ struct contiguous_split_state {
     // src_and_dst_pointers->copy_to_device();
 
     compute_chunks();
-
     prepare_chunked_copy();
   }
 
