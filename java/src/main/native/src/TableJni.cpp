@@ -46,7 +46,6 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <thrust/iterator/counting_iterator.h>
-#include <boost/stacktrace.hpp>
 
 #include "csv_chunked_writer.hpp"
 #include "cudf_jni_apis.hpp"
@@ -3171,10 +3170,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_makeChunkedContiguousSplit(
       cudf::make_chunked_contiguous_split(*n_table, bounce_buffer_size, mr);
     return reinterpret_cast<jlong>(chunked_contig_split.release());
   }
-  catch(const std::exception& ex) {
-    std::cout << boost::stacktrace::stacktrace() << std::endl;
-  }
-  //CATCH_STD(env, 0);
+  CATCH_STD(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_rollingWindowAggregate(
