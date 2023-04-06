@@ -1167,7 +1167,6 @@ struct ContiguousSplitTest : public cudf::test::BaseFixture {};
 std::vector<cudf::packed_table> do_chunked_contiguous_split(
     cudf::table_view const& input){
   auto mr = rmm::mr::get_current_device_resource();
-  // make the bounce buffer the smallest possible
   rmm::device_buffer bounce_buff(10*1024*1024, cudf::get_default_stream(), mr);
   auto bounce_buff_span = cudf::device_span<uint8_t>(
     static_cast<uint8_t*>(bounce_buff.data()), 
@@ -1175,7 +1174,6 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
 
   auto cs = cudf::make_chunked_contiguous_split(input, bounce_buff_span.size(), mr);
 
-  std::cout << "allocating: " << cs->get_total_contiguous_size() << " final buffer" << std::endl;
   // right size the final buffer
   rmm::device_buffer final_buff(
     cs->get_total_contiguous_size(), 
@@ -1191,7 +1189,6 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
       bytes_copied,
       cudaMemcpyDefault,
       cudf::get_default_stream());
-    std::cout << "copied in this iteration: " << bytes_copied << ". have next? " << cs->has_next() << std::endl;
     final_buff_offset += bytes_copied;
   }
 
@@ -1201,22 +1198,13 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
   std::vector<cudf::packed_table> result;
   if (packed_column_metas) {
     result = std::vector<cudf::packed_table>(1);
-    auto unpacked = cudf::unpack(
-      packed_column_metas.get()->data(), 
-      reinterpret_cast<uint8_t const *>(final_buff.data()));
-
     auto pc = cudf::packed_columns(
       std::move(packed_column_metas),
       std::make_unique<rmm::device_buffer>(std::move(final_buff)));
 
-    // TODO: revisit unpack iterface passing the packed_columns themselves
-    // auto unpacked = cudf::unpack(pc);
-
+    auto unpacked = cudf::unpack(pc);
     cudf::packed_table pt{std::move(unpacked), std::move(pc)};
-    std::cout << "got a table with " << pt.table.num_columns() << " cols" << std::endl;
-    std::cout << pt.table.num_columns() << std::endl;
     result[0] = std::move(pt);
-    std::cout << "done unpacking" << std::endl;
   }
   return result;
 }

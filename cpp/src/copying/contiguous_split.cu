@@ -1010,6 +1010,7 @@ struct packed_partition_buf_size_and_dst_buf_info {
     auto split_indices_and_src_buf_info = packed_split_indices_and_src_buf_info(
         input, splits, num_partitions, num_src_bufs, stream, mr);
 
+    // this is a function because the lambda expression below
     initialize(num_src_bufs, num_bufs, split_indices_and_src_buf_info, stream, mr);
   }
 
@@ -1355,6 +1356,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
                                     cudaMemcpyDefault,
                                     stream.value()));
 
+      // the next part is working on the CPU, so we want to synchronize here
       stream.synchronize();
     }
 
@@ -1453,9 +1455,10 @@ void copy_data_regular(rmm::device_uvector<thrust::pair<std::size_t, std::size_t
                        int num_chunks_to_copy,
                        uint8_t const** d_src_bufs,
                        uint8_t** d_dst_bufs,
-                       dst_buf_info* _d_dst_buf_info, // TODO: whey is there a _d_dst_buf_info
+                       dst_buf_info* _d_dst_buf_info,  // TODO: whey is there a _d_dst_buf_info
                        rmm::device_uvector<dst_buf_info>& d_dst_buf_info,
-                       rmm::cuda_stream_view stream)
+                       rmm::cuda_stream_view stream,
+                       rmm::mr::device_memory_resource* mr)
 {
   constexpr size_type block_size = 256;
   copy_partitions<block_size><<<num_chunks_to_copy, block_size, 0, stream.value()>>>(
@@ -1755,7 +1758,8 @@ struct contiguous_split_state {
                       src_and_dst_pointers->d_dst_bufs,
                       _d_dst_buf_info,
                       state->d_dst_buf_info,
-                      stream);
+                      stream,
+                      mr);
 
     CUDF_CUDA_TRY(cudaMemcpyAsync(h_dst_buf_info,
                                   _d_dst_buf_info,
