@@ -1561,22 +1561,17 @@ struct contiguous_split_state {
                          rmm::cuda_stream_view stream,
                          rmm::mr::device_memory_resource* mr)
     : input(input),
+      user_buffer_size(user_buffer_size),
       stream(stream),
-      mr(mr),
-      user_buffer_size(user_buffer_size)
+      mr(mr)
   {
-    std::cout << "starting constructor" << std::endl;
     is_empty       = check_inputs(input, splits);
     num_partitions = get_num_partitions(splits);
     num_src_bufs   = count_src_bufs(input.begin(), input.end());
     num_bufs       = num_src_bufs * num_partitions;
 
-    std::cout << "is it empty" << std::endl;
-
     if (is_empty) { return; }
 
-    std::cout << "allocating buf_size_and_dst_buf_info" << std::endl;
-    
     partition_buf_size_and_dst_buf_info =
       std::make_unique<detail::packed_partition_buf_size_and_dst_buf_info>(
         input,
@@ -1586,8 +1581,6 @@ struct contiguous_split_state {
         num_bufs,
         stream,
         mr);
-
-    std::cout << "allocating src_and_dst_pointers" << std::endl;
 
     src_and_dst_pointers = std::make_unique<packed_src_and_dst_pointers>(
       input, num_partitions, num_src_bufs, stream, mr);
@@ -1606,15 +1599,11 @@ struct contiguous_split_state {
           return static_cast<uint8_t*>(buf.data());
         });
     } 
-    //else {
-    //  src_and_dst_pointers->h_dst_bufs[0] = user_buffer;
-    //}
 
-    src_and_dst_pointers->copy_to_device();
+    // src_and_dst_pointers->copy_to_device();
 
-    std::cout << "computing chunks" << std::endl;
     compute_chunks();
-    std::cout << "prepare_chunked_data" << std::endl;
+
     prepare_chunked_copy();
   }
 
