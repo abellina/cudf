@@ -1039,7 +1039,7 @@ struct packed_partition_buf_size_and_dst_buf_info {
 
     // compute sizes of each column in each partition, including alignment.
     thrust::transform(
-      rmm::exec_policy(stream),
+      rmm::exec_policy(stream, mr),
       thrust::make_counting_iterator<std::size_t>(0),
       thrust::make_counting_iterator<std::size_t>(num_bufs),
       d_dst_buf_info,
@@ -1127,7 +1127,7 @@ struct packed_partition_buf_size_and_dst_buf_info {
       auto values =
         cudf::detail::make_counting_transform_iterator(0, buf_size_functor{d_dst_buf_info});
 
-      thrust::reduce_by_key(rmm::exec_policy(stream),
+      thrust::reduce_by_key(rmm::exec_policy(stream, mr),
                             keys,
                             keys + num_bufs,
                             values,
@@ -1142,7 +1142,7 @@ struct packed_partition_buf_size_and_dst_buf_info {
       auto values =
         cudf::detail::make_counting_transform_iterator(0, buf_size_functor{d_dst_buf_info});
 
-      thrust::exclusive_scan_by_key(rmm::exec_policy(stream),
+      thrust::exclusive_scan_by_key(rmm::exec_policy(stream, mr),
                                     keys,
                                     keys + num_bufs,
                                     values,
@@ -1278,7 +1278,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   // then just make sure we start at the right index, rather than create new d_dst_buf_info
   // for a particular bounce buffer copy
   thrust::for_each(
-    rmm::exec_policy(stream),
+    rmm::exec_policy(stream, mr),
     iter,
     iter + num_chunks,
     [_d_dst_buf_info,
@@ -1343,7 +1343,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
     std::vector<std::size_t> h_sizes(num_chunks);
     {
       rmm::device_uvector<std::size_t> sizes(num_chunks, stream, mr);
-      thrust::transform(rmm::exec_policy(stream),
+      thrust::transform(rmm::exec_policy(stream, mr),
                         d_dst_buf_info.begin(),
                         d_dst_buf_info.end(),
                         sizes.begin(),
@@ -1409,7 +1409,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       // we want to update the offset of chunks in the second to last copy
       auto num_chunks_in_first_split = num_chunks_per_split[0];
       auto iter = thrust::make_counting_iterator(num_chunks_in_first_split);
-      thrust::for_each(rmm::exec_policy(stream),
+      thrust::for_each(rmm::exec_policy(stream, mr),
                        iter,
                        iter + num_chunks - num_chunks_in_first_split,
                        [d_dst_buf_info = d_dst_buf_info.begin(),
@@ -1426,7 +1426,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
     // TODO: we should already have last_size, since the original code would have allocated
     // out_buffers
     auto size_iter = thrust::make_transform_iterator(d_dst_buf_info.begin(), chunk_byte_size_function());
-    auto last_size = thrust::reduce(rmm::exec_policy(stream), size_iter, size_iter + num_chunks);
+    auto last_size = thrust::reduce(rmm::exec_policy(stream, mr), size_iter, size_iter + num_chunks);
     istate = std::make_unique<iteration_state>(std::move(d_dst_buf_info), 1);
     istate->h_num_buffs_per_key[0] = num_chunks;
     istate->h_size_of_buffs_per_key[0] = last_size; 
@@ -1478,7 +1478,7 @@ void copy_data_regular(rmm::device_uvector<thrust::pair<std::size_t, std::size_t
     0, [out_to_in_index] __device__(size_type i) { return out_to_in_index(i); });
   auto values = thrust::make_transform_iterator(
     d_dst_buf_info.begin(), [] __device__(dst_buf_info const& info) { return info.valid_count; });
-  thrust::reduce_by_key(rmm::exec_policy(stream),
+  thrust::reduce_by_key(rmm::exec_policy(stream, mr),
                         keys,
                         keys + num_chunks_to_copy,
                         values,
@@ -1674,7 +1674,7 @@ struct contiguous_split_state {
     rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream, mr);
     auto& d_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
     thrust::transform(
-      rmm::exec_policy(stream),
+      rmm::exec_policy(stream, mr),
       d_dst_buf_info,
       d_dst_buf_info + num_bufs,
       chunks.begin(),
@@ -1705,7 +1705,7 @@ struct contiguous_split_state {
         return i == my_num_bufs ? 0 : num_chunks(i);
       });
 
-    thrust::exclusive_scan(rmm::exec_policy(stream),
+    thrust::exclusive_scan(rmm::exec_policy(stream, mr),
                            buf_count_iter,
                            buf_count_iter + num_bufs + 1,
                            chunk_offsets.begin(),
@@ -1728,7 +1728,7 @@ struct contiguous_split_state {
     auto const num_chunks = cudf::detail::make_counting_transform_iterator(
       0, num_chunks_func{computed_chunks->chunks.begin()});
     size_type const new_buf_count = thrust::reduce(
-      rmm::exec_policy(stream), num_chunks, num_chunks + computed_chunks->chunks.size());
+      rmm::exec_policy(stream, mr), num_chunks, num_chunks + computed_chunks->chunks.size());
 
     state = get_dst_buf_info(computed_chunks->chunks,
                              computed_chunks->chunk_offsets,
@@ -1751,7 +1751,7 @@ struct contiguous_split_state {
     auto const num_chunks = cudf::detail::make_counting_transform_iterator(
       0, num_chunks_func{computed_chunks->chunks.begin()});
     size_type const new_buf_count = thrust::reduce(
-      rmm::exec_policy(stream), num_chunks, num_chunks + computed_chunks->chunks.size());
+      rmm::exec_policy(stream, mr), num_chunks, num_chunks + computed_chunks->chunks.size());
 
     // TODO: the original d_dst_buf_info??
     auto _d_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
