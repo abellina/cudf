@@ -314,7 +314,7 @@ public final class ColumnVector extends ColumnView {
   /**
    * Returns this column's current refcount
    */
-  synchronized int getRefCount() {
+  public synchronized int getRefCount() {
     return refCount;
   }
 
