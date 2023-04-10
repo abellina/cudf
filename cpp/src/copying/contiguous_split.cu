@@ -654,7 +654,8 @@ template <typename BufInfo>
 std::tuple<size_type, int64_t, int64_t, size_type> build_output_column_metadata(
   column_view const& src,
   BufInfo& current_info,
-  metadata_builder& mb)
+  metadata_builder& mb,
+  bool use_src_null_count)
 {
   auto [bitmask_offset, null_count] = [&]() {
     // -1 means nullptr
@@ -665,10 +666,14 @@ std::tuple<size_type, int64_t, int64_t, size_type> build_output_column_metadata(
         current_info->num_elements == 0
           ? (int64_t) -1 
           : (int64_t) current_info->dst_offset;
-      
-      size_type const null_count = current_info->num_elements == 0
-                                ? 0
-                                : (current_info->num_rows - current_info->valid_count);
+
+      // use_src_null_count is used for the chunked contig split case, where we have 
+      // no splits: the null_count is just the source column's null_count
+      size_type const null_count = use_src_null_count
+                                     ? src.null_count()
+                                     : (current_info->num_elements == 0
+                                          ? 0
+                                          : (current_info->num_rows - current_info->valid_count));
       ++current_info;
       return std::pair(bitmask_offset, null_count);
     }
@@ -727,7 +732,7 @@ BufInfo build_output_columns(InputIter begin,
     int64_t bitmask_offset;
     int64_t data_offset;
     std::tie(col_size, data_offset, bitmask_offset, null_count) =
-      build_output_column_metadata<BufInfo>(src, current_info, mb);
+      build_output_column_metadata<BufInfo>(src, current_info, mb, false);
 
     auto bitmask_ptr = base_ptr != nullptr && bitmask_offset != -1
                          ? reinterpret_cast<bitmask_type const*>(base_ptr + bitmask_offset)
@@ -789,7 +794,7 @@ BufInfo build_output_columns(InputIter begin,
 {
   auto current_info = info_begin;
   std::for_each(begin, end, [&current_info, &mb](column_view const& src) {
-    build_output_column_metadata<BufInfo>(src, current_info, mb);
+    build_output_column_metadata<BufInfo>(src, current_info, mb, true);
 
     // children
     current_info = build_output_columns(src.child_begin(), src.child_end(), current_info, mb);
@@ -1227,9 +1232,6 @@ struct iteration_state {
     CUDF_EXPECTS(current_iteration < num_iterations, 
       "current_iteration cannot exceed than num_iterations");
     auto count_for_current = h_num_buffs_per_key[current_iteration];
-    //std::cout << "iter: " << current_iteration 
-    //          << " starting at: " << starting_buff 
-    //          << " current count: " << count_for_current << std::endl;
     return std::make_pair(starting_buff, count_for_current);
   }
   
@@ -1322,14 +1324,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
 
       out.src_element_index = in.src_element_index + (chunk_index * elements_per_chunk);
       out.dst_offset        = in.dst_offset + (chunk_index * chunk_size);
-      //printf("in.dst_offset=%i out.dst_offset=%i buf_size=%i calc_size=%i chunk_index=%i chunk_size=%i\n",
-      //  (int)in.dst_offset, 
-      //  (int)out.dst_offset, 
-      //  (int)out.buf_size,
-      //  (int)util::round_up_unsafe(static_cast<std::size_t>(
-      //    out.num_elements * out.element_size), split_align),
-      //  (int)chunk_index, 
-      //  (int)chunk_size);
 
       // out.bytes and out.buf_size are unneeded here because they are only used to
       // calculate real output buffer sizes. the data we are generating here is
@@ -1391,11 +1385,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
         size_of_chunks_per_split.push_back(current_split_size);
         accum_size_per_split.push_back(accum_size);
       }
-      //for (std::size_t i = 0; i < num_chunks_per_split.size(); ++i) {
-      //  std::cout << "For iteration " << i 
-      //            << " num chunks will be " << num_chunks_per_split[i]
-      //            << " size of chunks is " << accum_size_per_split[i] << std::endl; 
-      //}
     }
 
     // apply changed offset
