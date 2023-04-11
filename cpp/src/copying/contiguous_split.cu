@@ -1518,19 +1518,9 @@ bool check_inputs(cudf::table_view const& input, std::vector<size_type> const& s
 }
 
 struct contiguous_split_state {
-  //
-  // CHUNKED A:  This section of code gets refactored out and is called during the first
-  //             chunked pack call. Everything it computes will be valid across calls except
-  //             the destination buffer data. all the data/vars here will need to be stored in
-  //             some class/struct.
-  //
-  // compute # of source buffers (column data, validity, children), # of partitions
-  // and total # of buffers
 
-  // num_src_buffs = count_src_bufs(col1, .., colN)  -> result the count of the buffers in the
-  // columns
-  //   and children flattened
-  // num_partitions will be 1 (0 splits)
+  static const std::size_t desired_chunk_size = 1 * 1024 * 1024;
+
   contiguous_split_state(cudf::table_view const& input,
                          std::size_t user_buffer_size,
                          rmm::cuda_stream_view stream,
@@ -1592,11 +1582,7 @@ struct contiguous_split_state {
         });
     } 
 
-    // src_and_dst_pointers->copy_to_device();
-
     compute_chunks();
-
-    prepare_chunked_copy();
   }
 
   bool has_next() const { return !is_empty && state->has_more_copies(); }
@@ -1650,10 +1636,11 @@ struct contiguous_split_state {
     // so we will take the actual set of outgoing source/destination buffers and further partition
     // them into much smaller chunks in order to drive up the number of blocks and overall
     // occupancy.
-    auto const desired_chunk_size = std::size_t{1 * 1024 * 1024};
+    
     // TODO: should probably call this something differently instead of just chunks.
     rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks(num_bufs, stream, mr);
     auto& d_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
+    auto desired_chunk_size = contiguous_split_state::desired_chunk_size;
     thrust::transform(
       rmm::exec_policy(stream, mr),
       d_dst_buf_info,
@@ -1694,10 +1681,7 @@ struct contiguous_split_state {
 
     // used during the copy
     computed_chunks = std::make_unique<chunk_infos>(std::move(chunks), std::move(chunk_offsets));
-  }
 
-  void prepare_chunked_copy()
-  {
     //
     // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
     //            already be in place - only the dst buf info will have changed. this is fine
@@ -1766,6 +1750,10 @@ struct contiguous_split_state {
   cudf::size_type contigous_split_chunk(cudf::device_span<uint8_t> const& user_buffer)
   {
     CUDF_FUNC_RANGE()
+    CUDF_EXPECTS(user_buffer.size() == user_buffer_size, 
+      "Cannot use a device span smaller than the output buffer size configured at instantiation!");
+    CUDF_EXPECTS(has_next(),
+      "Cannot call contiguos_split_chunk with has_next=false!");
     // prep the target location
     src_and_dst_pointers->h_dst_bufs[0] = user_buffer.data();
     src_and_dst_pointers->copy_to_device();
@@ -1977,6 +1965,8 @@ std::unique_ptr<chunked_contiguous_split> make_chunked_contiguous_split(
   std::size_t user_buffer_size,
   rmm::mr::device_memory_resource* mr)
 {
+  CUDF_EXPECTS(user_buffer_size >= detail::contiguous_split_state::desired_chunk_size,
+    "The output buffer size must be at least 1MB in size");
   return std::make_unique<chunked_contiguous_split>(
     input, user_buffer_size, cudf::get_default_stream(), mr);
 }
