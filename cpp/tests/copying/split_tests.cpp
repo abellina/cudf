@@ -1324,7 +1324,7 @@ struct ContiguousSplitTest : public cudf::test::BaseFixture {};
 std::vector<cudf::packed_table> do_chunked_contiguous_split(
     cudf::table_view const& input){
   auto mr = rmm::mr::get_current_device_resource();
-  rmm::device_buffer bounce_buff(10*1024*1024, cudf::get_default_stream(), mr);
+  rmm::device_buffer bounce_buff(1*1024*1024, cudf::get_default_stream(), mr);
   auto bounce_buff_span = cudf::device_span<uint8_t>(
     static_cast<uint8_t*>(bounce_buff.data()), 
     bounce_buff.size());
@@ -1338,7 +1338,9 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
     mr);
 
   std::size_t final_buff_offset = 0;
+  int num_copies = 0;
   while (cs->has_next()) {
+    num_copies++;
     auto bytes_copied = cs->next(bounce_buff_span);
     cudaMemcpyAsync(
       (uint8_t*)final_buff.data() + final_buff_offset,
@@ -1348,6 +1350,7 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
       cudf::get_default_stream());
     final_buff_offset += bytes_copied;
   }
+  std::cout << "chunked contig split size total: " << final_buff_offset << " num_copies: " << num_copies << std::endl;
 
   auto packed_column_metas = cs->make_packed_columns();
   // for chunked contig split, this is going to be a size 1 vector if we have
@@ -2312,6 +2315,52 @@ TEST_F(ContiguousSplitTableCornerCases, SplitEmpty)
   {
     EXPECT_THROW(cudf::contiguous_split(sliced[0], {1}), cudf::logic_error);
   }
+}
+
+TEST_F(ContiguousSplitTableCornerCases, OutBufferToSmall)
+{
+  // internally, contiguous split chunks GPU work in 1MB contiguous copies
+  // so the output buffer must be 1MB or larger.
+  EXPECT_THROW(cudf::make_chunked_contiguous_split({}, 1*1024, mr()), cudf::logic_error);
+}
+
+TEST_F(ContiguousSplitTableCornerCases, ChunkSpanTooSmall)
+{
+  auto cs = cudf::make_chunked_contiguous_split({}, 1*1024*1024, mr());
+  rmm::device_buffer buff(1*1024, cudf::get_default_stream(), mr());
+  cudf::device_span<uint8_t> too_small(static_cast<uint8_t*>(buff.data()), buff.size());
+  std::size_t copied = 0;
+  // throws because we created chunked_contig_split with 1MB, but we are giving 
+  // it a 1KB span here
+  EXPECT_THROW(copied = cs->next(too_small), cudf::logic_error);
+  EXPECT_EQ(copied, 0);
+}
+
+TEST_F(ContiguousSplitTableCornerCases, EmptyTableHasNextFalse)
+{
+  auto cs = cudf::make_chunked_contiguous_split({}, 1*1024*1024, mr());
+  rmm::device_buffer buff(1*1024*1024, cudf::get_default_stream(), mr());
+  cudf::device_span<uint8_t> bounce_buff(static_cast<uint8_t*>(buff.data()), buff.size());
+  EXPECT_EQ(cs->has_next(), false); // empty input table
+  std::size_t copied = 0;
+  EXPECT_THROW(copied = cs->next(bounce_buff), cudf::logic_error);
+  EXPECT_EQ(copied, 0);
+}
+
+TEST_F(ContiguousSplitTableCornerCases, ExhaustedHasNextFalse)
+{
+  cudf::test::strings_column_wrapper a{"abc", "def", "ghi", "jkl", "mno", "", "st", "uvwx"};
+  cudf::table_view t({a});
+  rmm::device_buffer buff(1*1024*1024, cudf::get_default_stream(), mr());
+  cudf::device_span<uint8_t> bounce_buff(static_cast<uint8_t*>(buff.data()), buff.size());
+  auto cs = cudf::make_chunked_contiguous_split(t, buff.size(), mr());
+  EXPECT_EQ(cs->has_next(), true);
+  std::size_t copied = cs->next(bounce_buff);
+  EXPECT_EQ(copied, cs->get_total_contiguous_size());
+  EXPECT_EQ(cs->has_next(), false);
+  copied = 0;
+  EXPECT_THROW(copied = cs->next(bounce_buff), cudf::logic_error);
+  EXPECT_EQ(copied, 0);
 }
 
 struct ContiguousSplitNestedTypesTest : public cudf::test::BaseFixture {};
