@@ -30,6 +30,7 @@
 #include <cudf/utilities/type_dispatcher.hpp>
 
 #include <rmm/device_buffer.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
 
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
@@ -1321,13 +1322,16 @@ struct ContiguousSplitTest : public cudf::test::BaseFixture {};
 
 std::vector<cudf::packed_table> do_chunked_contiguous_split(
     cudf::table_view const& input){
+  
   auto mr = rmm::mr::get_current_device_resource();
+  
   rmm::device_buffer bounce_buff(1*1024*1024, cudf::get_default_stream(), mr);
   auto bounce_buff_span = cudf::device_span<uint8_t>(
     static_cast<uint8_t*>(bounce_buff.data()), 
     bounce_buff.size());
 
-  auto cs = cudf::make_chunked_contiguous_split(input, bounce_buff_span.size(), mr);
+  auto cs = cudf::make_chunked_contiguous_split(
+    input, bounce_buff_span.size(), mr);
 
   // right size the final buffer
   rmm::device_buffer final_buff(
@@ -1336,9 +1340,7 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
     mr);
 
   std::size_t final_buff_offset = 0;
-  int num_copies = 0;
   while (cs->has_next()) {
-    num_copies++;
     auto bytes_copied = cs->next(bounce_buff_span);
     cudaMemcpyAsync(
       (uint8_t*)final_buff.data() + final_buff_offset,
@@ -1348,7 +1350,6 @@ std::vector<cudf::packed_table> do_chunked_contiguous_split(
       cudf::get_default_stream());
     final_buff_offset += bytes_copied;
   }
-  std::cout << "chunked contig split size total: " << final_buff_offset << " num_copies: " << num_copies << std::endl;
 
   auto packed_column_metas = cs->make_packed_columns();
   // for chunked contig split, this is going to be a size 1 vector if we have
@@ -1647,7 +1648,7 @@ TEST_F(ContiguousSplitUntypedTest, ValidityEdgeCase)
 }
 
 // This test requires about 25GB of device memory when used with the arena allocator
-TEST_F(ContiguousSplitUntypedTest, DISABLED_VeryLargeColumnTest)
+TEST_F(ContiguousSplitUntypedTest, VeryLargeColumnTest)
 {
   // tests an edge case where buf.elements * buf.element_size overflows an INT32.
   auto col = cudf::make_fixed_width_column(
@@ -1657,7 +1658,7 @@ TEST_F(ContiguousSplitUntypedTest, DISABLED_VeryLargeColumnTest)
 }
 
 // This test requires about 25GB of device memory when used with the arena allocator
-TEST_F(ContiguousSplitUntypedTest, DISABLED_VeryLargeColumnTestChunked)
+TEST_F(ContiguousSplitUntypedTest, VeryLargeColumnTestChunked)
 {
   // tests an edge case where buf.elements * buf.element_size overflows an INT32.
   auto col = cudf::make_fixed_width_column(
