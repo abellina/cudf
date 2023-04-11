@@ -650,6 +650,23 @@ std::pair<src_buf_info*, size_type> setup_source_buf_info(InputIter begin,
   return {current, offset_stack_pos};
 }
 
+/**
+ * @brief Given a column, processed split buffers, and a metadata builder, populate
+ * the metadata for this column in the builder, and return a tuple of:
+ * column size, data offset, bitmask offset and null count.
+ *
+ * @param src column_view to create metadata from
+ * @param current_info dst_buf_info pointer reference, pointing to this column's buffer info. 
+ *                     This is a pointer reference because it is updated by this function as the 
+ *                     columns's validity and data buffers are visited.
+ * @param mb A metadata_builder instance to update with the columns's packed metadata
+ * @param use_src_null_count True for the chunked_contiguous_split case where current_info
+ *                           has invalid null count information. The null count should be taken
+ *                           from `src` because this case is restricted to a single partition 
+ *                           (no splits)
+ * @returns a std::tuple<size_type, int64_t, int64_t, size_type> containing: 
+ *          column size, data offset, bitmask offset, and null count.
+ */
 template <typename BufInfo>
 std::tuple<size_type, int64_t, int64_t, size_type> build_output_column_metadata(
   column_view const& src,
@@ -787,17 +804,17 @@ BufInfo build_output_columns(InputIter begin,
  * @returns new dst_buf_info iterator after processing this range of input columns
  */
 template <typename InputIter, typename BufInfo>
-BufInfo build_output_columns(InputIter begin,
-                             InputIter end,
-                             BufInfo info_begin,
-                             metadata_builder& mb)
+BufInfo populate_metadata(InputIter begin,
+                          InputIter end,
+                          BufInfo info_begin,
+                          metadata_builder& mb)
 {
   auto current_info = info_begin;
   std::for_each(begin, end, [&current_info, &mb](column_view const& src) {
     build_output_column_metadata<BufInfo>(src, current_info, mb, true);
 
     // children
-    current_info = build_output_columns(src.child_begin(), src.child_end(), current_info, mb);
+    current_info = populate_metadata(src.child_begin(), src.child_end(), current_info, mb);
   });
 
   return current_info;
@@ -914,6 +931,19 @@ struct chunk_byte_size_function {
     std::size_t const bytes =
       static_cast<std::size_t>(buf.num_elements) * static_cast<std::size_t>(buf.element_size);
     return util::round_up_unsafe(bytes, split_align);
+  }
+};
+
+/**
+ * @brief Get the input buffer index given the output buffer index.
+ */
+struct out_to_in_index_function {
+  offset_type const* chunk_offsets;
+  int num_bufs;
+  __device__ int operator()(size_type i) const {
+    return static_cast<size_type>(
+            thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
+            chunk_offsets) - 1;
   }
 };
 
@@ -1182,14 +1212,12 @@ struct packed_src_and_dst_pointers {
     dst_bufs_size =
       cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
 
-    // TODO: ask why when we copy h_src_bufs to device we copy with src_bufs_size + dst_bufs_size...
     // host-side
     h_src_and_dst_buffers = std::vector<uint8_t>(src_bufs_size + dst_bufs_size);
     h_src_bufs = reinterpret_cast<uint8_t const**>(h_src_and_dst_buffers.data());
     h_dst_bufs = reinterpret_cast<uint8_t**>(h_src_and_dst_buffers.data() + src_bufs_size);
 
     // device-side
-    // TODO: removed offset_stack_size from this
     d_src_and_dst_buffers = rmm::device_buffer(
       src_bufs_size + dst_bufs_size, stream, mr);
     d_src_bufs = reinterpret_cast<uint8_t const**>(d_src_and_dst_buffers.data());
@@ -1200,7 +1228,13 @@ struct packed_src_and_dst_pointers {
     setup_src_buf_data(input.begin(), input.end(), h_src_bufs);
   }
 
+  //
+  // We execute this for every chunk rather than once in the regular contiguous_split case.
+  // This is mildly wasteful since the "src" info will already be in place - only the destination
+  // pointer is going to change. That said, the data is small.
+  //
   void copy_to_device() {
+    // TODO: make this copy the root device buffer/host buffer.. slightly cleaner
     CUDF_CUDA_TRY(cudaMemcpyAsync(
       d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
   }
@@ -1217,12 +1251,15 @@ struct packed_src_and_dst_pointers {
   uint8_t** d_dst_bufs;
 };
 
+// TODO: we don't pass the right things at construction, and have too much public here
+// TODO: needs docs
+// TODO: the naming around this variable is not great
 struct iteration_state {
-  iteration_state(rmm::device_uvector<dst_buf_info> _d_dst_buf_info, int num_expected_copies)
+  iteration_state(rmm::device_uvector<dst_buf_info> d_chunked_dst_buf_info, int num_expected_copies)
     : num_iterations(num_expected_copies),
       current_iteration(0),
       starting_buff(0),
-      d_dst_buf_info(std::move(_d_dst_buf_info)),
+      d_chunked_dst_buf_info(std::move(d_chunked_dst_buf_info)),
       h_num_buffs_per_key(num_expected_copies),
       h_size_of_buffs_per_key(num_expected_copies)
   {
@@ -1249,33 +1286,29 @@ struct iteration_state {
   int num_iterations;
   int current_iteration;
   std::size_t starting_buff;
-  rmm::device_uvector<dst_buf_info> d_dst_buf_info;
+  rmm::device_uvector<dst_buf_info> d_chunked_dst_buf_info;
   std::vector<std::size_t> h_num_buffs_per_key;
   std::vector<std::size_t> h_size_of_buffs_per_key;
 };
 
+// TODO: this function is badly named, it doesn't return a dst_buf_info
 std::unique_ptr<iteration_state> get_dst_buf_info(
   rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
   rmm::device_uvector<offset_type>& chunk_offsets,
   int num_chunks,
   int num_bufs,
   int num_src_bufs,
-  dst_buf_info* _d_dst_buf_info,
+  dst_buf_info* d_orig_dst_buf_info,
   std::size_t user_buffer_size,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr) {
 
-  auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
-    return static_cast<size_type>(
-             thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
-             chunk_offsets) -
-           1;
-  };
+  auto out_to_in_index = out_to_in_index_function{chunk_offsets.begin(), num_bufs};
 
   auto iter = thrust::make_counting_iterator(0);
 
   // load up the chunks as d_dst_buf_info
-  rmm::device_uvector<dst_buf_info> d_dst_buf_info(num_chunks, stream, mr);
+  rmm::device_uvector<dst_buf_info> d_chunked_dst_buf_info(num_chunks, stream, mr);
 
   // TODO: ask: I think we can create the chunk d_dst_buf_info once in device memory
   // then just make sure we start at the right index, rather than create new d_dst_buf_info
@@ -1284,8 +1317,8 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
     rmm::exec_policy(stream, mr),
     iter,
     iter + num_chunks,
-    [_d_dst_buf_info,
-     d_dst_buf_info = d_dst_buf_info.begin(),
+    [d_orig_dst_buf_info,
+     d_chunked_dst_buf_info = d_chunked_dst_buf_info.begin(),
      chunks         = chunks.begin(),
      chunk_offsets  = chunk_offsets.begin(),
      num_bufs,
@@ -1294,10 +1327,10 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       size_type const in_buf_index = out_to_in_index(i);
       size_type const chunk_index  = i - chunk_offsets[in_buf_index];
       auto const chunk_size        = thrust::get<1>(chunks[in_buf_index]);
-      dst_buf_info const& in       = _d_dst_buf_info[in_buf_index];
+      dst_buf_info const& in       = d_orig_dst_buf_info[in_buf_index];
 
       // adjust info
-      dst_buf_info& out = d_dst_buf_info[i];
+      dst_buf_info& out = d_chunked_dst_buf_info[i];
       out.element_size  = in.element_size;
       out.value_shift   = in.value_shift;
       out.bit_shift     = in.bit_shift;
@@ -1339,8 +1372,8 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
     {
       rmm::device_uvector<std::size_t> sizes(num_chunks, stream, mr);
       thrust::transform(rmm::exec_policy(stream, mr),
-                        d_dst_buf_info.begin(),
-                        d_dst_buf_info.end(),
+                        d_chunked_dst_buf_info.begin(),
+                        d_chunked_dst_buf_info.end(),
                         sizes.begin(),
                         chunk_byte_size_function());
       
@@ -1403,22 +1436,22 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       thrust::for_each(rmm::exec_policy(stream, mr),
                        iter,
                        iter + num_chunks - num_chunks_in_first_split,
-                       [d_dst_buf_info = d_dst_buf_info.begin(),
+                       [d_chunked_dst_buf_info = d_chunked_dst_buf_info.begin(),
                         d_accum_size_per_split = d_accum_size_per_split.begin(),
                         d_offset_per_chunk = d_offset_per_chunk.begin()] __device__(size_type i) {
                           auto split = d_offset_per_chunk[i];
-                          d_dst_buf_info[i].dst_offset -= d_accum_size_per_split[split - 1];
+                          d_chunked_dst_buf_info[i].dst_offset -= d_accum_size_per_split[split - 1];
                        });
     }
-    istate = std::make_unique<iteration_state>(std::move(d_dst_buf_info), num_chunks_per_split.size());
+    istate = std::make_unique<iteration_state>(std::move(d_chunked_dst_buf_info), num_chunks_per_split.size());
     istate->h_num_buffs_per_key = std::move(num_chunks_per_split);
     istate->h_size_of_buffs_per_key = std::move(size_of_chunks_per_split);
   } else {
     // TODO: we should already have last_size, since the original code would have allocated
     // out_buffers
-    auto size_iter = thrust::make_transform_iterator(d_dst_buf_info.begin(), chunk_byte_size_function());
+    auto size_iter = thrust::make_transform_iterator(d_chunked_dst_buf_info.begin(), chunk_byte_size_function());
     auto last_size = thrust::reduce(rmm::exec_policy(stream, mr), size_iter, size_iter + num_chunks);
-    istate = std::make_unique<iteration_state>(std::move(d_dst_buf_info), 1);
+    istate = std::make_unique<iteration_state>(std::move(d_chunked_dst_buf_info), 1);
     istate->h_num_buffs_per_key[0] = num_chunks;
     istate->h_size_of_buffs_per_key[0] = last_size; 
   }
@@ -1436,46 +1469,6 @@ void copy_data(int num_chunks_to_copy,
   constexpr size_type block_size = 256;
   copy_partitions<block_size><<<num_chunks_to_copy, block_size, 0, stream.value()>>>(
     d_src_bufs, d_dst_bufs, d_dst_buf_info.data() + starting_chunk);
-}
-
-void copy_data_regular(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>>& chunks,
-                       rmm::device_uvector<offset_type>& chunk_offsets,
-                       int num_bufs,
-                       int num_chunks_to_copy,
-                       uint8_t const** d_src_bufs,
-                       uint8_t** d_dst_bufs,
-                       dst_buf_info* _d_dst_buf_info,  // TODO: whey is there a _d_dst_buf_info
-                       rmm::device_uvector<dst_buf_info>& d_dst_buf_info,
-                       rmm::cuda_stream_view stream,
-                       rmm::mr::device_memory_resource* mr)
-{
-  constexpr size_type block_size = 256;
-  copy_partitions<block_size><<<num_chunks_to_copy, block_size, 0, stream.value()>>>(
-    d_src_bufs, d_dst_bufs, d_dst_buf_info.data());
-
-
-  auto out_to_in_index = [chunk_offsets = chunk_offsets.begin(), num_bufs] __device__(size_type i) {
-    return static_cast<size_type>(
-             thrust::upper_bound(thrust::seq, chunk_offsets, chunk_offsets + num_bufs + 1, i) -
-             chunk_offsets) -
-           1;
-  };
-
-  //
-  // TODO: we do need this for the regular contig split case
-  // CHUNKED G:  this step is unnecessary for the chunked case, since with 0 partitions we
-  //             can just use the null count of the original columns
-  // postprocess valid_counts
-  auto keys = cudf::detail::make_counting_transform_iterator(
-    0, [out_to_in_index] __device__(size_type i) { return out_to_in_index(i); });
-  auto values = thrust::make_transform_iterator(
-    d_dst_buf_info.begin(), [] __device__(dst_buf_info const& info) { return info.valid_count; });
-  thrust::reduce_by_key(rmm::exec_policy(stream, mr),
-                        keys,
-                        keys + num_chunks_to_copy,
-                        values,
-                        thrust::make_discard_iterator(),
-                        dst_valid_count_output_iterator{_d_dst_buf_info});
 }
 
 std::size_t get_num_partitions(std::vector<size_type> const& splits) {
@@ -1682,18 +1675,15 @@ struct contiguous_split_state {
     // used during the copy
     computed_chunks = std::make_unique<chunk_infos>(std::move(chunks), std::move(chunk_offsets));
 
-    //
-    // CHUNKED C: If we execute this for every chunk it is mildly wasteful since the "src" info will
-    //            already be in place - only the dst buf info will have changed. this is fine
-    //            though. the data is small.
-    //
     // HtoD src and dest buffers
     src_and_dst_pointers->copy_to_device();
 
-    auto const num_chunks = cudf::detail::make_counting_transform_iterator(
+    auto const num_chunks_iter = cudf::detail::make_counting_transform_iterator(
       0, num_chunks_func{computed_chunks->chunks.begin()});
     size_type const new_buf_count = thrust::reduce(
-      rmm::exec_policy(stream, mr), num_chunks, num_chunks + computed_chunks->chunks.size());
+      rmm::exec_policy(stream, mr), 
+      num_chunks_iter, 
+      num_chunks_iter + computed_chunks->chunks.size());
 
     state = get_dst_buf_info(computed_chunks->chunks,
                              computed_chunks->chunk_offsets,
@@ -1718,30 +1708,44 @@ struct contiguous_split_state {
     size_type const new_buf_count = thrust::reduce(
       rmm::exec_policy(stream, mr), num_chunks, num_chunks + computed_chunks->chunks.size());
 
-    // TODO: the original d_dst_buf_info??
-    auto _d_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
-    auto h_dst_buf_info  = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
+    // these "orig" dst_buf_info pointers describe the prior-to-chunking destination
+    // buffers per partition
+    auto d_orig_dst_buf_info = partition_buf_size_and_dst_buf_info->d_dst_buf_info;
+    auto h_orig_dst_buf_info = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
 
     // perform the copy.
-    copy_data_regular(computed_chunks->chunks,
-                      computed_chunks->chunk_offsets,
-                      num_bufs,
-                      new_buf_count,
-                      src_and_dst_pointers->d_src_bufs,
-                      src_and_dst_pointers->d_dst_bufs,
-                      _d_dst_buf_info,
-                      state->d_dst_buf_info,
-                      stream,
-                      mr);
+    copy_data(new_buf_count,
+              0 /* starting at buffer 0*/,
+              src_and_dst_pointers->d_src_bufs,
+              src_and_dst_pointers->d_dst_bufs,
+              state->d_chunked_dst_buf_info,
+              stream);
 
-    CUDF_CUDA_TRY(cudaMemcpyAsync(h_dst_buf_info,
-                                  _d_dst_buf_info,
+    // postprocess valid_counts: apply the valid counts computed by copy_data for each 
+    // chunk back to the original dst_buf_infos
+    auto keys = cudf::detail::make_counting_transform_iterator(
+      0, out_to_in_index_function{computed_chunks->chunk_offsets.begin(), (int)num_bufs});
+
+    auto values = thrust::make_transform_iterator(state->d_chunked_dst_buf_info.begin(),
+      [] __device__(dst_buf_info const& info) { return info.valid_count; });
+
+    thrust::reduce_by_key(rmm::exec_policy(stream, mr),
+                          keys,
+                          keys + new_buf_count,
+                          values,
+                          thrust::make_discard_iterator(),
+                          dst_valid_count_output_iterator{d_orig_dst_buf_info});
+
+    CUDF_CUDA_TRY(cudaMemcpyAsync(h_orig_dst_buf_info,
+                                  d_orig_dst_buf_info,
                                   partition_buf_size_and_dst_buf_info->dst_buf_info_size,
                                   cudaMemcpyDefault,
                                   stream.value()));
 
     stream.synchronize();
 
+    // not necessary for the non-chunked case, but it makes it so further calls to has_next
+    // return false
     state->advance_iteration();
 
     return make_packed_tables();
@@ -1753,7 +1757,7 @@ struct contiguous_split_state {
     CUDF_EXPECTS(user_buffer.size() == user_buffer_size, 
       "Cannot use a device span smaller than the output buffer size configured at instantiation!");
     CUDF_EXPECTS(has_next(),
-      "Cannot call contiguos_split_chunk with has_next=false!");
+      "Cannot call contiguos_split_chunk with has_next() == false!");
     // prep the target location
     src_and_dst_pointers->h_dst_bufs[0] = user_buffer.data();
     src_and_dst_pointers->copy_to_device();
@@ -1767,9 +1771,11 @@ struct contiguous_split_state {
               starting_buff,
               src_and_dst_pointers->d_src_bufs,
               src_and_dst_pointers->d_dst_bufs,
-              state->d_dst_buf_info,
+              state->d_chunked_dst_buf_info,
               stream);
 
+    // We do not need to post-process null counts since the null count info is 
+    // taken from the source table in the contigous_split_chunk case (no splits)
     return state->advance_iteration();
   }
 
@@ -1815,8 +1821,10 @@ struct contiguous_split_state {
     if (input.num_columns() == 0) { return std::unique_ptr<packed_columns::metadata>(); }
 
     if (is_empty) { 
-      // TODO: super ugly
-      return std::move(make_empty_packed_table()[0].data.metadata_);
+      // this is a bit ugly, but it was done to re-use make_empty_packed_table between the
+      // regular contiguous_split and chunked_contiguous_split cases.
+      auto empty_packed_tables = std::move(make_empty_packed_table()[0]);
+      return std::move(empty_packed_tables.data.metadata_);
     }
 
     auto& h_dst_buf_info  = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
@@ -1824,7 +1832,7 @@ struct contiguous_split_state {
     metadata_builder mb(input.num_columns());
 
     // traverse the buffers and build the columns.
-    build_output_columns(input.begin(), input.end(), cur_dst_buf_info, mb);
+    populate_metadata(input.begin(), input.end(), cur_dst_buf_info, mb);
 
     return std::make_unique<packed_columns::metadata>(std::move(mb.build()));
   }
