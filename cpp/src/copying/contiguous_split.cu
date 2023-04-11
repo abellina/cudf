@@ -1310,9 +1310,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   // load up the chunks as d_dst_buf_info
   rmm::device_uvector<dst_buf_info> d_chunked_dst_buf_info(num_chunks, stream, mr);
 
-  // TODO: ask: I think we can create the chunk d_dst_buf_info once in device memory
-  // then just make sure we start at the right index, rather than create new d_dst_buf_info
-  // for a particular bounce buffer copy
   thrust::for_each(
     rmm::exec_policy(stream, mr),
     iter,
@@ -1659,6 +1656,7 @@ struct contiguous_split_state {
         return {num_chunks, desired_chunk_size};
       });
 
+
     std::size_t& my_num_bufs = num_bufs;
     rmm::device_uvector<offset_type> chunk_offsets(num_bufs + 1, stream, mr);
     auto buf_count_iter = cudf::detail::make_counting_transform_iterator(
@@ -1852,8 +1850,6 @@ struct contiguous_split_state {
     auto cur_dst_buf_info = h_dst_buf_info;
     for (std::size_t idx = 0; idx < num_partitions; idx++) {
       // traverse the buffers and build the columns.
-      // add the base pointer. With the base pointer, the metadata builder can build columns
-      // TODO: metadata_builder mb(input.num_columns(), h_dst_bufs[idx]);
       metadata_builder mb(input.num_columns());
       cur_dst_buf_info = cudf::build_output_columns(
         input.begin(), 
