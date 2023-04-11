@@ -1205,7 +1205,8 @@ struct packed_src_and_dst_pointers {
                               std::size_t num_partitions,
                               cudf::size_type num_src_bufs,
                               rmm::cuda_stream_view stream,
-                              rmm::mr::device_memory_resource* mr):stream(stream)
+                              rmm::mr::device_memory_resource* mr):
+                              stream(stream)
   {
     src_bufs_size =
       cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
@@ -1251,17 +1252,19 @@ struct packed_src_and_dst_pointers {
   uint8_t** d_dst_bufs;
 };
 
-// TODO: we don't pass the right things at construction, and have too much public here
-// TODO: needs docs
-// TODO: the naming around this variable is not great
 struct iteration_state {
-  iteration_state(rmm::device_uvector<dst_buf_info> d_chunked_dst_buf_info, int num_expected_copies)
+  iteration_state(rmm::device_uvector<dst_buf_info> _d_chunked_dst_buf_info,
+                  std::vector<std::size_t> _h_num_buffs_per_key,
+                  std::vector<std::size_t> _h_size_of_buffs_per_key,
+                  std::size_t total_size,
+                  int num_expected_copies)
     : num_iterations(num_expected_copies),
       current_iteration(0),
       starting_buff(0),
-      d_chunked_dst_buf_info(std::move(d_chunked_dst_buf_info)),
-      h_num_buffs_per_key(num_expected_copies),
-      h_size_of_buffs_per_key(num_expected_copies)
+      d_chunked_dst_buf_info(std::move(_d_chunked_dst_buf_info)),
+      h_num_buffs_per_key(std::move(_h_num_buffs_per_key)),
+      h_size_of_buffs_per_key(std::move(_h_size_of_buffs_per_key)),
+      total_size(total_size)
   {
   }
   
@@ -1273,6 +1276,8 @@ struct iteration_state {
   }
   
   std::size_t advance_iteration() { 
+    CUDF_EXPECTS(current_iteration < num_iterations, 
+      "current_iteration cannot exceed than num_iterations");
     std::size_t bytes_copied = h_size_of_buffs_per_key[current_iteration];
     starting_buff += h_num_buffs_per_key[current_iteration];
     ++current_iteration;
@@ -1283,10 +1288,13 @@ struct iteration_state {
     return current_iteration < num_iterations;
   }
 
+  rmm::device_uvector<dst_buf_info> d_chunked_dst_buf_info;
+  std::size_t total_size;
+
+private:
   int num_iterations;
   int current_iteration;
   std::size_t starting_buff;
-  rmm::device_uvector<dst_buf_info> d_chunked_dst_buf_info;
   std::vector<std::size_t> h_num_buffs_per_key;
   std::vector<std::size_t> h_size_of_buffs_per_key;
 };
@@ -1299,6 +1307,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   int num_bufs,
   int num_src_bufs,
   dst_buf_info* d_orig_dst_buf_info,
+  std::size_t const* const  h_buf_sizes,
   std::size_t user_buffer_size,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr) {
@@ -1361,8 +1370,6 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       // underneath the final structure of the output
     });
 
-
-  std::unique_ptr<iteration_state> istate; 
   if (user_buffer_size != 0) {
     // copy the chunk sizes back to host
     std::vector<std::size_t> h_sizes(num_chunks);
@@ -1384,15 +1391,16 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       stream.synchronize();
     }
 
+    // TODO: can this be simplified + the device memory allocation  done after it
     // compute the chunks size and offsets
     std::vector<std::size_t> offset_per_chunk(num_chunks);
     std::vector<std::size_t> num_chunks_per_split;
     std::vector<std::size_t> size_of_chunks_per_split;
     std::vector<std::size_t> accum_size_per_split;
+    std::size_t accum_size = 0;
     {
       std::size_t current_split_num_chunks = 0;
       std::size_t current_split_size       = 0;
-      std::size_t accum_size               = 0;
 
       int current_split = 0;
       for (std::size_t i = 0; i < h_sizes.size(); ++i) {
@@ -1440,20 +1448,23 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
                           d_chunked_dst_buf_info[i].dst_offset -= d_accum_size_per_split[split - 1];
                        });
     }
-    istate = std::make_unique<iteration_state>(std::move(d_chunked_dst_buf_info), num_chunks_per_split.size());
-    istate->h_num_buffs_per_key = std::move(num_chunks_per_split);
-    istate->h_size_of_buffs_per_key = std::move(size_of_chunks_per_split);
-  } else {
-    // TODO: we should already have last_size, since the original code would have allocated
-    // out_buffers
-    auto size_iter = thrust::make_transform_iterator(d_chunked_dst_buf_info.begin(), chunk_byte_size_function());
-    auto last_size = thrust::reduce(rmm::exec_policy(stream, mr), size_iter, size_iter + num_chunks);
-    istate = std::make_unique<iteration_state>(std::move(d_chunked_dst_buf_info), 1);
-    istate->h_num_buffs_per_key[0] = num_chunks;
-    istate->h_size_of_buffs_per_key[0] = last_size; 
-  }
+    return std::make_unique<iteration_state>(
+      std::move(d_chunked_dst_buf_info), 
+      std::move(num_chunks_per_split),
+      std::move(size_of_chunks_per_split),
+      accum_size,
+      num_chunks_per_split.size());
 
- return istate;
+  } else {
+    std::vector<std::size_t> regular = { (std::size_t)num_chunks } ;
+    std::vector<std::size_t> regular_sizes = { h_buf_sizes[0]} ;
+    return std::make_unique<iteration_state>(
+      std::move(d_chunked_dst_buf_info), 
+      std::move(regular), 
+      std::move(regular_sizes),
+      h_buf_sizes[0],
+      1);
+  }
 }
 
 void copy_data(int num_chunks_to_copy,
@@ -1575,18 +1586,13 @@ struct contiguous_split_state {
     compute_chunks();
   }
 
-  bool has_next() const { return !is_empty && state->has_more_copies(); }
+  bool has_next() const { 
+    return !is_empty && internal_iter_state->has_more_copies(); 
+  }
 
-  // TODO: we can do better
+  // TODO: this only works for chunked
   std::size_t get_total_contiguous_size() const {
-    if (is_empty) {
-      return 0;
-    }
-    std::size_t total = 0;
-    for (std::size_t i = 0; i < state->h_size_of_buffs_per_key.size(); ++i) {
-      total += state->h_size_of_buffs_per_key[i];
-    }
-    return total;
+    return is_empty ? 0 : internal_iter_state->total_size;
   }
 
   void compute_chunks()
@@ -1683,15 +1689,16 @@ struct contiguous_split_state {
       num_chunks_iter, 
       num_chunks_iter + computed_chunks->chunks.size());
 
-    state = get_dst_buf_info(computed_chunks->chunks,
-                             computed_chunks->chunk_offsets,
-                             new_buf_count,
-                             num_bufs,
-                             num_src_bufs,
-                             partition_buf_size_and_dst_buf_info->d_dst_buf_info,
-                             user_buffer_size,
-                             stream, 
-                             mr);
+    internal_iter_state = get_dst_buf_info(computed_chunks->chunks,
+                                           computed_chunks->chunk_offsets,
+                                           new_buf_count,
+                                           num_bufs,
+                                           num_src_bufs,
+                                           partition_buf_size_and_dst_buf_info->d_dst_buf_info,
+                                           partition_buf_size_and_dst_buf_info->h_buf_sizes,
+                                           user_buffer_size,
+                                           stream,
+                                           mr);
   }
 
   std::vector<packed_table> contiguous_split()
@@ -1716,7 +1723,7 @@ struct contiguous_split_state {
               0 /* starting at buffer 0*/,
               src_and_dst_pointers->d_src_bufs,
               src_and_dst_pointers->d_dst_bufs,
-              state->d_chunked_dst_buf_info,
+              internal_iter_state->d_chunked_dst_buf_info,
               stream);
 
     // postprocess valid_counts: apply the valid counts computed by copy_data for each 
@@ -1724,7 +1731,7 @@ struct contiguous_split_state {
     auto keys = cudf::detail::make_counting_transform_iterator(
       0, out_to_in_index_function{computed_chunks->chunk_offsets.begin(), (int)num_bufs});
 
-    auto values = thrust::make_transform_iterator(state->d_chunked_dst_buf_info.begin(),
+    auto values = thrust::make_transform_iterator(internal_iter_state->d_chunked_dst_buf_info.begin(),
       [] __device__(dst_buf_info const& info) { return info.valid_count; });
 
     thrust::reduce_by_key(rmm::exec_policy(stream, mr),
@@ -1743,8 +1750,8 @@ struct contiguous_split_state {
     stream.synchronize();
 
     // not necessary for the non-chunked case, but it makes it so further calls to has_next
-    // return false
-    state->advance_iteration();
+    // return false, just in case
+    internal_iter_state->advance_iteration();
 
     return make_packed_tables();
   }
@@ -1762,19 +1769,19 @@ struct contiguous_split_state {
 
     std::size_t starting_buff, num_chunks_to_copy;
     std::tie(starting_buff, num_chunks_to_copy) =
-      state->get_current_starting_index_and_buff_count();
+      internal_iter_state->get_current_starting_index_and_buff_count();
 
     // perform the copy.
     copy_data(num_chunks_to_copy,
               starting_buff,
               src_and_dst_pointers->d_src_bufs,
               src_and_dst_pointers->d_dst_bufs,
-              state->d_chunked_dst_buf_info,
+              internal_iter_state->d_chunked_dst_buf_info,
               stream);
 
     // We do not need to post-process null counts since the null count info is 
     // taken from the source table in the contigous_split_chunk case (no splits)
-    return state->advance_iteration();
+    return internal_iter_state->advance_iteration();
   }
 
   std::vector<packed_table> make_empty_packed_table() {
@@ -1900,7 +1907,7 @@ struct contiguous_split_state {
   // TODO: ask: empty columns vs columns but no rows
   bool is_empty;
 
-  std::unique_ptr<iteration_state> state;
+  std::unique_ptr<iteration_state> internal_iter_state;
 
   // two result buffer types are allowed:
   //  - user provided: as the name implies, the user has provided a buffer that must be at least
