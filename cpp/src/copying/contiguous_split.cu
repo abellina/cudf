@@ -1239,9 +1239,12 @@ struct packed_src_and_dst_pointers {
   // pointer is going to change. That said, the data is small.
   //
   void copy_to_device() {
-    // TODO: 2: make this copy the root device buffer/host buffer.. slightly cleaner
     CUDF_CUDA_TRY(cudaMemcpyAsync(
-      d_src_bufs, h_src_bufs, src_bufs_size + dst_bufs_size, cudaMemcpyDefault, stream.value()));
+      d_src_and_dst_buffers.data(), 
+      h_src_and_dst_buffers.data(), 
+      src_bufs_size + dst_bufs_size, 
+      cudaMemcpyDefault, 
+      stream.value()));
   }
 
   const rmm::cuda_stream_view stream;
@@ -1422,67 +1425,66 @@ std::unique_ptr<chunk_iteration_state> make_chunk_iteration_state(
     }
 
     // TODO: can this be simplified + the device memory allocation done after it
-    // compute the chunks size and offsets
-    std::vector<std::size_t> offset_per_chunk(num_chunks);
-    std::vector<std::size_t> num_chunks_per_split;
-    std::vector<std::size_t> size_of_chunks_per_split;
-    std::vector<std::size_t> accum_size_per_split;
+    // compute per iteration number of chunks and update the offsets
+    std::vector<std::size_t> iteration_per_chunk(num_chunks);
+    std::vector<std::size_t> num_chunks_per_iteration;
+    std::vector<std::size_t> size_of_chunks_per_iteration;
+    std::vector<std::size_t> accum_size_per_iteration;
     std::size_t accum_size = 0;
     {
-      std::size_t current_split_num_chunks = 0;
-      std::size_t current_split_size       = 0;
-
-      int current_split = 0;
+      std::size_t current_iteration_num_chunks = 0;
+      std::size_t current_iteration_size       = 0;
+      int iteration_number                     = 0;
       for (std::size_t i = 0; i < h_sizes.size(); ++i) {
         auto curr_size = h_sizes[i];
-        if (current_split_size + curr_size > user_buffer_size) {
-          num_chunks_per_split.push_back(current_split_num_chunks);
-          size_of_chunks_per_split.push_back(current_split_size);
-          accum_size_per_split.push_back(accum_size);
-          current_split_num_chunks = 0;
-          current_split_size       = 0;
-          ++current_split;
+        if (current_iteration_size + curr_size > user_buffer_size) {
+          num_chunks_per_iteration.push_back(current_iteration_num_chunks);
+          size_of_chunks_per_iteration.push_back(current_iteration_size);
+          accum_size_per_iteration.push_back(accum_size);
+          current_iteration_num_chunks = 0;
+          current_iteration_size       = 0;
+          ++iteration_number;
         }
-        offset_per_chunk[i] = current_split;
-        current_split_size += curr_size;
+        iteration_per_chunk[i] = iteration_number;
+        current_iteration_size += curr_size;
         accum_size += curr_size;
-        ++current_split_num_chunks;
+        ++current_iteration_num_chunks;
       }
-      if (current_split_num_chunks > 0) {
-        num_chunks_per_split.push_back(current_split_num_chunks);
-        size_of_chunks_per_split.push_back(current_split_size);
-        accum_size_per_split.push_back(accum_size);
+      if (current_iteration_num_chunks > 0) {
+        num_chunks_per_iteration.push_back(current_iteration_num_chunks);
+        size_of_chunks_per_iteration.push_back(current_iteration_size);
+        accum_size_per_iteration.push_back(accum_size);
       }
     }
 
     // apply changed offset
     {
-      rmm::device_uvector<std::size_t> d_offset_per_chunk(num_chunks, stream, mr);
-      rmm::device_uvector<std::size_t> d_accum_size_per_split(accum_size_per_split.size(), stream, mr);
+      rmm::device_uvector<std::size_t> d_iteration_per_chunk(num_chunks, stream, mr);
+      rmm::device_uvector<std::size_t> d_accum_size_per_iteration(accum_size_per_iteration.size(), stream, mr);
 
       CUDF_CUDA_TRY(cudaMemcpyAsync(
-        d_offset_per_chunk.data(), offset_per_chunk.data(), num_chunks * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
+        d_iteration_per_chunk.data(), iteration_per_chunk.data(), num_chunks * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
       CUDF_CUDA_TRY(cudaMemcpyAsync(
-        d_accum_size_per_split.data(), accum_size_per_split.data(), accum_size_per_split.size() * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
+        d_accum_size_per_iteration.data(), accum_size_per_iteration.data(), accum_size_per_iteration.size() * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
 
       // we want to update the offset of chunks in the second to last copy
-      auto num_chunks_in_first_split = num_chunks_per_split[0];
-      auto iter = thrust::make_counting_iterator(num_chunks_in_first_split);
+      auto num_chunks_in_first_iteration = num_chunks_per_iteration[0];
+      auto iter = thrust::make_counting_iterator(num_chunks_in_first_iteration);
       thrust::for_each(rmm::exec_policy(stream, mr),
                        iter,
-                       iter + num_chunks - num_chunks_in_first_split,
+                       iter + num_chunks - num_chunks_in_first_iteration,
                        [d_chunked_dst_buf_info = d_chunked_dst_buf_info.begin(),
-                        d_accum_size_per_split = d_accum_size_per_split.begin(),
-                        d_offset_per_chunk = d_offset_per_chunk.begin()] __device__(size_type i) {
-                          auto split = d_offset_per_chunk[i];
-                          d_chunked_dst_buf_info[i].dst_offset -= d_accum_size_per_split[split - 1];
+                        d_accum_size_per_iteration = d_accum_size_per_iteration.begin(),
+                        d_iteration_per_chunk = d_iteration_per_chunk.begin()] __device__(size_type i) {
+                          auto iteration = d_iteration_per_chunk[i];
+                          d_chunked_dst_buf_info[i].dst_offset -= d_accum_size_per_iteration[iteration - 1];
                        });
     }
     return std::make_unique<chunk_iteration_state>(
       std::move(d_chunked_dst_buf_info), 
       std::move(d_chunk_offsets),
-      std::move(num_chunks_per_split),
-      std::move(size_of_chunks_per_split),
+      std::move(num_chunks_per_iteration),
+      std::move(size_of_chunks_per_iteration),
       accum_size);
 
   } else {
