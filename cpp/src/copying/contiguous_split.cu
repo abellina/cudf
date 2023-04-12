@@ -1512,17 +1512,16 @@ void copy_data(int num_chunks_to_copy,
     d_src_bufs, d_dst_bufs, d_dst_buf_info.data() + starting_chunk);
 }
 
-struct chunk_infos {
-  chunk_infos(rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> _chunks,
-              rmm::device_uvector<offset_type> _chunk_offsets)
-    : chunks(std::move(_chunks)), chunk_offsets(std::move(_chunk_offsets))
-  {
-  }
-
-  rmm::device_uvector<thrust::pair<std::size_t, std::size_t>> chunks;
-  rmm::device_uvector<offset_type> chunk_offsets;
-};
-
+/**
+ * @brief Function that checks an input table_view and splits for specific edge cases.
+ * 
+ * It will return true if the input is "empty" (no rows or columns), which means
+ * special handling has to happen in the calling code.
+ * 
+ * @param input table_view of source table to be split
+ * @param splits the splits specified by the user, or an empty vector if no splits.
+ * @returns true if the input is empty, false otherwise
+ */
 bool check_inputs(cudf::table_view const& input, std::vector<size_type> const& splits) 
 {
   if (input.num_columns() == 0) {
@@ -1545,6 +1544,23 @@ bool check_inputs(cudf::table_view const& input, std::vector<size_type> const& s
   return input.column(0).size() == 0;
 }
 
+/**
+ * @brief A helper struct containing the state of contiguous_split, whether the caller
+ * is using the single-pass contigous_split or the chunked_contiguous_split.
+ * 
+ * It exposes an interator-like pattern where contiguous_split_state::has_next()
+ * return true when there is work to be done, and false otherwise. 
+ * 
+ * contiguous_split_state::contiguous_split() performs a single-pass contiguous_split
+ * and is only valid iff contiguous_split_state is instantiated with 0 for the user_buffer_size.
+ * 
+ * contiguous_split_state::contiguous_split_chunk(device_span) is only valid when
+ * user_buffer_size > 0. It should be called as long as has_next() retruns true. The 
+ * device_span passed to contiguous_split_chunk must be allocated in stream `stream` by
+ * the user.
+ * 
+ * None of the methods are thread safe.
+ */
 struct contiguous_split_state {
 
   static const std::size_t desired_chunk_size = 1 * 1024 * 1024;
