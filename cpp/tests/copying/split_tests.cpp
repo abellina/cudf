@@ -1648,6 +1648,8 @@ TEST_F(ContiguousSplitUntypedTest, ValidityEdgeCase)
   }
 }
 
+// TODO: disable these
+
 // This test requires about 25GB of device memory when used with the arena allocator
 TEST_F(ContiguousSplitUntypedTest, VeryLargeColumnTest)
 {

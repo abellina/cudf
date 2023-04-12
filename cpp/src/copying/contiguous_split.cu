@@ -1254,16 +1254,16 @@ struct packed_src_and_dst_pointers {
 
 struct iteration_state {
   iteration_state(rmm::device_uvector<dst_buf_info> _d_chunked_dst_buf_info,
-                  std::vector<std::size_t> _h_num_buffs_per_key,
-                  std::vector<std::size_t> _h_size_of_buffs_per_key,
+                  std::vector<std::size_t> _h_num_buffs_per_iteration,
+                  std::vector<std::size_t> _h_size_of_buffs_per_iteration,
                   std::size_t total_size,
                   int num_expected_copies)
     : num_iterations(num_expected_copies),
       current_iteration(0),
       starting_buff(0),
       d_chunked_dst_buf_info(std::move(_d_chunked_dst_buf_info)),
-      h_num_buffs_per_key(std::move(_h_num_buffs_per_key)),
-      h_size_of_buffs_per_key(std::move(_h_size_of_buffs_per_key)),
+      h_num_buffs_per_iteration(std::move(_h_num_buffs_per_iteration)),
+      h_size_of_buffs_per_iteration(std::move(_h_size_of_buffs_per_iteration)),
       total_size(total_size)
   {
   }
@@ -1271,15 +1271,15 @@ struct iteration_state {
   std::pair<std::size_t, std::size_t> get_current_starting_index_and_buff_count() const {
     CUDF_EXPECTS(current_iteration < num_iterations, 
       "current_iteration cannot exceed than num_iterations");
-    auto count_for_current = h_num_buffs_per_key[current_iteration];
+    auto count_for_current = h_num_buffs_per_iteration[current_iteration];
     return std::make_pair(starting_buff, count_for_current);
   }
   
   std::size_t advance_iteration() { 
     CUDF_EXPECTS(current_iteration < num_iterations, 
       "current_iteration cannot exceed than num_iterations");
-    std::size_t bytes_copied = h_size_of_buffs_per_key[current_iteration];
-    starting_buff += h_num_buffs_per_key[current_iteration];
+    std::size_t bytes_copied = h_size_of_buffs_per_iteration[current_iteration];
+    starting_buff += h_num_buffs_per_iteration[current_iteration];
     ++current_iteration;
     return bytes_copied;
   }
@@ -1295,8 +1295,8 @@ private:
   int num_iterations;
   int current_iteration;
   std::size_t starting_buff;
-  std::vector<std::size_t> h_num_buffs_per_key;
-  std::vector<std::size_t> h_size_of_buffs_per_key;
+  std::vector<std::size_t> h_num_buffs_per_iteration;
+  std::vector<std::size_t> h_size_of_buffs_per_iteration;
 };
 
 // TODO: this function is badly named, it doesn't return a dst_buf_info
@@ -1308,6 +1308,7 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
   int num_src_bufs,
   dst_buf_info* d_orig_dst_buf_info,
   std::size_t const* const  h_buf_sizes,
+  std::size_t num_partitions,
   std::size_t user_buffer_size,
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr) {
@@ -1456,14 +1457,17 @@ std::unique_ptr<iteration_state> get_dst_buf_info(
       num_chunks_per_split.size());
 
   } else {
-    std::vector<std::size_t> regular = { (std::size_t)num_chunks } ;
-    std::vector<std::size_t> regular_sizes = { h_buf_sizes[0]} ;
+    // we instantiate an "iteration state" but this is the regular single pass contiguous_split
+    // so it really needs no iteration info, just the d_chunked_dst_buf_info which is valid.
+    auto total_size = std::reduce(h_buf_sizes, h_buf_sizes + num_partitions);
+
+    // 1 iteration with the whole size
     return std::make_unique<iteration_state>(
       std::move(d_chunked_dst_buf_info), 
-      std::move(regular), 
-      std::move(regular_sizes),
-      h_buf_sizes[0],
-      1);
+      std::move(std::vector<std::size_t> { (std::size_t)num_chunks }), 
+      std::move(std::vector<std::size_t> { total_size }),
+      total_size, 
+      std::size_t(1));
   }
 }
 
@@ -1590,7 +1594,6 @@ struct contiguous_split_state {
     return !is_empty && internal_iter_state->has_more_copies(); 
   }
 
-  // TODO: this only works for chunked
   std::size_t get_total_contiguous_size() const {
     return is_empty ? 0 : internal_iter_state->total_size;
   }
@@ -1696,6 +1699,7 @@ struct contiguous_split_state {
                                            num_src_bufs,
                                            partition_buf_size_and_dst_buf_info->d_dst_buf_info,
                                            partition_buf_size_and_dst_buf_info->h_buf_sizes,
+                                           num_partitions,
                                            user_buffer_size,
                                            stream,
                                            mr);
