@@ -1463,9 +1463,18 @@ std::unique_ptr<chunk_iteration_state> make_chunk_iteration_state(
       rmm::device_uvector<std::size_t> d_accum_size_per_iteration(accum_size_per_iteration.size(), stream, mr);
 
       CUDF_CUDA_TRY(cudaMemcpyAsync(
-        d_iteration_per_chunk.data(), iteration_per_chunk.data(), num_chunks * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
+        d_iteration_per_chunk.data(), 
+        iteration_per_chunk.data(), 
+        num_chunks * sizeof(std::size_t), 
+        cudaMemcpyDefault, 
+        stream.value()));
+
       CUDF_CUDA_TRY(cudaMemcpyAsync(
-        d_accum_size_per_iteration.data(), accum_size_per_iteration.data(), accum_size_per_iteration.size() * sizeof(std::size_t), cudaMemcpyDefault, stream.value()));
+        d_accum_size_per_iteration.data(), 
+        accum_size_per_iteration.data(), 
+        accum_size_per_iteration.size() * sizeof(std::size_t), 
+        cudaMemcpyDefault, 
+        stream.value()));
 
       // we want to update the offset of chunks in the second to last copy
       auto num_chunks_in_first_iteration = num_chunks_per_iteration[0];
