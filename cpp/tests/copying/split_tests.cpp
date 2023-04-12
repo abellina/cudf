@@ -451,7 +451,7 @@ void split_end_to_size(SplitFunc Split, CompareFunc Compare)
 
 template <typename SplitFunc>
 void split_empty_table(SplitFunc Split,
-                      std::vector<cudf::size_type> const& splits = {2, 5, 6})
+                       std::vector<cudf::size_type> const& splits = {2, 5, 6})
 {
   cudf::table src_table{};
   auto result = Split(src_table, splits);
