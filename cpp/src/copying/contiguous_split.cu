@@ -1208,14 +1208,23 @@ struct packed_src_and_dst_pointers {
   packed_src_and_dst_pointers(cudf::table_view const& input,
                               std::size_t num_partitions,
                               cudf::size_type num_src_bufs,
+                              int num_iterations,
                               rmm::cuda_stream_view stream,
                               rmm::mr::device_memory_resource* mr):
                               stream(stream)
   {
     src_bufs_size =
       cudf::util::round_up_safe(num_src_bufs * sizeof(uint8_t*), split_align);
-    dst_bufs_size =
-      cudf::util::round_up_safe(num_partitions * sizeof(uint8_t*), split_align);
+    
+    // dst_bufs has two dimensions: the partition (split) and the chunk within the partition.
+    // Pointers to dst buffers will be placed at the index: (partition * num_iterations + iteration)
+    // For example, if we are at the 4th partition, and there are 2 bounce buffers, the indices are:
+    // first bounce buffer: [4 * 2 + 0]
+    // second bounce buffer: [4 * 2 + 1]
+    // So far, we either have partitions or iterations, so one of these two is 1, so this is just
+    // making the dst_bufs array serve double duty.
+    dst_bufs_size = 
+      cudf::util::round_up_safe(num_partitions * num_iterations * sizeof(uint8_t*), split_align);
 
     // host-side
     h_src_and_dst_buffers = std::vector<uint8_t>(src_bufs_size + dst_bufs_size);
@@ -1310,10 +1319,10 @@ struct chunk_iteration_state {
   rmm::device_uvector<dst_buf_info> d_chunked_dst_buf_info;
   rmm::device_uvector<offset_type> d_chunk_offsets;
   std::size_t total_size;
-
-private:
   int num_iterations;
   int current_iteration;
+
+private:
   std::size_t starting_buff;
   std::vector<std::size_t> h_num_buffs_per_iteration;
   std::vector<std::size_t> h_size_of_buffs_per_iteration;
@@ -1479,14 +1488,18 @@ std::unique_ptr<chunk_iteration_state> make_chunk_iteration_state(
       // we want to update the offset of chunks in the second to last copy
       auto num_chunks_in_first_iteration = num_chunks_per_iteration[0];
       auto iter = thrust::make_counting_iterator(num_chunks_in_first_iteration);
+      auto num_iterations = accum_size_per_iteration.size(); 
       thrust::for_each(rmm::exec_policy(stream, mr),
                        iter,
                        iter + num_chunks - num_chunks_in_first_iteration,
-                       [d_chunked_dst_buf_info = d_chunked_dst_buf_info.begin(),
+                       [num_iterations,
+                        d_chunked_dst_buf_info = d_chunked_dst_buf_info.begin(),
                         d_accum_size_per_iteration = d_accum_size_per_iteration.begin(),
                         d_iteration_per_chunk = d_iteration_per_chunk.begin()] __device__(size_type i) {
-                          auto iteration = d_iteration_per_chunk[i];
-                          d_chunked_dst_buf_info[i].dst_offset -= d_accum_size_per_iteration[iteration - 1];
+                          auto iteration_ix = d_iteration_per_chunk[i] - 1;
+                          d_chunked_dst_buf_info[i].dst_offset -= d_accum_size_per_iteration[iteration_ix];
+                          d_chunked_dst_buf_info[i].dst_buf_index = 
+                            (d_chunked_dst_buf_info[i].dst_buf_index * num_iterations) + iteration_ix;
                        });
     }
     return std::make_unique<chunk_iteration_state>(
@@ -1622,8 +1635,16 @@ struct contiguous_split_state {
         stream,
         mr);
 
+    
+    compute_chunks();
+
     src_and_dst_pointers = std::make_unique<packed_src_and_dst_pointers>(
-      input, num_partitions, num_src_bufs, stream, mr);
+      input, 
+      num_partitions, 
+      num_src_bufs, 
+      chunk_iter_state->num_iterations, 
+      stream, 
+      mr);
 
     // allocate output partition buffers, in the non-chunked case
     if (user_buffer_size == 0) {
@@ -1639,9 +1660,6 @@ struct contiguous_split_state {
           return static_cast<uint8_t*>(buf.data());
         });
     } 
-
-    
-    compute_chunks();
   }
 
   bool has_next() const { 
@@ -1762,7 +1780,7 @@ struct contiguous_split_state {
     CUDF_EXPECTS(has_next(),
       "Cannot call contiguos_split_chunk with has_next() == false!");
     // prep the target location
-    src_and_dst_pointers->h_dst_bufs[0] = user_buffer.data();
+    src_and_dst_pointers->h_dst_bufs[chunk_iter_state->current_iteration] = user_buffer.data();
     src_and_dst_pointers->copy_to_device();
 
     std::size_t starting_buff, num_chunks_to_copy;
