@@ -294,6 +294,43 @@ __global__ void copy_partitions(uint8_t const** src_bufs,
     buf_info[buf_index].valid_count > 0 ? &buf_info[buf_index].valid_count : nullptr);
 }
 
+/**
+ * @brief Kernel which copies data from multiple source buffers to multiple
+ * destination buffers.
+ *
+ * When doing a contiguous_split on X columns comprising N total internal buffers
+ * with M splits, we end up having to copy N*M source/destination buffer pairs.
+ * These logical copies are further subdivided to distribute the amount of work
+ * to be done as evenly as possible across the multiprocessors on the device.
+ * This kernel is arranged such that each block copies 1 source/destination pair.
+ *
+ * @param src_bufs Input source buffers
+ * @param dst_bufs Destination buffers
+ * @param buf_info Information on the range of values to be copied for each destination buffer.
+ */
+template <int block_size>
+__global__ void copy_partitions(uint8_t const** src_bufs,
+                                uint8_t* user_buffer,
+                                dst_buf_info* buf_info)
+{
+  auto const buf_index     = blockIdx.x;
+  auto const src_buf_index = buf_info[buf_index].src_buf_index;
+
+  // copy, shifting offsets and validity bits as needed
+  copy_buffer<block_size>(
+    user_buffer + buf_info[buf_index].dst_offset,
+    src_bufs[src_buf_index],
+    threadIdx.x,
+    buf_info[buf_index].num_elements,
+    buf_info[buf_index].element_size,
+    buf_info[buf_index].src_element_index,
+    blockDim.x,
+    buf_info[buf_index].value_shift,
+    buf_info[buf_index].bit_shift,
+    buf_info[buf_index].num_rows,
+    buf_info[buf_index].valid_count > 0 ? &buf_info[buf_index].valid_count : nullptr);
+}
+
 // The block of functions below are all related:
 //
 // compute_offset_stack_size()
@@ -1529,11 +1566,17 @@ void copy_data(int num_chunks_to_copy,
                uint8_t const** d_src_bufs,
                uint8_t** d_dst_bufs,
                rmm::device_uvector<dst_buf_info>& d_dst_buf_info,
+               uint8_t* user_buffer,
                rmm::cuda_stream_view stream)
 {
   constexpr size_type block_size = 256;
-  copy_partitions<block_size><<<num_chunks_to_copy, block_size, 0, stream.value()>>>(
-    d_src_bufs, d_dst_bufs, d_dst_buf_info.data() + starting_chunk);
+  if (user_buffer != nullptr) {
+    copy_partitions<block_size><<<num_chunks_to_copy, block_size, 0, stream.value()>>>(
+      d_src_bufs, user_buffer, d_dst_buf_info.data() + starting_chunk);
+  } else {
+    copy_partitions<block_size><<<num_chunks_to_copy, block_size, 0, stream.value()>>>(
+      d_src_bufs, d_dst_bufs, d_dst_buf_info.data() + starting_chunk);
+  }
 }
 
 /**
@@ -1660,6 +1703,8 @@ struct contiguous_split_state {
           return static_cast<uint8_t*>(buf.data());
         });
     } 
+
+    src_and_dst_pointers->copy_to_device();
   }
 
   bool has_next() const { 
@@ -1740,6 +1785,7 @@ struct contiguous_split_state {
               src_and_dst_pointers->d_src_bufs,
               src_and_dst_pointers->d_dst_bufs,
               chunk_iter_state->d_chunked_dst_buf_info,
+              nullptr,
               stream);
 
     // postprocess valid_counts: apply the valid counts computed by copy_data for each 
@@ -1780,8 +1826,8 @@ struct contiguous_split_state {
     CUDF_EXPECTS(has_next(),
       "Cannot call contiguos_split_chunk with has_next() == false!");
     // prep the target location
-    src_and_dst_pointers->h_dst_bufs[chunk_iter_state->current_iteration] = user_buffer.data();
-    src_and_dst_pointers->copy_to_device();
+    //src_and_dst_pointers->h_dst_bufs[chunk_iter_state->current_iteration] = user_buffer.data();
+    //src_and_dst_pointers->copy_to_device();
 
     std::size_t starting_buff, num_chunks_to_copy;
     std::tie(starting_buff, num_chunks_to_copy) =
@@ -1793,6 +1839,7 @@ struct contiguous_split_state {
               src_and_dst_pointers->d_src_bufs,
               src_and_dst_pointers->d_dst_bufs,
               chunk_iter_state->d_chunked_dst_buf_info,
+              user_buffer.data(),
               stream);
 
     // We do not need to post-process null counts since the null count info is 
