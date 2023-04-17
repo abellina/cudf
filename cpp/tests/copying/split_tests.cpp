@@ -1219,12 +1219,12 @@ void split_nested_list_of_structs(SplitFunc Split, CompareFunc Compare, bool spl
   cudf::test::fixed_width_column_wrapper<int> outer_offsets_col(outer_offsets.begin(),
                                                                 outer_offsets.end());
   std::vector<bool> outer_validity{1, 1, 1, 0, 1, 1, 0};
-  auto outer_null_mask =
+  auto [outer_null_mask, outer_null_count] =
     cudf::test::detail::make_null_mask(outer_validity.begin(), outer_validity.end());
   auto outer_list = make_lists_column(static_cast<cudf::size_type>(outer_validity.size()),
                                       outer_offsets_col.release(),
                                       struct_column.release(),
-                                      cudf::UNKNOWN_NULL_COUNT,
+                                      outer_null_count,
                                       std::move(outer_null_mask));
   if (split) {
     std::vector<cudf::size_type> splits{1, 3, 7};
@@ -1622,7 +1622,8 @@ TEST_F(ContiguousSplitUntypedTest, ValidityRepartitionChunked)
   });
   cudf::size_type const num_rows = 2000000;
   auto col                       = cudf::sequence(num_rows, cudf::numeric_scalar<int8_t>{0});
-  col->set_null_mask(cudf::test::detail::make_null_mask(rvalids, rvalids + num_rows));
+  auto [null_mask, null_count]   = cudf::test::detail::make_null_mask(rvalids, rvalids + num_rows);
+  col->set_null_mask(std::move(null_mask), null_count);
 
   cudf::table_view t({*col});
   auto result   = do_chunked_contiguous_split(t);
