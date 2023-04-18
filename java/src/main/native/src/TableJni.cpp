@@ -500,6 +500,24 @@ jlongArray convert_table_for_return(JNIEnv *env, std::unique_ptr<cudf::table> &&
   return outcol_handles.get_jArray();
 }
 
+jobjectArray convert_tables_for_return(JNIEnv *env, std::vector<std::unique_ptr<cudf::table>> &&tables_result) {
+  jclass longArrayClass = (*env)->FindClass(env, "[J");
+
+  jobjectArray arrayOfTableCols = (*env)->NewObjectAray(env, tables_result.size(), longArrayClass, NULL);
+
+  for (int i = 0; i < tables_result.size(); ++i) {
+    auto tbl = tables_result[i];
+    std::vector<std::unique_ptr<cudf::column>> ret = tbl->release();
+    cudf::jni::native_jlongArray outcol_handles(env, ret.size());
+    std::transform(ret.begin(), ret.end(), outcol_handles.begin(),
+                  [](auto &col) { return release_as_jlong(col); });
+    auto longArr = outcol_handles.get_jArray();
+    (*env)->SetObjectArrayElement(env, arrayOfTableCols, (jsize)i, outcol_handles.get_jArray());
+  }
+
+  return arrayOfTableCols;
+}
+
 jlongArray convert_table_for_return(JNIEnv *env, std::unique_ptr<cudf::table> &table_result,
                                     std::vector<std::unique_ptr<cudf::column>> &&extra_columns) {
   return convert_table_for_return(env, std::move(table_result), std::move(extra_columns));
@@ -3154,6 +3172,30 @@ JNIEXPORT jobjectArray JNICALL Java_ai_rapids_cudf_Table_contiguousSplit(JNIEnv 
           i, cudf::jni::contiguous_table_from(env, result[i].data, result[i].table.num_rows()));
     }
     return n_result.wrapped();
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jobjectArray Java_ai_rapids_cudf_Table_split(JNIEnv *env, jclass,
+                                                       jlong input_table,
+                                                       jintArray split_indices) {
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+  JNI_NULL_CHECK(env, split_indices, "split indices are null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::table_view *n_table = reinterpret_cast<cudf::table_view *>(input_table);
+    cudf::jni::native_jintArray n_split_indices(env, split_indices);
+
+    std::vector<cudf::size_type> indices(n_split_indices.data(),
+                                         n_split_indices.data() + n_split_indices.size());
+
+    std::vector<cudf::table_view> result_views = cudf::split(*n_table, indices);
+    std::vector<cudf::table> result_tables;
+    for (int i = 0; i < result_views.size(); ++i) {
+      result_tables.emplace_back(result_views[i]);
+    }
+    return convert_tables_for_return(env, result_tables);
   }
   CATCH_STD(env, NULL);
 }
