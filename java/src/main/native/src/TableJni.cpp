@@ -500,19 +500,18 @@ jlongArray convert_table_for_return(JNIEnv *env, std::unique_ptr<cudf::table> &&
   return outcol_handles.get_jArray();
 }
 
-jobjectArray convert_tables_for_return(JNIEnv *env, std::vector<std::unique_ptr<cudf::table>> &&tables_result) {
-  jclass longArrayClass = (*env)->FindClass(env, "[J");
+jobjectArray convert_tables_for_return(JNIEnv *env, std::vector<cudf::table> &&tables_result) {
+  jclass longArrayClass = env->FindClass("[J");
 
-  jobjectArray arrayOfTableCols = (*env)->NewObjectAray(env, tables_result.size(), longArrayClass, NULL);
+  jobjectArray arrayOfTableCols = env->NewObjectArray(tables_result.size(), longArrayClass, NULL);
 
-  for (int i = 0; i < tables_result.size(); ++i) {
-    auto tbl = tables_result[i];
-    std::vector<std::unique_ptr<cudf::column>> ret = tbl->release();
+  for (std::size_t i = 0; i < tables_result.size(); ++i) {
+    auto& tbl = tables_result[i];
+    std::vector<std::unique_ptr<cudf::column>> ret = tbl.release();
     cudf::jni::native_jlongArray outcol_handles(env, ret.size());
     std::transform(ret.begin(), ret.end(), outcol_handles.begin(),
                   [](auto &col) { return release_as_jlong(col); });
-    auto longArr = outcol_handles.get_jArray();
-    (*env)->SetObjectArrayElement(env, arrayOfTableCols, (jsize)i, outcol_handles.get_jArray());
+    env->SetObjectArrayElement(arrayOfTableCols, (jsize)i, outcol_handles.get_jArray());
   }
 
   return arrayOfTableCols;
@@ -3192,10 +3191,10 @@ JNIEXPORT jobjectArray Java_ai_rapids_cudf_Table_split(JNIEnv *env, jclass,
 
     std::vector<cudf::table_view> result_views = cudf::split(*n_table, indices);
     std::vector<cudf::table> result_tables;
-    for (int i = 0; i < result_views.size(); ++i) {
+    for (std::size_t i = 0; i < result_views.size(); ++i) {
       result_tables.emplace_back(result_views[i]);
     }
-    return convert_tables_for_return(env, result_tables);
+    return cudf::jni::convert_tables_for_return(env, std::move(result_tables));
   }
   CATCH_STD(env, NULL);
 }
