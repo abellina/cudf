@@ -53,7 +53,7 @@ column_view_base::column_view_base(data_type type,
   } else if (is_compound(type)) {
     CUDF_EXPECTS(nullptr == data, "Compound (parent) columns cannot have data");
   } else if (size > 0) {
-    //CUDF_EXPECTS(nullptr != data, "Null data pointer.");
+    CUDF_EXPECTS(nullptr != data, "Null data pointer.");
   }
 
   CUDF_EXPECTS(offset >= 0, "Invalid offset.");
