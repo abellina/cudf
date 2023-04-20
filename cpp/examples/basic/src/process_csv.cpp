@@ -14,13 +14,10 @@
  * limitations under the License.
  */
 
-#include <cudf/types.hpp>
 #include <cudf/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/io/csv.hpp>
-#include <cudf/io/parquet.hpp>
 #include <cudf/table/table.hpp>
-#include <cudf/copying.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
@@ -30,8 +27,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include "contiguous_split_chunked.cuh"
 
 cudf::io::table_with_metadata read_csv(std::string const& file_path)
 {
@@ -45,7 +40,6 @@ void write_csv(cudf::table_view const& tbl_view, std::string const& file_path)
 {
   auto sink_info = cudf::io::sink_info(file_path);
   auto builder   = cudf::io::csv_writer_options::builder(sink_info, tbl_view);
-  builder.na_rep(std::string("null"));
   auto options   = builder.build();
   cudf::io::write_csv(options);
 }
@@ -64,8 +58,7 @@ std::unique_ptr<cudf::table> average_closing_price(cudf::table_view stock_info_t
 {
   // Schema: | Company | Date | Open | High | Low | Close | Volume |
   auto keys = cudf::table_view{{stock_info_table.column(0)}};  // Company
-  //auto val  = stock_info_table.column(5);                      // Close
-  auto val  = stock_info_table.column(1);                      // Close
+  auto val  = stock_info_table.column(5);                      // Close
 
   // Compute the average of each company's closing price with entire column
   cudf::groupby::groupby grpby_obj(keys);
@@ -85,12 +78,10 @@ int main(int argc, char** argv)
 {
   // Construct a CUDA memory resource using RAPIDS Memory Manager (RMM)
   // This is the default memory resource for libcudf for allocating device memory.
-  std::cout << "initializing memory resource" << std::endl;
   rmm::mr::cuda_memory_resource cuda_mr{};
   // Construct a memory pool using the CUDA memory resource
   // Using a memory pool for device memory allocations is important for good performance in libcudf.
   // The pool defaults to allocating half of the available GPU memory.
-  std::cout << "initializing pool" << std::endl;
   rmm::mr::pool_memory_resource mr{&cuda_mr};
 
   // Set the pool resource to be used by default for all device memory allocations
@@ -101,93 +92,13 @@ int main(int argc, char** argv)
   rmm::mr::set_current_device_resource(&mr);
 
   // Read data
-  //std::cout << "reading some csv" << std::endl;
-  //auto stock_table_with_metadata = read_csv("/home/abellina/mock.csv");
-  std::cout << "reading some parquet" << std::endl;
-  auto source  = cudf::io::source_info("/home/abellina/mock2.snappy.parquet");
-  auto options = cudf::io::parquet_reader_options::builder(source);
-  auto stock_table_with_metadata = cudf::io::read_parquet(options);
+  auto stock_table_with_metadata = read_csv("4stock_5day.csv");
 
   // Process
-  std::cout << "doing some compute" << std::endl;
-  auto& t = stock_table_with_metadata.tbl;
-  std::cout << "original has: " << t->get_column(0).null_count() << " nulls in key col" << std::endl;
-  //auto result = average_closing_price(*stock_table_with_metadata.tbl);
-  // write it the normal way
-  //std::cout << "result has: " << result->get_column(0).null_count() << " nulls in key col" << std::endl;
-  //write_csv(*result, "4stock_5day_avg_close.csv");
-  auto tv = t->view();
-  write_csv(tv, "4stock_5day_avg_close.csv");
-
-  // contig split it
-  //auto tv = result->select(std::vector<cudf::size_type>{0,1});
-  std::cout << "calling contig split" << std::endl;
-
-  //rmm::device_buffer bounce_buff(10485760, cudf::get_default_stream(), &mr);
-  rmm::device_buffer bounce_buff(50000000, cudf::get_default_stream(), &mr);
-  rmm::device_buffer final_buff(500000000, cudf::get_default_stream(), &mr);
-
-  // TODO: we'd new this up in JNI
-  auto cs = cudf::chunked::chunked_contiguous_split(
-    tv, 
-    cudf::device_span<uint8_t>(static_cast<uint8_t*>(bounce_buff.data()), bounce_buff.size()), 
-    cudf::get_default_stream(),
-    rmm::mr::get_current_device_resource());
-
-  cudf::size_type final_buff_offset = 0;
-  while(cs.has_next()) {
-    auto bytes_copied = cs.next();
-    cudaMemcpyAsync(
-      (uint8_t*)final_buff.data() + final_buff_offset,
-      bounce_buff.data(),
-      bytes_copied,
-      cudaMemcpyDefault,
-      cudf::get_default_stream());
-    std::cout << "copied in this iteration: " << bytes_copied << ". have next? " << cs.has_next() << std::endl;
-    final_buff_offset += bytes_copied;
-  }
-  auto packed_columns = cs.make_packed_columns();
+  auto result = average_closing_price(*stock_table_with_metadata.tbl);
 
   // Write out result
-  std::cout << "writing result out, see " 
-            << packed_columns.size() << " results" << std::endl;
-  
-  auto meta = packed_columns[0].data();
-
-  // TODO: revisit unpack iterface passing the packed_columns themselves
-  auto unpacked= cudf::unpack(
-    meta,
-    (const uint8_t*)final_buff.data());
-  write_csv(unpacked, "4stock_5day_avg_close_cs.csv");
-
-  auto reg_cs_no_splits = cudf::chunked::contiguous_split(
-    tv, 
-    {},
-    cudf::get_default_stream(),
-    rmm::mr::get_current_device_resource());
-  auto packed_tables_no_splits = reg_cs_no_splits.make_packed_columns();
-  auto unpacked_no_splits= cudf::unpack(packed_tables_no_splits[0]);
-  write_csv(unpacked_no_splits, "4stock_5day_avg_close_cs_reg_no_splits.csv");
-
-  std::vector<cudf::size_type> splits{tv.num_rows()/2};
-
-  auto reg_cs = cudf::chunked::contiguous_split(
-    tv, 
-    splits,
-    cudf::get_default_stream(),
-    rmm::mr::get_current_device_resource());
-
-  auto packed_tables = reg_cs.make_packed_columns();
-
-  //// Write out result
-  std::cout << "reg: writing result out, see " 
-            << packed_columns.size() << " results" << std::endl;
-
-  auto unpacked2 = cudf::unpack(packed_tables[0]);
-  auto unpacked3 = cudf::unpack(packed_tables[1]);
-
-  write_csv(unpacked2, "4stock_5day_avg_close_cs_reg_first.csv");
-  write_csv(unpacked3, "4stock_5day_avg_close_cs_reg_second.csv");
+  write_csv(*result, "4stock_5day_avg_close.csv");
 
   return 0;
 }
