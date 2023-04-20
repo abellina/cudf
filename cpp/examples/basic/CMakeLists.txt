@@ -17,9 +17,6 @@ file(
 include(${CMAKE_BINARY_DIR}/cmake/get_cpm.cmake)
 
 set(CUDF_TAG branch-23.06)
-#set(CUDF_CUDA_FLAGS "")
-
-list(APPEND CUDF_CUDA_FLAGS -lineinfo)
 
 CPMFindPackage(
   NAME cudf GIT_REPOSITORY https://github.com/rapidsai/cudf
@@ -30,9 +27,7 @@ CPMFindPackage(
     cpp
 )
 
-list(APPEND CUDF_CUDA_FLAGS --expt-extended-lambda --expt-relaxed-constexpr)
 # Configure your project here
-add_executable(basic_example src/process_csv.cpp src/contiguous_split_chunked.cu)
+add_executable(basic_example src/process_csv.cpp)
 target_link_libraries(basic_example PRIVATE cudf::cudf)
-target_compile_options(basic_example PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:${CUDF_CUDA_FLAGS}>")
 target_compile_features(basic_example PRIVATE cxx_std_17)
