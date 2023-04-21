@@ -17,6 +17,7 @@
 #include <cudf/contiguous_split.hpp>
 #include <cudf/detail/contiguous_split.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/contiguous_split.hpp>
 #include <cudf/utilities/default_stream.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -126,8 +127,8 @@ void build_column_metadata(metadata_builder& mb,
   int64_t const null_mask_offset = null_mask_ptr ? null_mask_ptr - base_ptr : -1;
 
   // add metadata
-  mb.add_column_to_meta(
-    col.type(), col.size(), col.null_count(), data_offset, null_mask_offset, col.num_children());
+  mb.add_column_to_meta(col.type(), col.size(), col.null_count(), 
+                        data_offset, null_mask_offset, col.num_children());
 
   std::for_each(
     col.child_begin(), col.child_end(), [&mb, &base_ptr, &data_size](column_view const& col) {
@@ -166,34 +167,34 @@ packed_columns::metadata pack_metadata(ColumnIter begin,
 }
 
 class metadata_builder_impl {
- public:
-  metadata_builder_impl() = default;
+  public:
+    metadata_builder_impl() = default;
 
-  void add_column_to_meta(data_type col_type,
-                          size_type col_size,
-                          size_type col_null_count,
-                          int64_t data_offset,
-                          int64_t null_mask_offset,
-                          size_type num_children)
-  {
-    metadata.emplace_back(
-      col_type, col_size, col_null_count, data_offset, null_mask_offset, num_children);
-  }
+    void add_column_to_meta(data_type col_type,
+                            size_type col_size,
+                            size_type col_null_count,
+                            int64_t data_offset,
+                            int64_t null_mask_offset,
+                            size_type num_children)
+    {
+      metadata.emplace_back(
+        col_type, col_size, col_null_count, data_offset, null_mask_offset, num_children);
+    }
 
-  packed_columns::metadata build()
-  {
-    // convert to anonymous bytes
-    std::vector<uint8_t> metadata_bytes;
-    auto const metadata_begin = reinterpret_cast<uint8_t const*>(metadata.data());
-    std::copy(metadata_begin,
-              metadata_begin + (metadata.size() * sizeof(detail::serialized_column)),
-              std::back_inserter(metadata_bytes));
+    packed_columns::metadata build()
+    {
+      // convert to anonymous bytes
+      std::vector<uint8_t> metadata_bytes;
+      auto const metadata_begin = reinterpret_cast<uint8_t const*>(metadata.data());
+      std::copy(metadata_begin,
+                metadata_begin + (metadata.size() * sizeof(detail::serialized_column)),
+                std::back_inserter(metadata_bytes));
 
-    return packed_columns::metadata{std::move(metadata_bytes)};
-  }
+      return packed_columns::metadata{std::move(metadata_bytes)};
+    }
 
- private:
-  std::vector<detail::serialized_column> metadata;
+  private:
+    std::vector<detail::serialized_column> metadata;
 };
 
 /**
@@ -250,6 +251,29 @@ void metadata_builder::add_column_to_meta(data_type col_type,
 packed_columns::metadata metadata_builder::build() { return impl->build(); }
 
 }  // namespace detail
+
+metadata_builder::metadata_builder(size_type num_root_columns) {
+  impl = new detail::metadata_builder_impl();
+  impl->add_column_to_meta(
+    data_type{type_id::EMPTY}, num_root_columns, UNKNOWN_NULL_COUNT, -1, -1, 0);
+}
+
+metadata_builder::~metadata_builder() {
+  delete impl;
+}
+
+void metadata_builder::add_column_to_meta(data_type col_type,
+                                          size_type col_size,
+                                          size_type col_null_count,
+                                          int64_t data_offset,
+                                          int64_t null_mask_offset,
+                                          size_type num_children)
+{
+  impl->add_column_to_meta(
+    col_type, col_size, col_null_count, data_offset, null_mask_offset, num_children);
+}
+
+packed_columns::metadata metadata_builder::build() { return impl->build(); }
 
 /**
  * @copydoc cudf::pack
