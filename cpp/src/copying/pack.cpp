@@ -252,29 +252,6 @@ packed_columns::metadata metadata_builder::build() { return impl->build(); }
 
 }  // namespace detail
 
-metadata_builder::metadata_builder(size_type num_root_columns) {
-  impl = new detail::metadata_builder_impl();
-  impl->add_column_to_meta(
-    data_type{type_id::EMPTY}, num_root_columns, UNKNOWN_NULL_COUNT, -1, -1, 0);
-}
-
-metadata_builder::~metadata_builder() {
-  delete impl;
-}
-
-void metadata_builder::add_column_to_meta(data_type col_type,
-                                          size_type col_size,
-                                          size_type col_null_count,
-                                          int64_t data_offset,
-                                          int64_t null_mask_offset,
-                                          size_type num_children)
-{
-  impl->add_column_to_meta(
-    col_type, col_size, col_null_count, data_offset, null_mask_offset, num_children);
-}
-
-packed_columns::metadata metadata_builder::build() { return impl->build(); }
-
 /**
  * @copydoc cudf::pack
  */
