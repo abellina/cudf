@@ -3173,9 +3173,9 @@ JNIEXPORT jobjectArray JNICALL Java_ai_rapids_cudf_Table_contiguousSplit(JNIEnv 
   CATCH_STD(env, NULL);
 }
 
-JNIEXPORT jobjectArray Java_ai_rapids_cudf_Table_split(JNIEnv *env, jclass,
-                                                       jlong input_table,
-                                                       jintArray split_indices) {
+JNIEXPORT jobjectArray Java_ai_rapids_cudf_Table_splitAndCopy(JNIEnv *env, jclass,
+                                                              jlong input_table,
+                                                              jintArray split_indices) {
   JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
   JNI_NULL_CHECK(env, split_indices, "split indices are null", 0);
 

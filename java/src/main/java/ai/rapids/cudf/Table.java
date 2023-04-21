@@ -187,7 +187,7 @@ public final class Table implements AutoCloseable {
 
   private static native ContiguousTable[] contiguousSplit(long inputTable, int[] indices);
 
-  private static native long[][] split(long inputTable, int[] indices);
+  private static native long[][] splitAndCopy(long inputTable, int[] indices);
 
   private static native long[] partition(long inputTable, long partitionView,
       int numberOfPartitions, int[] outputOffsets);
@@ -2173,8 +2173,26 @@ public final class Table implements AutoCloseable {
     return contiguousSplit(nativeHandle, indices);
   }
 
-  public Table[] split(int... indices) {
-    long[][] result = split(nativeHandle, indices);
+  /**
+   * Split a table at given boundaries where the result of each boundary is copied to a brand new table.
+   * Note that unlike contiguousSplit, this splitAndCopy does not use a contiguous buffer
+   * for each slice, instead they are regular cuDF tables with individual buffers for each of its
+   * column's buffers.
+   *
+   * <code>
+   * Example:
+   * input:   [{10, 12, 14, 16, 18, 20, 22, 24, 26, 28},
+   *           {50, 52, 54, 56, 58, 60, 62, 64, 66, 68}]
+   * splits:  {2, 5, 9}
+   * output:  [{{10, 12}, {14, 16, 18}, {20, 22, 24, 26}, {28}},
+   *           {{50, 52}, {54, 56, 58}, {60, 62, 64, 66}, {68}}]
+   * </code>
+   * @param indices A vector of indices where to make the split
+   * @return The tables split at those points. NOTE: It is the responsibility of the caller to
+   * close the result. 
+   */
+  public Table[] splitAndCopy(int... indices) {
+    long[][] result = splitAndCopy(nativeHandle, indices);
     Table[] splitTables = new Table[result.length];
     for (int i = 0; i < result.length; i++) {
       splitTables[i] = new Table(result[i]);
