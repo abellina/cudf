@@ -35,8 +35,8 @@ void chunked_contiguous_split(cudf::table_view const& src_table, std::vector<cud
   rmm::device_buffer user_buffer(100L*1024*1024, stream, mr);
   auto chunked_split = cudf::make_chunked_contiguous_split(src_table, user_buffer.size(), mr);
   auto user_buffer_span = cudf::device_span<uint8_t>(static_cast<uint8_t*>(user_buffer.data()), user_buffer.size());
-  while (chunked_split.has_next()) {
-    chunked_split.next(user_buffer_span);
+  while (chunked_split->has_next()) {
+    auto iter_size = chunked_split->next(user_buffer_span);
   }
   stream.synchronize();
 }
@@ -74,7 +74,7 @@ void BM_contiguous_split_common(benchmark::State& state,
 
   for (auto _ : state) {
     cuda_event_timer raii(state, true);  // flush_l2_cache = true, stream = 0
-    auto result = impl(src_table, splits);
+    impl(src_table, splits);
   }
 
   // it's 2x bytes_total because we're both reading and writing.
@@ -82,6 +82,7 @@ void BM_contiguous_split_common(benchmark::State& state,
 }
 
 class ContiguousSplit : public cudf::benchmark {};
+class ChunkedContiguousSplit : public cudf::benchmark {};
 
 template<typename ContiguousSplitImpl>
 void BM_contiguous_split(benchmark::State& state, ContiguousSplitImpl& impl)
@@ -113,6 +114,7 @@ void BM_contiguous_split(benchmark::State& state, ContiguousSplitImpl& impl)
 }
 
 class ContiguousSplitStrings : public cudf::benchmark {};
+class ChunkedContiguousSplitStrings : public cudf::benchmark {};
 
 template<typename ContiguousSplitImpl>
 void BM_contiguous_split_strings(benchmark::State& state, ContiguousSplitImpl& impl)
@@ -210,11 +212,11 @@ CSBM_STRINGS_BENCHMARK_DEFINE(1Gb1ColNoSplits, (int64_t)1 * 1024 * 1024 * 1024, 
 CSBM_STRINGS_BENCHMARK_DEFINE(1Gb1ColValidityNoSplits, (int64_t)1 * 1024 * 1024 * 1024, 1, 0, 1);
 
 #define CCSBM_BENCHMARK_DEFINE(name, size, num_columns, num_splits, validity) \
-  BENCHMARK_DEFINE_F(ContiguousSplit, name)(::benchmark::State & state)       \
+  BENCHMARK_DEFINE_F(ChunkedContiguousSplit, name)(::benchmark::State & state)       \
   {                                                                           \
     BM_contiguous_split(state, chunked_contiguous_split);                     \
   }                                                                           \
-  BENCHMARK_REGISTER_F(ContiguousSplit, name)                                 \
+  BENCHMARK_REGISTER_F(ChunkedContiguousSplit, name)                                 \
     ->Args({size, num_columns, num_splits, validity})                         \
     ->Unit(benchmark::kMillisecond)                                           \
     ->UseManualTime()                                                         \
@@ -239,11 +241,11 @@ CCSBM_BENCHMARK_DEFINE(1Gb1ColNoSplits, (int64_t)1 * 1024 * 1024 * 1024, 1, 0, 1
 CCSBM_BENCHMARK_DEFINE(1Gb1ColValidityNoSplits, (int64_t)1 * 1024 * 1024 * 1024, 1, 0, 1);
 
 #define CCSBM_STRINGS_BENCHMARK_DEFINE(name, size, num_columns, num_splits, validity) \
-  BENCHMARK_DEFINE_F(ContiguousSplitStrings, name)(::benchmark::State & state)        \
+  BENCHMARK_DEFINE_F(ChunkedContiguousSplitStrings, name)(::benchmark::State & state)        \
   {                                                                                   \
     BM_contiguous_split_strings(state, chunked_contiguous_split);                     \
   }                                                                                   \
-  BENCHMARK_REGISTER_F(ContiguousSplitStrings, name)                                  \
+  BENCHMARK_REGISTER_F(ChunkedContiguousSplitStrings, name)                                  \
     ->Args({size, num_columns, num_splits, validity})                                 \
     ->Unit(benchmark::kMillisecond)                                                   \
     ->UseManualTime()                                                                 \
