@@ -93,28 +93,6 @@ struct packed_columns {
   std::unique_ptr<rmm::device_buffer> gpu_data;  ///< Device-side data buffer
 };
 
-namespace detail {
-  class metadata_builder_impl;
-}
-
-class metadata_builder {
-  public:
-    explicit metadata_builder(size_type num_root_columns);
-    ~metadata_builder();
-
-    void add_column_to_meta(data_type col_type,
-                            size_type col_size,
-                            size_type col_null_count,
-                            int64_t data_offset,
-                            int64_t null_mask_offset,
-                            size_type num_children);
-
-    packed_columns::metadata build();
-
-  private:
-    detail::metadata_builder_impl* impl;
-};
-
 /**
  * @brief The result(s) of a cudf::contiguous_split
  *
