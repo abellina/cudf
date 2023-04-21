@@ -720,7 +720,7 @@ template <typename BufInfo>
 std::tuple<size_type, int64_t, int64_t, size_type> build_output_column_metadata(
   column_view const& src,
   BufInfo& current_info,
-  metadata_builder& mb,
+  detail::metadata_builder& mb,
   bool use_src_null_count)
 {
   auto [bitmask_offset, null_count] = [&]() {
@@ -792,7 +792,7 @@ BufInfo build_output_columns(InputIter begin,
                              BufInfo info_begin,
                              Output out_begin,
                              uint8_t const* const base_ptr,
-                             metadata_builder& mb)
+                             detail::metadata_builder& mb)
 {
   auto current_info = info_begin;
   std::transform(begin, end, out_begin, [&current_info, base_ptr, &mb](column_view const& src) {
@@ -860,7 +860,7 @@ template <typename InputIter, typename BufInfo>
 BufInfo populate_metadata(InputIter begin,
                           InputIter end,
                           BufInfo info_begin,
-                          metadata_builder& mb)
+                          detail::metadata_builder& mb)
 {
   auto current_info = info_begin;
   std::for_each(begin, end, [&current_info, &mb](column_view const& src) {
