@@ -64,6 +64,12 @@ class metadata_builder {
   explicit metadata_builder(size_type num_root_columns);
 
   /**
+   * @brief Destructor that will be implemented as default, required because metadata_builder_impl
+   * is incomplete at this stage.
+   */
+  ~metadata_builder();
+
+  /**
    * @brief Add a column to this metadata builder
    *
    * @param col_type column data type
