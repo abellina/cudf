@@ -1921,7 +1921,7 @@ struct contiguous_split_state {
 
     auto& h_dst_buf_info  = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
     auto cur_dst_buf_info = h_dst_buf_info;
-    metadata_builder mb(input.num_columns());
+    metadata_builder mb{input.num_columns()};
 
     // traverse the buffers and build the columns.
     populate_metadata(input.begin(), input.end(), cur_dst_buf_info, mb);
