@@ -3129,6 +3129,56 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
+  void testSplit() {
+    Table[] splits = null;
+    try (Table t1 = new Table.TestBuilder()
+        .column(10, 12, 14, 16, 18, 20, 22, 24, null, 28)
+        .column(50, 52, 54, 56, 58, 60, 62, 64, 66, null)
+        .decimal32Column(-3, 10, 12, 14, 16, 18, 20, 22, 24, null, 28)
+        .decimal64Column(-8, 50L, 52L, 54L, 56L, 58L, 60L, 62L, 64L, 66L, null)
+        .build()) {
+      splits = t1.splitAndCopy(2, 5, 9);
+      assertEquals(4, splits.length);
+      assertEquals(2, splits[0].getRowCount());
+      assertEquals(3, splits[1].getRowCount());
+      assertEquals(4, splits[2].getRowCount());
+      assertEquals(1, splits[3].getRowCount());
+    } finally {
+      if (splits != null) {
+        for (int i = 0; i < splits.length; i++) {
+          splits[i].close();
+        }
+      }
+    }
+  }
+
+  @Test
+  void testSplitWithStrings() {
+    Table[] splits = null;
+    try (Table t1 = new Table.TestBuilder()
+        .column(10, 12, 14, 16, 18, 20, 22, 24, null, 28)
+        .column(50, 52, 54, 56, 58, 60, 62, 64, 66, null)
+        .column("A", "B", "C", "D", "E", "F", "G", "H", "I", "J")
+        .decimal32Column(-3, 10, 12, 14, 16, 18, 20, 22, 24, null, 28)
+        .decimal64Column(-8, 50L, 52L, 54L, 56L, 58L, 60L, 62L, 64L, 66L, null)
+        .build()) {
+      splits = t1.splitAndCopy(2, 5, 9);
+      assertEquals(4, splits.length);
+      assertEquals(2, splits[0].getRowCount());
+      assertEquals(3, splits[1].getRowCount());
+      assertEquals(4, splits[2].getRowCount());
+      assertEquals(1, splits[3].getRowCount());
+    } finally {
+      if (splits != null) {
+        for (int i = 0; i < splits.length; i++) {
+          splits[i].close();
+        }
+      }
+    }
+  }
+
+
+  @Test
   void testPartStability() {
     final int PARTS = 5;
     int expectedPart = -1;
