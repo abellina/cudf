@@ -44,5 +44,54 @@ packed_columns pack(cudf::table_view const& input,
                     rmm::cuda_stream_view stream,
                     rmm::mr::device_memory_resource* mr);
 
+// opaque implementation of `metadata_builder` since it needs to use
+// `serialized_column`, which is only defined in pack.cpp
+class metadata_builder_impl;
+
+/**
+ * @brief Helper class that creates packed_columns::metadata
+ *
+ * This class is an interface to the opaque metadata that is used to
+ * describe `contiguous_split` and `pack` results.
+ */
+class metadata_builder {
+ public:
+  /** 
+   * @brief Construct a new metadata_builder
+   *
+   * @param num_root_columns is the number of top-level columns (non-nested)
+   */
+  explicit metadata_builder(size_type num_root_columns);
+
+  /**
+   * @brief Add a column to this metadata builder
+   *
+   * @param col_type column data type
+   * @param col_size column row count
+   * @param col_null_count column null count
+   * @param data_offset data offset from the column's base ptr,
+   *                    or -1 for an empty column
+   * @param null_mask_offset null mask offset from the column's base ptr,
+   *                    or -1 for a column that isn't nullable
+   * @param num_children number of chilren columns
+   */
+  void add_column_to_meta(data_type col_type,
+                          size_type col_size,
+                          size_type col_null_count,
+                          int64_t data_offset,
+                          int64_t null_mask_offset,
+                          size_type num_children);
+
+  /**
+   * @brief Builds the opaque metadata for all added columns
+   * @returns A packed_columns::metadata instance with serialized
+   *          column metadata
+   */
+  packed_columns::metadata build();
+
+ private:
+  std::unique_ptr<metadata_builder_impl> impl;
+};
+
 }  // namespace detail
 }  // namespace cudf
