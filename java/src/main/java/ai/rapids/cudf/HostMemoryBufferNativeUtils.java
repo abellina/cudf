@@ -54,4 +54,6 @@ class HostMemoryBufferNativeUtils {
    * @param length size of the mapped region in bytes
    */
   static native void munmap(long address, long length);
+
+  static native void memcpy(long dstAddr, long dstOffset, long srcAddr, long srcOffset, long length);
 }
