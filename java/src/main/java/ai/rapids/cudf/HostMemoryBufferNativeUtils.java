@@ -25,7 +25,7 @@ import java.nio.ByteBuffer;
  * Wrapper for {@link HostMemoryBuffer} native callbacks so that class avoids
  * loading the native libraries unless one if its methods requires it.
  */
-class HostMemoryBufferNativeUtils {
+public class HostMemoryBufferNativeUtils {
   static {
     NativeDepsLoader.loadNativeDeps();
   }
@@ -55,5 +55,6 @@ class HostMemoryBufferNativeUtils {
    */
   static native void munmap(long address, long length);
 
-  static native void memcpy(long dstAddr, long dstOffset, long srcAddr, long srcOffset, long length);
+  public static native void memcpy(long dstAddr, long dstOffset, long srcAddr, long srcOffset, long length);
+  public static native void memmove(long dstAddr, long dstOffset, long srcAddr, long srcOffset, long length);
 }
