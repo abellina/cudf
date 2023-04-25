@@ -71,4 +71,17 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_HostMemoryBufferNativeUtils_munmap(JN
   CATCH_STD(env, );
 }
 
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_HostMemoryBufferNativeUtils_memcpy(JNIEnv *env, jclass, jlong dst_addr, jlong dst_off, 
+                                                                              jlong src_addr, jlong src_off, long jlen)
+{
+  JNI_NULL_CHECK(env, dst_addr, "dst_addr is NULL", );
+  JNI_NULL_CHECK(env, src_addr, "src_addr is NULL", );
+  try {
+    auto dst_ptr = reinterpret_cast<void*>(dst_addr + dst_off);
+    auto src_ptr = reinterpret_cast<void*>(src_addr + src_off);
+    memcpy(dst_ptr, src_ptr, len);
+  } 
+  CATCH_STD(env, );
+}
+
 } // extern "C"
