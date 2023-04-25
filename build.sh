@@ -282,7 +282,10 @@ if buildAll || hasArg libcudf; then
     fi
 
     cmake -S $REPODIR/cpp -B ${LIB_BUILD_DIR} \
-	  -DCUDA_ENABLE_LINEINFO=OFF \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CXX_LINKER_LAUNCHER=ccache \
           -DCMAKE_INSTALL_PREFIX=${INSTALL_PREFIX} \
           -DCMAKE_CUDA_ARCHITECTURES=${CUDF_CMAKE_CUDA_ARCHITECTURES} \
           -DUSE_NVTX=${BUILD_NVTX} \
