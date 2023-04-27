@@ -65,7 +65,7 @@ JNIEXPORT jobject JNICALL Java_ai_rapids_cudf_ChunkedContiguousSplit_chunkedCont
   try {
     cudf::jni::auto_set_device(env);
     auto cs = reinterpret_cast<cudf::chunked_contiguous_split*>(chunked_contig_split);
-    std::unique_ptr<cudf::packed_columns::metadata> result = cs->make_packed_columns();
+    std::unique_ptr<std::vector<uint8_t>> result = cs->make_packed_columns();
     return cudf::jni::packed_column_metadata_from(env, std::move(result));
   }
   CATCH_STD(env, NULL);

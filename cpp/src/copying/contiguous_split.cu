@@ -1907,7 +1907,7 @@ struct contiguous_split_state {
                    [&empty_inputs](int partition_index) {
                      return packed_table{
                        empty_inputs,
-                       packed_columns{std::make_unique<packed_columns::metadata>(pack_metadata(
+                       packed_columns{std::make_unique<std::vector<uint8_t>>(pack_metadata(
                                         empty_inputs, static_cast<uint8_t const*>(nullptr), 0)),
                                       std::make_unique<rmm::device_buffer>()}};
                    });
@@ -1920,22 +1920,18 @@ struct contiguous_split_state {
     CUDF_EXPECTS(num_partitions == 1, 
       "make_packed_column_metadata supported only without splits");
 
-    if (input.num_columns() == 0) { return std::unique_ptr<packed_columns::metadata>(); }
+    if (input.num_columns() == 0) { return std::unique_ptr<std::vector<uint8_t>>(); }
 
     if (is_empty) { 
       // this is a bit ugly, but it was done to re-use make_empty_packed_table between the
       // regular contiguous_split and chunked_contiguous_split cases.
       auto empty_packed_tables = std::move(make_empty_packed_table()[0]);
-      return std::move(empty_packed_tables.data.metadata_);
+      return std::move(empty_packed_tables.data.metadata);
     }
 
     auto& h_dst_buf_info  = partition_buf_size_and_dst_buf_info->h_dst_buf_info;
     auto cur_dst_buf_info = h_dst_buf_info;
     metadata_builder mb{input.num_columns()};
-
-    // traverse the buffers and build the columns.
-    cur_dst_buf_info = build_output_columns(
-      input.begin(), input.end(), cur_dst_buf_info, std::back_inserter(cols), h_dst_bufs[idx]);
 
     populate_metadata(input.begin(), input.end(), cur_dst_buf_info, mb);
 
@@ -1971,7 +1967,7 @@ struct contiguous_split_state {
       result.push_back(packed_table{
         t,
         packed_columns{
-          std::make_unique<packed_columns::metadata>(mb.build()),
+          std::make_unique<std::vector<uint8_t>>(mb.build()),
           std::make_unique<rmm::device_buffer>(std::move(out_buffers[idx]))}});
 
       cols.clear();
@@ -2065,7 +2061,7 @@ std::size_t chunked_contiguous_split::next(cudf::device_span<uint8_t> const& use
   return state->contiguous_split_chunk(user_buffer);
 }
 
-std::unique_ptr<packed_columns::metadata> chunked_contiguous_split::make_packed_columns() const
+std::unique_ptr<std::vector<uint8_t>> chunked_contiguous_split::make_packed_columns() const
 {
   return state->make_packed_column_metadata();
 }

@@ -147,7 +147,7 @@ class chunked_contiguous_split {
 
     [[nodiscard]] std::size_t next(cudf::device_span<uint8_t> const& user_buffer);
 
-    [[nodiscard]] std::unique_ptr<packed_columns::metadata> make_packed_columns() const;
+    [[nodiscard]] std::unique_ptr<std::vector<uint8_t>> make_packed_columns() const;
 
   private:
     // internal state of contiguous split

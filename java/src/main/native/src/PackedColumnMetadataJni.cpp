@@ -50,7 +50,7 @@ bool cache_packed_column_meta_jni(JNIEnv *env) {
 }
 
 jobject packed_column_metadata_from(JNIEnv *env,
-                                    std::unique_ptr<cudf::packed_columns::metadata> meta) {
+                                    std::unique_ptr<std::vector<uint8_t>> meta) {
   jlong metadata_address = reinterpret_cast<jlong>(meta.release());
   return env->CallStaticObjectMethod(Packed_columns_meta_jclass, From_packed_column_meta_method,
                                      metadata_address);
@@ -72,7 +72,7 @@ JNIEXPORT jobject JNICALL Java_ai_rapids_cudf_PackedColumnMetadata_createMetadat
     JNIEnv *env, jclass, jlong j_metadata_ptr) {
   JNI_NULL_CHECK(env, j_metadata_ptr, "metadata is null", nullptr);
   try {
-    auto metadata = reinterpret_cast<cudf::packed_columns::metadata *>(j_metadata_ptr);
+    auto metadata = reinterpret_cast<std::vector<uint8_t> *>(j_metadata_ptr);
     return env->NewDirectByteBuffer(const_cast<uint8_t *>(metadata->data()), metadata->size());
   }
   CATCH_STD(env, nullptr);
@@ -82,7 +82,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_PackedColumnMetadata_closeMetadata(JN
                                                                          jlong j_metadata_ptr) {
   JNI_NULL_CHECK(env, j_metadata_ptr, "metadata is null", );
   try {
-    auto metadata = reinterpret_cast<cudf::packed_columns::metadata *>(j_metadata_ptr);
+    auto metadata = reinterpret_cast<std::vector<uint8_t> *>(j_metadata_ptr);
     delete metadata;
   }
   CATCH_STD(env, );

@@ -57,7 +57,7 @@ bool cache_contiguous_table_jni(JNIEnv *env);
 void release_contiguous_table_jni(JNIEnv *env);
 
 jobject packed_column_metadata_from(JNIEnv *env,
-                                    std::unique_ptr<cudf::packed_columns::metadata> meta);
+                                    std::unique_ptr<std::vector<uint8_t>> meta);
 jobject contiguous_table_from(JNIEnv *env, cudf::packed_columns &split, long row_count);
 
 native_jobjectArray<jobject> contiguous_table_array(JNIEnv *env, jsize length);
