@@ -754,12 +754,12 @@ std::tuple<size_type, int64_t, int64_t, size_type> build_output_column_metadata(
       ? -1 
       : static_cast<int64_t>(current_info->dst_offset);
 
-  mb.add_column_to_meta(src.type(),
-                        col_size,
-                        null_count,
-                        data_offset,
-                        bitmask_offset,
-                        src.num_children());
+  mb.add_column_info_to_meta(src.type(),
+                             col_size,
+                             null_count,
+                             data_offset,
+                             bitmask_offset,
+                             src.num_children());
 
   ++current_info;
   return std::make_tuple(col_size, data_offset, bitmask_offset, null_count);
@@ -1037,7 +1037,7 @@ struct packed_split_indices_and_src_buf_info {
 
     // setup source buf info
     // TODO: 2: ask: learn how this works
-    setup_source_buf_info(input.begin(), input.end(), h_src_buf_info, h_src_buf_info);
+    setup_source_buf_info(input.begin(), input.end(), h_src_buf_info, h_src_buf_info, stream);
 
     offset_stack_partition_size = compute_offset_stack_size(input.begin(), input.end());
     offset_stack_size           = offset_stack_partition_size * num_partitions * sizeof(size_type);
