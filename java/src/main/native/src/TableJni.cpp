@@ -45,6 +45,7 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/span.hpp>
 #include <rmm/cuda_stream_view.hpp>
+#include <rmm/mr/device/device_memory_resource.hpp>
 #include <thrust/iterator/counting_iterator.h>
 
 #include "csv_chunked_writer.hpp"
@@ -498,6 +499,22 @@ jlongArray convert_table_for_return(JNIEnv *env, std::unique_ptr<cudf::table> &&
   std::transform(extra_columns.begin(), extra_columns.end(), outcol_handles.begin() + table_cols,
                  [](auto &col) { return release_as_jlong(col); });
   return outcol_handles.get_jArray();
+}
+
+jobjectArray convert_tables_for_return(JNIEnv *env, std::vector<cudf::table> &tables_result) {
+  jclass longArrayClass = env->FindClass("[J");
+
+  jobjectArray arrayOfTableCols = env->NewObjectArray(tables_result.size(), longArrayClass, NULL);
+
+  for (std::size_t i = 0; i < tables_result.size(); ++i) {
+    std::vector<std::unique_ptr<cudf::column>> ret = tables_result[i].release();
+    cudf::jni::native_jlongArray outcol_handles(env, ret.size());
+    std::transform(ret.begin(), ret.end(), outcol_handles.begin(),
+                   [](auto &col) { return release_as_jlong(col); });
+    env->SetObjectArrayElement(arrayOfTableCols, (jsize)i, outcol_handles.get_jArray());
+  }
+
+  return arrayOfTableCols;
 }
 
 jlongArray convert_table_for_return(JNIEnv *env, std::unique_ptr<cudf::table> &table_result,
@@ -3156,6 +3173,44 @@ JNIEXPORT jobjectArray JNICALL Java_ai_rapids_cudf_Table_contiguousSplit(JNIEnv 
     return n_result.wrapped();
   }
   CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jobjectArray Java_ai_rapids_cudf_Table_split(JNIEnv *env, jclass, jlong input_table,
+                                                       jintArray split_indices) {
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+  JNI_NULL_CHECK(env, split_indices, "split indices are null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::table_view *n_table = reinterpret_cast<cudf::table_view *>(input_table);
+    cudf::jni::native_jintArray n_split_indices(env, split_indices);
+
+    std::vector<cudf::size_type> indices(n_split_indices.data(),
+                                         n_split_indices.data() + n_split_indices.size());
+
+    std::vector<cudf::table_view> result_views = cudf::split(*n_table, indices);
+    std::vector<cudf::table> result_tables;
+    for (std::size_t i = 0; i < result_views.size(); ++i) {
+      result_tables.emplace_back(result_views[i]);
+    }
+    return cudf::jni::convert_tables_for_return(env, result_tables);
+  }
+  CATCH_STD(env, NULL);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_makeChunkedContiguousSplit(
+    JNIEnv *env, jclass, jlong input_table, jlong bounce_buffer_size, jlong memoryResourceHandle) {
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::table_view *n_table = reinterpret_cast<cudf::table_view *>(input_table);
+    auto mr = reinterpret_cast<rmm::mr::device_memory_resource *>(memoryResourceHandle);
+    auto chunked_contig_split =
+        cudf::make_chunked_contiguous_split(*n_table, bounce_buffer_size, mr);
+    return reinterpret_cast<jlong>(chunked_contig_split.release());
+  }
+  CATCH_STD(env, 0);
 }
 
 JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_rollingWindowAggregate(
