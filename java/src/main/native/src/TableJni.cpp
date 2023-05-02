@@ -3207,7 +3207,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_makeChunkedContiguousSplit(
     cudf::table_view *n_table = reinterpret_cast<cudf::table_view *>(input_table);
     auto mr = reinterpret_cast<rmm::mr::device_memory_resource *>(memoryResourceHandle);
     auto chunked_contig_split =
-        cudf::make_chunked_contiguous_split(*n_table, bounce_buffer_size, mr);
+        cudf::make_chunked_pack(*n_table, bounce_buffer_size, mr);
     return reinterpret_cast<jlong>(chunked_contig_split.release());
   }
   CATCH_STD(env, 0);

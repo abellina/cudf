@@ -21,7 +21,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_ChunkedContiguousSplit_destroyChunked
     JNIEnv *env, jclass, jlong chunked_contig_split) {
   try {
     cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split *>(chunked_contig_split);
+    auto cs = reinterpret_cast<cudf::chunked_pack *>(chunked_contig_split);
     delete cs;
   }
   CATCH_STD(env, );
@@ -31,7 +31,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ChunkedContiguousSplit_chunkedContig
     JNIEnv *env, jclass, jlong chunked_contig_split) {
   try {
     cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split *>(chunked_contig_split);
+    auto cs = reinterpret_cast<cudf::chunked_pack *>(chunked_contig_split);
     return cs->get_total_contiguous_size();
   }
   CATCH_STD(env, 0);
@@ -41,7 +41,7 @@ JNIEXPORT jboolean JNICALL Java_ai_rapids_cudf_ChunkedContiguousSplit_chunkedCon
     JNIEnv *env, jclass, jlong chunked_contig_split) {
   try {
     cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split *>(chunked_contig_split);
+    auto cs = reinterpret_cast<cudf::chunked_pack *>(chunked_contig_split);
     return cs->has_next();
   }
   CATCH_STD(env, 0);
@@ -51,7 +51,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ChunkedContiguousSplit_chunkedContig
     JNIEnv *env, jclass, jlong chunked_contig_split, jlong user_ptr, jlong user_ptr_size) {
   try {
     cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split *>(chunked_contig_split);
+    auto cs = reinterpret_cast<cudf::chunked_pack *>(chunked_contig_split);
     auto user_buffer_span = cudf::device_span<uint8_t>(reinterpret_cast<uint8_t *>(user_ptr),
                                                        static_cast<std::size_t>(user_ptr_size));
     return cs->next(user_buffer_span);
@@ -64,7 +64,7 @@ Java_ai_rapids_cudf_ChunkedContiguousSplit_chunkedContiguousSplitMakePackedColum
     JNIEnv *env, jclass, jlong chunked_contig_split) {
   try {
     cudf::jni::auto_set_device(env);
-    auto cs = reinterpret_cast<cudf::chunked_contiguous_split *>(chunked_contig_split);
+    auto cs = reinterpret_cast<cudf::chunked_pack *>(chunked_contig_split);
     std::unique_ptr<std::vector<uint8_t>> result = cs->build_metadata();
     return cudf::jni::packed_column_metadata_from(env, std::move(result));
   }
