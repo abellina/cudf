@@ -3128,6 +3128,28 @@ public class TableTest extends CudfTestBase {
     }
   }
 
+  //@Test
+  //void testContiguousSplitWithStringsChunked() {
+  //  try (Table t1 = new Table.TestBuilder()
+  //      .column(10, 12, 14, 16, 18, 20, 22, 24, null, 28)
+  //      .column(50, 52, 54, 56, 58, 60, 62, 64, 66, null)
+  //      .column("A", "B", "C", "D", "E", "F", "G", "H", "I", "J")
+  //      .decimal32Column(-3, 10, 12, 14, 16, 18, 20, 22, 24, null, 28)
+  //      .decimal64Column(-8, 50L, 52L, 54L, 56L, 58L, 60L, 62L, 64L, 66L, null)
+  //      .build();
+  //      DeviceMemoryBuffer userBuffer = DeviceMemoryBuffer.allocate(2*1024*1024);
+  //      ChunkedContiguousSplit cs =
+  //        t1.makeChunkedContiguousSplit(userBuffer)) {
+  //    System.out.println("chunked contig split at: " + cs);
+  //    System.out.println("hasNext? " + cs.hasNext());
+  //    long bytesWritten = cs.next();
+  //    System.out.println("bytesWritten: " + bytesWritten);
+  //    System.out.println("hasNext? " + cs.hasNext());
+  //    PackedColumnMetadata meta = cs.getPackedColumnMetadata();
+  //    System.out.println("build packed columns: " + meta.getMetadataDirectBuffer());
+  //  }
+  //}
+
   @Test
   void testPartStability() {
     final int PARTS = 5;

@@ -41,6 +41,10 @@ public final class ContiguousTable implements AutoCloseable {
     return new ContiguousTable(metadataHandle, buffer, rowCount);
   }
 
+  static ContiguousTable fromPackedColumnMeta(long metadataHandle) {
+    return new ContiguousTable(metadataHandle, null, 0);
+  }
+
   /** Construct a contiguous table instance given a table and the device buffer backing it. */
   ContiguousTable(Table table, DeviceMemoryBuffer buffer) {
     this.metadataHandle = createPackedMetadata(table.getNativeView(),

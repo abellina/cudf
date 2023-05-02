@@ -21,6 +21,9 @@ namespace {
 #define CONTIGUOUS_TABLE_CLASS "ai/rapids/cudf/ContiguousTable"
 #define CONTIGUOUS_TABLE_FACTORY_SIG(param_sig) "(" param_sig ")L" CONTIGUOUS_TABLE_CLASS ";"
 
+#define PACKED_COLUMNS_META_CLASS "ai/rapids/cudf/PackedColumnsMetadata"
+#define PACKED_COLUMNS_META_FACTORY_SIG(param_sig) "(" param_sig ")L" PACKED_COLUMNS_META_CLASS ";"
+
 jclass Contiguous_table_jclass;
 jmethodID From_packed_table_method;
 
