@@ -39,23 +39,6 @@ import java.util.function.Consumer;
  * to increment the reference count.
  */
 public final class ColumnVector extends ColumnView {
-  /**
-   * Interface to handle events for this ColumnVector. Only invoked during
-   * close, hence `onClosed` is the only event.
-   */
-  public interface EventHandler {
-    /**
-     * `onClosed` is invoked with the updated `refCount` during `close`.
-     * The last invocation of `onClosed` will be with `refCount=0`.
-     *
-     * @note the callback is invoked with this `ColumnVector`'s lock held.
-     *
-     * @param refCount - the updated ref count for this ColumnVector at the time
-     *                 of invocation
-     */
-    void onClosed(int refCount);
-  }
-
   private static final Logger log = LoggerFactory.getLogger(ColumnVector.class);
 
   static {
@@ -64,7 +47,6 @@ public final class ColumnVector extends ColumnView {
 
   private Optional<Long> nullCount = Optional.empty();
   private int refCount;
-  private EventHandler eventHandler;
 
   /**
    * Wrap an existing on device cudf::column with the corresponding ColumnVector. The new
@@ -219,27 +201,6 @@ public final class ColumnVector extends ColumnView {
   }
 
   /**
-   * Set an event handler for this vector. This method can be invoked with null
-   * to unset the handler.
-   *
-   * @param newHandler - the EventHandler to use from this point forward
-   * @return the prior event handler, or null if not set.
-   */
-  public synchronized EventHandler setEventHandler(EventHandler newHandler) {
-    EventHandler prev = this.eventHandler;
-    this.eventHandler = newHandler;
-    return prev;
-  }
-
-  /**
-   * Returns the current event handler for this buffer or null if no handler
-   * is associated or this vector is closed.
-   */
-  public synchronized EventHandler getEventHandler() {
-    return this.eventHandler;
-  }
-
-  /**
    * This is a really ugly API, but it is possible that the lifecycle of a column of
    * data may not have a clear lifecycle thanks to java and GC. This API informs the leak
    * tracking code that this is expected for this column, and big scary warnings should
@@ -256,9 +217,6 @@ public final class ColumnVector extends ColumnView {
   public synchronized void close() {
     refCount--;
     offHeap.delRef();
-    if (eventHandler != null) {
-      eventHandler.onClosed(refCount);
-    }
     if (refCount == 0) {
       offHeap.clean(false);
     } else if (refCount < 0) {
@@ -314,7 +272,7 @@ public final class ColumnVector extends ColumnView {
   /**
    * Returns this column's current refcount
    */
-  public synchronized int getRefCount() {
+  synchronized int getRefCount() {
     return refCount;
   }
 
@@ -768,6 +726,40 @@ public final class ColumnVector extends ColumnView {
   }
 
   /**
+   * Create a new vector containing the murmur3 hash of each row in the table.
+   *
+   * @param seed integer seed for the murmur3 hash function
+   * @param columns array of columns to hash, must have identical number of rows.
+   * @return the new ColumnVector of 32-bit values representing each row's hash value.
+   */
+  public static ColumnVector serial32BitMurmurHash3(int seed, ColumnView columns[]) {
+    if (columns.length < 1) {
+      throw new IllegalArgumentException("Murmur3 hashing requires at least 1 column of input");
+    }
+    long[] columnViews = new long[columns.length];
+    long size = columns[0].getRowCount();
+
+    for(int i = 0; i < columns.length; i++) {
+      assert columns[i] != null : "Column vectors passed may not be null";
+      assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
+      assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
+      assert !columns[i].getType().equals(DType.LIST) : "List columns are not supported";
+      columnViews[i] = columns[i].getNativeView();
+    }
+    return new ColumnVector(hash(columnViews, HashType.HASH_SERIAL_MURMUR3.getNativeId(), seed));
+  }
+
+  /**
+   * Create a new vector containing the murmur3 hash of each row in the table, seed defaulted to 0.
+   *
+   * @param columns array of columns to hash, must have identical number of rows.
+   * @return the new ColumnVector of 32-bit values representing each row's hash value.
+   */
+  public static ColumnVector serial32BitMurmurHash3(ColumnView columns[]) {
+    return serial32BitMurmurHash3(0, columns);
+  }
+
+  /**
    * Create a new vector containing spark's 32-bit murmur3 hash of each row in the table.
    * Spark's murmur3 hash uses a different tail processing algorithm.
    *
@@ -786,6 +778,7 @@ public final class ColumnVector extends ColumnView {
       assert columns[i] != null : "Column vectors passed may not be null";
       assert columns[i].getRowCount() == size : "Row count mismatch, all columns must be the same size";
       assert !columns[i].getType().isDurationType() : "Unsupported column type Duration";
+      assert !columns[i].getType().equals(DType.LIST) : "List columns are not supported";
       columnViews[i] = columns[i].getNativeView();
     }
     return new ColumnVector(hash(columnViews, HashType.HASH_SPARK_MURMUR3.getNativeId(), seed));
