@@ -65,7 +65,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ChunkedPack_chunkedPackBuildMetadata
     cudf::jni::auto_set_device(env);
     auto cs = reinterpret_cast<cudf::chunked_pack *>(chunked_pack);
     std::unique_ptr<std::vector<uint8_t>> result = cs->build_metadata();
-    return reinterpret_cast<jlong>(result->release());
+    return reinterpret_cast<jlong>(result.release());
   }
   CATCH_STD(env, 0);
 }
