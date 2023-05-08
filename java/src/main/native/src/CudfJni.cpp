@@ -193,7 +193,6 @@ JNIEXPORT void JNI_OnUnload(JavaVM *vm, void *) {
   cudf::jni::release_contiguous_table_jni(env);
   cudf::jni::release_contig_split_group_by_result_jni(env);
   cudf::jni::release_host_memory_buffer_jni(env);
-  cudf::jni::release_packed_column_meta_jni(env);
 }
 
 JNIEXPORT jboolean JNICALL Java_ai_rapids_cudf_Cuda_isPtdsEnabled(JNIEnv *env, jclass, jlong size) {
