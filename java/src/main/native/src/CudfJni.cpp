@@ -164,14 +164,6 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *) {
     return JNI_ERR;
   }
 
-  if (!cudf::jni::cache_packed_column_meta_jni(env)) {
-    if (!env->ExceptionCheck()) {
-      env->ThrowNew(env->FindClass("java/lang/RuntimeException"),
-                    "Unable to locate packed column metadata methods needed by JNI");
-    }
-    return JNI_ERR;
-  }
-
   if (!cudf::jni::cache_contig_split_group_by_result_jni(env)) {
     if (!env->ExceptionCheck()) {
       env->ThrowNew(env->FindClass("java/lang/RuntimeException"),
