@@ -150,8 +150,12 @@ packed_columns pack(cudf::table_view const& input,
   return contig_split_result.empty() ? packed_columns{} : std::move(contig_split_result[0].data);
 }
 
+struct thin_wrapper {
+  std::vector<uint8_t> metadata_bytes;
+};
+
 template <typename ColumnIter>
-std::vector<uint8_t> pack_metadata(ColumnIter begin,
+thin_wrapper pack_metadata(ColumnIter begin,
                                    ColumnIter end,
                                    uint8_t const* contiguous_buffer,
                                    size_t buffer_size)
@@ -173,8 +177,7 @@ std::vector<uint8_t> pack_metadata(ColumnIter begin,
   std::copy(metadata_begin,
             metadata_begin + (metadata.size() * sizeof(serialized_column)),
             std::back_inserter(metadata_bytes));
-
-  return metadata_bytes;
+  return thin_wrapper{std::move(metadata_bytes)};
 }
 
 /**
@@ -227,9 +230,12 @@ std::vector<uint8_t> pack_metadata(table_view const& table,
                                    size_t buffer_size)
 {
   CUDF_FUNC_RANGE();
-  return table.is_empty()
-           ? std::vector<uint8_t>{}
-           : detail::pack_metadata(table.begin(), table.end(), contiguous_buffer, buffer_size);
+  std::vector<uint8_t> metadata_bytes;
+  if (!table.is_empty()) {
+    metadata_bytes = 
+      std::move(detail::pack_metadata(table.begin(), table.end(), contiguous_buffer, buffer_size).metadata_bytes);
+  }
+  return metadata_bytes;
 }
 
 /**
