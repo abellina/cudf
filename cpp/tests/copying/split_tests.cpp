@@ -28,10 +28,8 @@
 #include <cudf/copying.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf/filling.hpp>
-#include <cudf/utilities/type_dispatcher.hpp>
 
 #include <rmm/device_buffer.hpp>
-#include <rmm/mr/device/pool_memory_resource.hpp>
 
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
