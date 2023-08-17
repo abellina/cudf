@@ -1618,9 +1618,9 @@ JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetBufferBegin(
 JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetFileBegin(
     JNIEnv *env, jclass, jobjectArray j_col_names, jint j_num_children, jintArray j_children,
     jbooleanArray j_col_nullability, jobjectArray j_metadata_keys, jobjectArray j_metadata_values,
-    jint j_compression, jint j_stats_freq, jbooleanArray j_isInt96, jintArray j_precisions,
-    jbooleanArray j_is_map, jbooleanArray j_is_binary, jbooleanArray j_hasParquetFieldIds,
-    jintArray j_parquetFieldIds, jstring j_output_path) {
+    jlong uncompressed_row_group_size_bytes, jint j_compression, jint j_stats_freq, 
+    jbooleanArray j_isInt96, jintArray j_precisions, jbooleanArray j_is_map, jbooleanArray j_is_binary, 
+    jbooleanArray j_hasParquetFieldIds, jintArray j_parquetFieldIds, jstring j_output_path) {
   JNI_NULL_CHECK(env, j_col_names, "null columns", 0);
   JNI_NULL_CHECK(env, j_col_nullability, "null nullability", 0);
   JNI_NULL_CHECK(env, j_metadata_keys, "null metadata keys", 0);
@@ -1650,14 +1650,18 @@ JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetFileBegin(
 
     sink_info sink{output_path.get()};
     auto stats = std::make_shared<cudf::io::writer_compression_statistics>();
-    chunked_parquet_writer_options opts =
-        chunked_parquet_writer_options::builder(sink)
-            .metadata(std::move(metadata))
-            .compression(static_cast<compression_type>(j_compression))
-            .stats_level(static_cast<statistics_freq>(j_stats_freq))
-            .key_value_metadata({kv_metadata})
-            .compression_statistics(stats)
-            .build();
+    auto builder = chunked_parquet_writer_options::builder(sink)
+      .metadata(std::move(metadata))
+      .compression(static_cast<compression_type>(j_compression))
+      .stats_level(static_cast<statistics_freq>(j_stats_freq))
+      .key_value_metadata({kv_metadata})
+      .compression_statistics(stats);
+
+    if (uncompressed_row_group_size_bytes > 0) {
+      builder.row_group_size_bytes(uncompressed_row_group_size_bytes);
+    }
+
+    chunked_parquet_writer_options opts = builder.build();
 
     auto writer_ptr = std::make_unique<cudf::io::parquet_chunked_writer>(opts);
     cudf::jni::native_parquet_writer_handle *ret = new cudf::jni::native_parquet_writer_handle(
