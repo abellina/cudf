@@ -24,10 +24,12 @@ package ai.rapids.cudf;
  */
 public final class ParquetWriterOptions extends CompressionMetadataWriterOptions {
   private final StatisticsFrequency statsGranularity;
+  private final long uncompressedRowGroupSizeBytes;
 
   private ParquetWriterOptions(Builder builder) {
     super(builder);
     this.statsGranularity = builder.statsGranularity;
+    this.uncompressedRowGroupSizeBytes = builder.uncompressedRowGroupSizeBytes;
   }
 
   public enum StatisticsFrequency {
@@ -55,9 +57,14 @@ public final class ParquetWriterOptions extends CompressionMetadataWriterOptions
     return statsGranularity;
   }
 
+  public long getUncompressedRowGroupSizeBytes() {
+    return uncompressedRowGroupSizeBytes;
+  }
+
   public static class Builder extends CompressionMetadataWriterOptions.Builder
         <Builder, ParquetWriterOptions> {
     private StatisticsFrequency statsGranularity = StatisticsFrequency.ROWGROUP;
+    private long uncompressedRowGroupSizeBytes = 0L;
 
     public Builder() {
       super();
@@ -65,6 +72,11 @@ public final class ParquetWriterOptions extends CompressionMetadataWriterOptions
 
     public Builder withStatisticsFrequency(StatisticsFrequency statsGranularity) {
       this.statsGranularity = statsGranularity;
+      return this;
+    }
+
+    public Builder withUncompressedRowGroupSizeBytes(long uncompressedRowGroupSizeBytes) {
+      this.uncompressedRowGroupSizeBytes = uncompressedRowGroupSizeBytes;
       return this;
     }
 
