@@ -1567,9 +1567,10 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_readAvro(JNIEnv *env, jcl
 JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetBufferBegin(
     JNIEnv *env, jclass, jobjectArray j_col_names, jint j_num_children, jintArray j_children,
     jbooleanArray j_col_nullability, jobjectArray j_metadata_keys, jobjectArray j_metadata_values,
+    jlong uncompressed_row_group_size_byte,
     jint j_compression, jint j_stats_freq, jbooleanArray j_isInt96, jintArray j_precisions,
     jbooleanArray j_is_map, jbooleanArray j_is_binary, jbooleanArray j_hasParquetFieldIds,
-    jintArray j_parquetFieldIds, jobject consumer, jobject host_memory_allocator) {
+    jintArray j_parquetFieldIds, jobject consumer, jint dictionary_policy, jobject host_memory_allocator) {
   JNI_NULL_CHECK(env, j_col_names, "null columns", 0);
   JNI_NULL_CHECK(env, j_col_nullability, "null nullability", 0);
   JNI_NULL_CHECK(env, j_metadata_keys, "null metadata keys", 0);
@@ -1600,14 +1601,26 @@ JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetBufferBegin(
                    });
 
     auto stats = std::make_shared<cudf::io::writer_compression_statistics>();
-    chunked_parquet_writer_options opts =
-        chunked_parquet_writer_options::builder(sink)
-            .metadata(std::move(metadata))
-            .compression(static_cast<compression_type>(j_compression))
-            .stats_level(static_cast<statistics_freq>(j_stats_freq))
-            .key_value_metadata({kv_metadata})
-            .compression_statistics(stats)
-            .build();
+    auto builder = chunked_parquet_writer_options::builder(sink)
+                       .metadata(std::move(metadata))
+                       .compression(static_cast<compression_type>(j_compression))
+                       .stats_level(static_cast<statistics_freq>(j_stats_freq))
+                       .key_value_metadata({kv_metadata})
+                       .compression_statistics(stats);
+
+    if (uncompressed_row_group_size_bytes > 0) {
+      builder.row_group_size_bytes(uncompressed_row_group_size_bytes);
+    }
+    if (dictionary_policy == 0) {
+      builder.dictionary_policy(cudf::io::dictionary_policy::NEVER);
+    } else if (dictionary_policy == 1) {
+      builder.dictionary_policy(cudf::io::dictionary_policy::ADAPTIVE);
+    } else { // 2
+      builder.dictionary_policy(cudf::io::dictionary_policy::ALWAYS);
+    }
+
+    auto opts = builder.build();
+
     auto writer_ptr = std::make_unique<cudf::io::parquet_chunked_writer>(opts);
     cudf::jni::native_parquet_writer_handle *ret = new cudf::jni::native_parquet_writer_handle(
         std::move(writer_ptr), std::move(data_sink), std::move(stats));

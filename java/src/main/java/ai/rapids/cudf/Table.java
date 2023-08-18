@@ -330,6 +330,7 @@ public final class Table implements AutoCloseable {
                                                      boolean[] nullable,
                                                      String[] metadataKeys,
                                                      String[] metadataValues,
+                                                     long uncompressedRowGroupSizeBytes,
                                                      int compression,
                                                      int statsFreq,
                                                      boolean[] isInt96,
@@ -339,6 +340,7 @@ public final class Table implements AutoCloseable {
                                                      boolean[] hasParquetFieldIds,
                                                      int[] parquetFieldIds,
                                                      HostBufferConsumer consumer,
+                                                     int dictionaryPolicy,
                                                      HostMemoryAllocator hostMemoryAllocator
                                                      ) throws CudfException;
 
@@ -1420,6 +1422,7 @@ public final class Table implements AutoCloseable {
           options.getFlatIsNullable(),
           options.getMetadataKeys(),
           options.getMetadataValues(),
+          options.getUncompressedRowGroupSizeBytes(),
           options.getCompressionType().nativeId,
           options.getStatisticsFrequency().nativeId,
           options.getFlatIsTimeTypeInt96(),
@@ -1428,7 +1431,9 @@ public final class Table implements AutoCloseable {
           options.getFlatIsBinary(),
           options.getFlatHasParquetFieldId(),
           options.getFlatParquetFieldId(),
-          consumer, hostMemoryAllocator));
+          consumer,
+          options.getDictionaryPolicy(), 
+          hostMemoryAllocator));
       this.consumer = consumer;
     }
 
