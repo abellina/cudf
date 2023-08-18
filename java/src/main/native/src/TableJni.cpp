@@ -1808,7 +1808,8 @@ JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetFileBegin(
     jbooleanArray j_col_nullability, jobjectArray j_metadata_keys, jobjectArray j_metadata_values,
     jlong uncompressed_row_group_size_bytes, jint j_compression, jint j_stats_freq, 
     jbooleanArray j_isInt96, jintArray j_precisions, jbooleanArray j_is_map, jbooleanArray j_is_binary, 
-    jbooleanArray j_hasParquetFieldIds, jintArray j_parquetFieldIds, jstring j_output_path) {
+    jbooleanArray j_hasParquetFieldIds, jintArray j_parquetFieldIds, jstring j_output_path,
+    jint dictionary_policy) {
   JNI_NULL_CHECK(env, j_col_names, "null columns", 0);
   JNI_NULL_CHECK(env, j_col_nullability, "null nullability", 0);
   JNI_NULL_CHECK(env, j_metadata_keys, "null metadata keys", 0);
