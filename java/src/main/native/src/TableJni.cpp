@@ -1850,11 +1850,11 @@ JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetFileBegin(
       builder.row_group_size_bytes(uncompressed_row_group_size_bytes);
     }
     if (dictionary_policy == 0) {
-      builder.dictionary_policy(cudf::io::dictionary_policy::NEVER)
+      builder.dictionary_policy(cudf::io::dictionary_policy::NEVER);
     } else if (dictionary_policy == 1) {
-      builder.dictionary_policy(cudf::io::dictionary_policy::ADAPTIVE)
+      builder.dictionary_policy(cudf::io::dictionary_policy::ADAPTIVE);
     } else { // 2
-      builder.dictionary_policy(cudf::io::dictionary_policy::ALWAYS)
+      builder.dictionary_policy(cudf::io::dictionary_policy::ALWAYS);
     }
 
     auto opts = builder.build();
