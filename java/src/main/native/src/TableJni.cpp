@@ -32,6 +32,7 @@
 #include <cudf/io/json.hpp>
 #include <cudf/io/orc.hpp>
 #include <cudf/io/parquet.hpp>
+#include <cudf/io/types.hpp>
 #include <cudf/join.hpp>
 #include <cudf/lists/explode.hpp>
 #include <cudf/merge.hpp>
@@ -1660,9 +1661,15 @@ JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetFileBegin(
     if (uncompressed_row_group_size_bytes > 0) {
       builder.row_group_size_bytes(uncompressed_row_group_size_bytes);
     }
+    if (dictionary_policy == 0) {
+      builder.dictionary_policy(cudf::io::dictionary_policy::NEVER)
+    } else if (dictionary_policy == 1) {
+      builder.dictionary_policy(cudf::io::dictionary_policy::ADAPTIVE)
+    } else { // 2
+      builder.dictionary_policy(cudf::io::dictionary_policy::ALWAYS)
+    }
 
-    chunked_parquet_writer_options opts = builder.build();
-
+    auto opts = builder.build();
     auto writer_ptr = std::make_unique<cudf::io::parquet_chunked_writer>(opts);
     cudf::jni::native_parquet_writer_handle *ret = new cudf::jni::native_parquet_writer_handle(
         std::move(writer_ptr), nullptr, std::move(stats));
