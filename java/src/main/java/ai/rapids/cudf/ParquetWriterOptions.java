@@ -87,6 +87,11 @@ public final class ParquetWriterOptions extends CompressionMetadataWriterOptions
       return this;
     }
 
+    public Builder withDictionaryPolicy(int dictionaryPolicy) {
+      this.dictionaryPolicy = dictionaryPolicy;
+      return this;
+    }
+
     public ParquetWriterOptions build() {
       return new ParquetWriterOptions(this);
     }
