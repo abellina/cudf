@@ -303,7 +303,8 @@ public final class Table implements AutoCloseable {
                                                    boolean[] isBinaryValues,
                                                    boolean[] hasParquetFieldIds,
                                                    int[] parquetFieldIds,
-                                                   String filename) throws CudfException;
+                                                   String filename,
+                                                   int dictionaryPolicy) throws CudfException;
 
   /**
    * Setup everything to write parquet formatted data to a buffer.
@@ -1406,7 +1407,8 @@ public final class Table implements AutoCloseable {
           options.getFlatIsBinary(),
           options.getFlatHasParquetFieldId(),
           options.getFlatParquetFieldId(),
-          outputFile.getAbsolutePath()));
+          outputFile.getAbsolutePath(),
+          options.getDictionaryPolicy()));
       this.consumer = null;
     }
 
