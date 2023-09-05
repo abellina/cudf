@@ -25,12 +25,14 @@ package ai.rapids.cudf;
 public final class ParquetWriterOptions extends CompressionMetadataWriterOptions {
   private final StatisticsFrequency statsGranularity;
   private final long uncompressedRowGroupSizeBytes;
+  private final long rowGroupSizeRows;
   private final int dictionaryPolicy;
 
   private ParquetWriterOptions(Builder builder) {
     super(builder);
     this.statsGranularity = builder.statsGranularity;
     this.uncompressedRowGroupSizeBytes = builder.uncompressedRowGroupSizeBytes;
+    this.rowGroupSizeRows = builder.rowGroupSizeRows;
     this.dictionaryPolicy = builder.dictionaryPolicy;
   }
 
@@ -63,6 +65,11 @@ public final class ParquetWriterOptions extends CompressionMetadataWriterOptions
     return uncompressedRowGroupSizeBytes;
   }
 
+  public long getRowGroupSizeRows() {
+    return rowGroupSizeRows;
+  }
+
+
   public int getDictionaryPolicy() {
     return dictionaryPolicy;
   }
@@ -71,6 +78,7 @@ public final class ParquetWriterOptions extends CompressionMetadataWriterOptions
         <Builder, ParquetWriterOptions> {
     private StatisticsFrequency statsGranularity = StatisticsFrequency.ROWGROUP;
     private long uncompressedRowGroupSizeBytes = 0L;
+    private long rowGroupSizeRows = 0L;
     private int dictionaryPolicy = 2;
 
     public Builder() {
@@ -84,6 +92,11 @@ public final class ParquetWriterOptions extends CompressionMetadataWriterOptions
 
     public Builder withUncompressedRowGroupSizeBytes(long uncompressedRowGroupSizeBytes) {
       this.uncompressedRowGroupSizeBytes = uncompressedRowGroupSizeBytes;
+      return this;
+    }
+
+    public Builder withRowGroupSizeRows(long rowGroupSizeRows) {
+      this.rowGroupSizeRows = rowGroupSizeRows;
       return this;
     }
 
