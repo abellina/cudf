@@ -1754,7 +1754,7 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_readAvro(JNIEnv *env, jcl
 JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetBufferBegin(
     JNIEnv *env, jclass, jobjectArray j_col_names, jint j_num_children, jintArray j_children,
     jbooleanArray j_col_nullability, jobjectArray j_metadata_keys, jobjectArray j_metadata_values,
-    jlong uncompressed_row_group_size_byte,
+    jlong uncompressed_row_group_size_bytes, jlong row_group_size_rows,
     jint j_compression, jint j_stats_freq, jbooleanArray j_isInt96, jintArray j_precisions,
     jbooleanArray j_is_map, jbooleanArray j_is_binary, jbooleanArray j_hasParquetFieldIds,
     jintArray j_parquetFieldIds, jobject consumer, jint dictionary_policy, jobject host_memory_allocator) {
@@ -1797,6 +1797,10 @@ JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeParquetBufferBegin(
 
     if (uncompressed_row_group_size_bytes > 0) {
       builder.row_group_size_bytes(uncompressed_row_group_size_bytes);
+    }
+
+    if (row_group_size_rows > 0) {
+      builder.row_group_size_rows(row_group_size_rows);
     }
     if (dictionary_policy == 0) {
       builder.dictionary_policy(cudf::io::dictionary_policy::NEVER);
