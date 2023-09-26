@@ -25,6 +25,8 @@
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
+#include <cudf/detail/pinned.hpp>
+
 #include <thrust/iterator/counting_iterator.h>
 
 #include <string>
@@ -53,7 +55,14 @@ void scalar::set_valid_async(bool is_valid, rmm::cuda_stream_view stream)
   _is_valid.set_value_async(is_valid, stream);
 }
 
-bool scalar::is_valid(rmm::cuda_stream_view stream) const { return _is_valid.value(stream); }
+// bool scalar::is_valid(rmm::cuda_stream_view stream) const {
+//   return _is_valid.value(stream);
+// }
+bool scalar::is_valid(rmm::cuda_stream_view stream) const { 
+  bool out;
+  cudf::detail::cudf_pinned_value_storage.get(out, _is_valid, stream);
+  return out;
+}
 
 bool* scalar::validity_data() { return _is_valid.data(); }
 
@@ -177,14 +186,19 @@ template <typename T>
 typename fixed_point_scalar<T>::rep_type fixed_point_scalar<T>::value(
   rmm::cuda_stream_view stream) const
 {
-  return _data.value(stream);
+  fixed_point_scalar<T>::rep_type out;
+  cudf::detail::cudf_pinned_value_storage.get<fixed_point_scalar<T>::rep_type>(
+    out, _data, stream);
+  return out;
 }
 
 template <typename T>
 T fixed_point_scalar<T>::fixed_point_value(rmm::cuda_stream_view stream) const
 {
+  fixed_point_scalar<T>::rep_type out;
+  cudf::detail::cudf_pinned_value_storage.get(out, _data, stream);
   return value_type{
-    numeric::scaled_integer<rep_type>{_data.value(stream), numeric::scale_type{type().scale()}}};
+    numeric::scaled_integer<rep_type>{out, numeric::scale_type{type().scale()}}};
 }
 
 template <typename T>
@@ -255,7 +269,9 @@ void fixed_width_scalar<T>::set_value(T value, rmm::cuda_stream_view stream)
 template <typename T>
 T fixed_width_scalar<T>::value(rmm::cuda_stream_view stream) const
 {
-  return _data.value(stream);
+  T out;
+  cudf::detail::cudf_pinned_value_storage.get(out, _data, stream);
+  return out;
 }
 
 template <typename T>

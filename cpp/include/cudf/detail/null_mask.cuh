@@ -19,6 +19,7 @@
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/detail/valid_if.cuh>
+#include <cudf/detail/pinned.hpp>
 #include <cudf/null_mask.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/span.hpp>
@@ -183,6 +184,9 @@ size_type inplace_bitmask_binop(Binop op,
       op, dest_mask, d_masks, d_begin_bits, mask_size_bits, d_counter.data());
   CUDF_CHECK_CUDA(stream.value());
   return d_counter.value(stream);
+  //cudf::size_type res;
+  //cudf_pinned_value_storage.get(res, d_counter, stream);
+  //return res;
 }
 
 /**

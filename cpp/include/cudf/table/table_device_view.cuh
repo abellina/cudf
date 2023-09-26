@@ -16,6 +16,8 @@
 #pragma once
 
 #include <cudf/column/column_device_view.cuh>
+#include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/detail/pinned.hpp>
 #include <cudf/table/table_view.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
@@ -266,8 +268,16 @@ auto contiguous_copy_column_device_views(HostTableView source_view, rmm::cuda_st
   auto d_columns = detail::child_columns_to_device_array<ColumnDeviceView>(
     source_view.begin(), source_view.end(), h_ptr, d_ptr);
 
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_ptr, h_ptr, views_size_bytes, cudaMemcpyDefault, stream.value()));
+  nvtxRangePush("contig_copy_column_pageabled2h");
+  void * h_ptr_actual = h_ptr;
+  if (views_size_bytes < 1024) {
+    h_ptr_actual = cudf::detail::cudf_pinned_value_storage.get<void>();
+    memcpy(h_ptr_actual, h_ptr, views_size_bytes);
+  }
+
+  CUDF_CUDA_TRY(cudaMemcpyAsync(d_ptr, h_ptr_actual, views_size_bytes, cudaMemcpyDefault, stream.value()));
   stream.synchronize();
+  nvtxRangePop();
   return std::make_tuple(std::move(descendant_storage), d_columns);
 }
 

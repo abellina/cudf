@@ -26,6 +26,8 @@ rmm::cuda_stream_view const default_stream_value{rmm::cuda_stream_per_thread};
 rmm::cuda_stream_view const default_stream_value{};
 #endif
 
+//static thread_local pinned_value_storage cudf_pinned_value_storage;
+
 }  // namespace detail
 
 /**

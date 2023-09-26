@@ -218,6 +218,7 @@ struct column_gatherer_impl<Element, std::enable_if_t<is_rep_layout_compatible<E
                                      rmm::cuda_stream_view stream,
                                      rmm::mr::device_memory_resource* mr)
   {
+    nvtxRangePush("gather1");
     auto const num_rows = cudf::distance(gather_map_begin, gather_map_end);
     auto const policy   = cudf::mask_allocation_policy::NEVER;
     auto destination_column =
@@ -231,6 +232,7 @@ struct column_gatherer_impl<Element, std::enable_if_t<is_rep_layout_compatible<E
                   nullify_out_of_bounds,
                   stream);
 
+    nvtxRangePop();
     return destination_column;
   }
 };
@@ -265,11 +267,17 @@ struct column_gatherer_impl<string_view> {
                                      rmm::mr::device_memory_resource* mr)
   {
     if (true == nullify_out_of_bounds) {
-      return cudf::strings::detail::gather<true>(
+      nvtxRangePush("gather_1");
+      auto r = cudf::strings::detail::gather<true>(
         strings_column_view(source_column), gather_map_begin, gather_map_end, stream, mr);
+      nvtxRangePop();
+      return r;
     } else {
-      return cudf::strings::detail::gather<false>(
+      nvtxRangePush("gather_2");
+      auto r = cudf::strings::detail::gather<false>(
         strings_column_view(source_column), gather_map_begin, gather_map_end, stream, mr);
+      nvtxRangePop();
+      return r;
     }
   }
 };
@@ -559,6 +567,7 @@ void gather_bitmask(table_view const& source,
                     rmm::mr::device_memory_resource* mr)
 {
   if (target.empty()) { return; }
+  // TODO: add ranges..
 
   // Validate that all target columns have the same size
   auto const target_rows = target.front()->size();
@@ -567,6 +576,7 @@ void gather_bitmask(table_view const& source,
                            [target_rows](auto const& col) { return target_rows == col->size(); }),
                "Column size mismatch");
 
+  nvtxRangePush("create null mask");
   // Create null mask if source is nullable but target is not
   for (size_t i = 0; i < target.size(); ++i) {
     if ((source.column(i).nullable() or op == gather_bitmask_op::NULLIFY) and
@@ -577,20 +587,29 @@ void gather_bitmask(table_view const& source,
       target[i]->set_null_mask(std::move(mask), 0);
     }
   }
+  nvtxRangePop();
 
   // Make device array of target bitmask pointers
+  nvtxRangePush("device target bitmask ptrs");
   std::vector<bitmask_type*> target_masks(target.size());
   std::transform(target.begin(), target.end(), target_masks.begin(), [](auto const& col) {
     return col->mutable_view().null_mask();
   });
+  nvtxRangePush("make_device_uvector_async");
   auto d_target_masks =
     make_device_uvector_async(target_masks, stream, rmm::mr::get_current_device_resource());
-
+  nvtxRangePop();
+  nvtxRangePush("table_device_view_create");
   auto const device_source = table_device_view::create(source, stream);
+  nvtxRangePop();
+  nvtxRangePush("zeroed_counts");
   auto d_valid_counts      = make_zeroed_device_uvector_async<size_type>(
     target.size(), stream, rmm::mr::get_current_device_resource());
+  nvtxRangePop();
+  nvtxRangePop();
 
   // Dispatch operation enum to get implementation
+  nvtxRangePush("dispatch");
   auto const impl = [op]() {
     switch (op) {
       case gather_bitmask_op::DONT_CHECK:
@@ -609,8 +628,10 @@ void gather_bitmask(table_view const& source,
        target_rows,
        d_valid_counts.data(),
        stream);
+  nvtxRangePop();
 
   // Copy the valid counts into each column
+  nvtxRangePush("copy valid counts");
   auto const valid_counts = make_std_vector_sync(d_valid_counts, stream);
   for (size_t i = 0; i < target.size(); ++i) {
     if (target[i]->nullable()) {
@@ -618,6 +639,7 @@ void gather_bitmask(table_view const& source,
       target[i]->set_null_count(null_count);
     }
   }
+  nvtxRangePop();
 }
 
 /**
@@ -656,6 +678,7 @@ std::unique_ptr<table> gather(table_view const& source_table,
                               rmm::cuda_stream_view stream,
                               rmm::mr::device_memory_resource* mr)
 {
+  nvtxRangePush("gather cols");
   std::vector<std::unique_ptr<column>> destination_columns;
 
   // TODO: Could be beneficial to use streams internally here
@@ -672,7 +695,9 @@ std::unique_ptr<table> gather(table_view const& source_table,
                                                    stream,
                                                    mr));
   }
-
+  nvtxRangePop();
+  nvtxRangePush("nullable");
+  // TODO: look here
   auto const nullable = bounds_policy == out_of_bounds_policy::NULLIFY ||
                         std::any_of(source_table.begin(), source_table.end(), [](auto const& col) {
                           return col.nullable();
@@ -682,6 +707,7 @@ std::unique_ptr<table> gather(table_view const& source_table,
                                                                    : gather_bitmask_op::DONT_CHECK;
     gather_bitmask(source_table, gather_map_begin, destination_columns, op, stream, mr);
   }
+  nvtxRangePop();
 
   return std::make_unique<table>(std::move(destination_columns));
 }

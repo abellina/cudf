@@ -75,7 +75,9 @@ std::unique_ptr<column> make_strings_column(IndexPairIterator begin,
                                             rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
+  nvtxRangePush("thrust_distance");
   size_type strings_count = thrust::distance(begin, end);
+  nvtxRangePop();
   if (strings_count == 0) return make_empty_column(type_id::STRING);
 
   // build offsets column from the strings sizes
@@ -166,13 +168,16 @@ std::unique_ptr<column> make_strings_column(CharIterator chars_begin,
                                             rmm::mr::device_memory_resource* mr)
 {
   CUDF_FUNC_RANGE();
+  nvtxRangePush("thrust_distance_2");
   size_type strings_count = thrust::distance(offsets_begin, offsets_end) - 1;
+  nvtxRangePop();
   size_type bytes         = std::distance(chars_begin, chars_end) * sizeof(char);
   if (strings_count == 0) return make_empty_column(type_id::STRING);
 
   CUDF_EXPECTS(bytes >= 0, "invalid offsets data");
 
   // build offsets column -- this is the number of strings + 1
+  nvtxRangePush("build offsets");
   auto offsets_column = make_numeric_column(
     data_type{type_to_id<size_type>()}, strings_count + 1, mask_state::UNALLOCATED, stream, mr);
   auto offsets_view = offsets_column->mutable_view();
@@ -181,11 +186,14 @@ std::unique_ptr<column> make_strings_column(CharIterator chars_begin,
                     offsets_end,
                     offsets_view.data<int32_t>(),
                     [] __device__(auto offset) { return static_cast<int32_t>(offset); });
+  nvtxRangePop();
 
+  nvtxRangePush("build chars");
   // build chars column
   auto chars_column = strings::detail::create_chars_child_column(bytes, stream, mr);
   auto chars_view   = chars_column->mutable_view();
   thrust::copy(rmm::exec_policy(stream), chars_begin, chars_end, chars_view.data<char>());
+  nvtxRangePop();
 
   return make_strings_column(strings_count,
                              std::move(offsets_column),

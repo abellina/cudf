@@ -24,6 +24,7 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/detail/pinned.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
@@ -96,9 +97,14 @@ rmm::device_uvector<T> make_device_uvector_async(host_span<T const> source_data,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::mr::device_memory_resource* mr)
 {
+  const T* d = source_data.data();
+  if (source_data.size() * sizeof(T) < 1024) {
+    d = cudf_pinned_value_storage.get<T>();
+    memcpy((void*)d, (void*)source_data.data(), source_data.size() * sizeof(T));
+  }
   rmm::device_uvector<T> ret(source_data.size(), stream, mr);
   CUDF_CUDA_TRY(cudaMemcpyAsync(ret.data(),
-                                source_data.data(),
+                                d,
                                 source_data.size() * sizeof(T),
                                 cudaMemcpyDefault,
                                 stream.value()));
@@ -273,8 +279,20 @@ template <typename T, typename OutContainer>
 OutContainer make_vector_async(device_span<T const> v, rmm::cuda_stream_view stream)
 {
   OutContainer result(v.size());
+
+  T* res = result.data();
+  if (v.size() * sizeof(T) < 1024) {
+    res = cudf::detail::cudf_pinned_value_storage.get<T>();
+  }
+
   CUDF_CUDA_TRY(cudaMemcpyAsync(
-    result.data(), v.data(), v.size() * sizeof(T), cudaMemcpyDefault, stream.value()));
+    res, v.data(), v.size() * sizeof(T), cudaMemcpyDefault, stream.value()));
+
+  if (res != result.data()) {
+    stream.synchronize();
+    memcpy(result.data(), res, v.size() * sizeof(T));
+  }
+
   return result;
 }
 
