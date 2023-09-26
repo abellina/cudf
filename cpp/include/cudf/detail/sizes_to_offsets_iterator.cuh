@@ -18,6 +18,7 @@
 
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/iterator.cuh>
+#include <cudf/detail/pinned.hpp>
 #include <cudf/types.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
@@ -274,7 +275,9 @@ auto sizes_to_offsets(SizesIterator begin,
   // This function uses the type of the initialization parameter as the accumulator type
   // when computing the individual scan output elements.
   thrust::exclusive_scan(rmm::exec_policy(stream), begin, end, output_itr, LastType{0});
-  return last_element.value(stream);
+  LastType res;
+  cudf_pinned_value_storage.get<LastType>(res, last_element, stream);
+  return res; 
 }
 
 /**

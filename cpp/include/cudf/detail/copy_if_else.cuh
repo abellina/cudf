@@ -21,6 +21,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
+#include <cudf/detail/pinned.hpp>
 
 #include <rmm/device_scalar.hpp>
 
@@ -176,7 +177,9 @@ std::unique_ptr<column> copy_if_else(bool nullable,
       <<<grid.num_blocks, block_size, 0, stream.value()>>>(
         lhs_begin, rhs, filter, *out_v, valid_count.data());
 
-    out->set_null_count(size - valid_count.value(stream));
+    cudf::size_type valid_count_h;
+    cudf_pinned_value_storage.get(valid_count_h, valid_count, stream);
+    out->set_null_count(size - valid_count_h);
   } else {
     // call the kernel
     copy_if_else_kernel<block_size, Element, LeftIter, RightIter, FilterFn, false>

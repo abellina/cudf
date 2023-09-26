@@ -16,6 +16,8 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/iterator.cuh>
+#include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/detail/pinned.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/error.hpp>
 
@@ -53,6 +55,7 @@ create_device_view_from_view(ColumnView const& source, rmm::cuda_stream_view str
   auto get_extent = cudf::detail::make_counting_transform_iterator(
     0, [&source](auto i) { return ColumnDeviceView::extent(source.child(i)); });
 
+  
   // pad the allocation for aligning the first pointer
   auto const descendant_storage_bytes = std::accumulate(
     get_extent, get_extent + num_children, std::size_t{alignof(ColumnDeviceView) - 1});
@@ -76,12 +79,29 @@ create_device_view_from_view(ColumnView const& source, rmm::cuda_stream_view str
   std::unique_ptr<ColumnDeviceView, decltype(deleter)> result{
     new ColumnDeviceView(source, staging_buffer.data(), descendant_storage->data()), deleter};
 
-  // copy the CPU memory with all the children into device memory
-  CUDF_CUDA_TRY(cudaMemcpyAsync(descendant_storage->data(),
-                                staging_buffer.data(),
-                                descendant_storage->size(),
-                                cudaMemcpyDefault,
-                                stream.value()));
+  nvtxRangePush("descentant copy");
+  auto bd = staging_buffer.data();
+  if (staging_buffer.size() < 1024) {
+    char* pinned = cudf::detail::cudf_pinned_value_storage.get<char>();
+    memcpy(pinned, staging_buffer.data(), staging_buffer.size());
+    // copy the CPU memory with all the children into device memory
+    CUDF_CUDA_TRY(cudaMemcpyAsync(descendant_storage->data(),
+                                  pinned,
+                                  descendant_storage->size(),
+                                  cudaMemcpyDefault,
+                                  stream.value()));
+
+  } else {
+    // copy the CPU memory with all the children into device memory
+    CUDF_CUDA_TRY(cudaMemcpyAsync(descendant_storage->data(),
+                                  staging_buffer.data(),
+                                  descendant_storage->size(),
+                                  cudaMemcpyDefault,
+                                  stream.value()));
+
+  }
+  
+  nvtxRangePop();
 
   stream.synchronize();
 

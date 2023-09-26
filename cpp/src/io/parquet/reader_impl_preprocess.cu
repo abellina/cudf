@@ -23,6 +23,7 @@
 #include <cudf/detail/iterator.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 #include <rmm/exec_policy.hpp>
 
@@ -362,6 +363,7 @@ int decode_page_headers(cudf::detail::hostdevice_vector<ColumnChunkDesc>& chunks
                         cudf::detail::hostdevice_vector<PageInfo>& pages,
                         rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   // IMPORTANT : if you change how pages are stored within a chunk (dist pages, then data pages),
   // please update preprocess_nested_columns to reflect this.
   for (size_t c = 0, page_count = 0; c < chunks.size(); c++) {

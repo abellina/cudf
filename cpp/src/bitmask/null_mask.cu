@@ -28,6 +28,7 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/detail/pinned.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -46,6 +47,7 @@
 #include <type_traits>
 
 namespace cudf {
+
 size_type state_null_count(mask_state state, size_type size)
 {
   switch (state) {
@@ -335,7 +337,10 @@ cudf::size_type count_set_bits(bitmask_type const* bitmask,
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       bitmask, start, stop - 1, non_zero_count.data());
 
-  return non_zero_count.value(stream);
+  
+  cudf::size_type* ptr = cudf_pinned_value_storage.get<cudf::size_type>();
+  non_zero_count.value(stream, *ptr);
+  return cudf::size_type(*ptr);
 }
 
 // Count zero bits in the specified range

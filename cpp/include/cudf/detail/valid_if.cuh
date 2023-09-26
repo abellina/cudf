@@ -18,6 +18,7 @@
 
 #include <cudf/detail/null_mask.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
+#include <cudf/detail/pinned.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/default_stream.hpp>
@@ -108,7 +109,9 @@ std::pair<rmm::device_buffer, size_type> valid_if(InputIterator begin,
     valid_if_kernel<block_size><<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(
       static_cast<bitmask_type*>(null_mask.data()), begin, size, p, valid_count.data());
 
-    null_count = size - valid_count.value(stream);
+    size_type out;
+    cudf_pinned_value_storage.get<size_type>(out, valid_count, stream);
+    null_count = size - out;
   }
   return std::pair(std::move(null_mask), null_count);
 }

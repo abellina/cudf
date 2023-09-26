@@ -232,9 +232,13 @@ std::unique_ptr<cudf::column> gather_chars(StringIterator strings_begin,
 {
   auto const output_count = std::distance(map_begin, map_end);
   if (output_count == 0) return make_empty_column(type_id::INT8);
+  nvtxRangePush("create_chars_child_column");
 
   auto chars_column  = create_chars_child_column(chars_bytes, stream, mr);
+  nvtxRangePop();
+  nvtxRangePush("mutable_view");
   auto const d_chars = chars_column->mutable_view().template data<char>();
+  nvtxRangePop();
 
   constexpr int warps_per_threadblock = 4;
   // String parallel strategy will be used if average string length is above this threshold.
@@ -245,19 +249,23 @@ std::unique_ptr<cudf::column> gather_chars(StringIterator strings_begin,
 
   if (average_string_length > string_parallel_threshold) {
     constexpr int max_threadblocks = 65536;
+    nvtxRangePush("do the gather strings");
     gather_chars_fn_string_parallel<<<
       min((static_cast<int>(output_count) + warps_per_threadblock - 1) / warps_per_threadblock,
           max_threadblocks),
       warps_per_threadblock * cudf::detail::warp_size,
       0,
       stream.value()>>>(strings_begin, d_chars, offsets, map_begin, output_count);
+    nvtxRangePop();
   } else {
     constexpr int strings_per_threadblock = 32;
+    nvtxRangePush("do the gather chars");
     gather_chars_fn_char_parallel<strings_per_threadblock>
       <<<(output_count + strings_per_threadblock - 1) / strings_per_threadblock,
          warps_per_threadblock * cudf::detail::warp_size,
          0,
          stream.value()>>>(strings_begin, d_chars, offsets, map_begin, output_count);
+    nvtxRangePop();
   }
 
   return chars_column;
@@ -297,6 +305,7 @@ std::unique_ptr<cudf::column> gather(strings_column_view const& strings,
   if (output_count == 0) return make_empty_column(type_id::STRING);
 
   // build offsets column
+  nvtxRangePush("build offsets");
   auto const d_strings    = column_device_view::create(strings.parent(), stream);
   auto const d_in_offsets = cudf::detail::offsetalator_factory::make_input_iterator(
     strings.is_empty() ? make_empty_column(type_id::INT32)->view() : strings.offsets(),
@@ -312,6 +321,7 @@ std::unique_ptr<cudf::column> gather(strings_column_view const& strings,
       }));
   auto [out_offsets_column, total_bytes] =
     cudf::detail::make_offsets_child_column(offsets_itr, offsets_itr + output_count, stream, mr);
+  nvtxRangePop();
 
   // build chars column
   auto const offsets_view =

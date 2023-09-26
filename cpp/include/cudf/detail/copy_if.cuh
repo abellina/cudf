@@ -20,6 +20,7 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/copy.hpp>
 #include <cudf/detail/gather.hpp>
+#include <cudf/detail/pinned.hpp>
 #include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/null_mask.hpp>
@@ -243,16 +244,21 @@ struct scatter_gather_functor {
                                            rmm::cuda_stream_view stream,
                                            rmm::mr::device_memory_resource* mr)
   {
+    nvtxRangePush("part1");
     auto output_column = cudf::detail::allocate_like(
       input, output_size, cudf::mask_allocation_policy::RETAIN, stream, mr);
     auto output = output_column->mutable_view();
+    nvtxRangePop();
 
+    nvtxRangePush("scatter part");
     bool has_valid = input.nullable();
 
     using Type = typename DeviceType<T>::type;
 
     auto scatter = (has_valid) ? scatter_kernel<Type, Filter, block_size, true>
                                : scatter_kernel<Type, Filter, block_size, false>;
+    nvtxRangePop();
+    nvtxRangePush("null count");
 
     cudf::detail::grid_1d grid{input.size(), block_size, per_thread};
 
@@ -276,7 +282,14 @@ struct scatter_gather_functor {
                                                                 per_thread,
                                                                 filter);
 
-    if (has_valid) { output_column->set_null_count(null_count.value(stream)); }
+    nvtxRangePop();
+    if (has_valid) { 
+      nvtxRangePush("has_valid in scatter_gather_functor");
+      cudf::size_type out;
+      cudf_pinned_value_storage.get<cudf::size_type>(out, null_count, stream);
+      output_column->set_null_count(out);
+      nvtxRangePop();
+    }
     return output_column;
   }
 
@@ -290,20 +303,27 @@ struct scatter_gather_functor {
                                            rmm::cuda_stream_view stream,
                                            rmm::mr::device_memory_resource* mr)
   {
+    nvtxRangePush("indices");
     rmm::device_uvector<cudf::size_type> indices(output_size, stream);
+    nvtxRangePop();
 
+    nvtxRangePush("copy_if");
     thrust::copy_if(rmm::exec_policy(stream),
                     thrust::counting_iterator<cudf::size_type>(0),
                     thrust::counting_iterator<cudf::size_type>(input.size()),
                     indices.begin(),
                     filter);
+    nvtxRangePop();
 
+    nvtxRangePush("gather");
     auto output_table = cudf::detail::gather(cudf::table_view{{input}},
                                              indices,
                                              cudf::out_of_bounds_policy::DONT_CHECK,
                                              cudf::detail::negative_index_policy::NOT_ALLOWED,
                                              stream,
                                              mr);
+
+    nvtxRangePop();
 
     // There will be only one column
     return std::make_unique<cudf::column>(std::move(output_table->get_column(0)));
@@ -332,25 +352,33 @@ std::unique_ptr<table> copy_if(table_view const& input,
   CUDF_FUNC_RANGE();
 
   if (0 == input.num_rows() || 0 == input.num_columns()) { return empty_like(input); }
-
+  nvtxRangePush("elments per thread");
   constexpr int block_size = 256;
   cudf::size_type per_thread =
     elements_per_thread(compute_block_counts<Filter, block_size>, input.num_rows(), block_size);
   cudf::detail::grid_1d grid{input.num_rows(), block_size, per_thread};
+  nvtxRangePop();
 
+  nvtxRangePush("temp_storage");
   // temp storage for block counts and offsets
   rmm::device_uvector<cudf::size_type> block_counts(grid.num_blocks, stream);
   rmm::device_uvector<cudf::size_type> block_offsets(grid.num_blocks + 1, stream);
+  nvtxRangePop();
 
   // 1. Find the count of elements in each block that "pass" the mask
+  nvtxRangePush("compute block counts");
   compute_block_counts<Filter, block_size><<<grid.num_blocks, block_size, 0, stream.value()>>>(
     block_counts.begin(), input.num_rows(), per_thread, filter);
+  nvtxRangePop();
 
+  nvtxRangePush("the memset");
   // initialize just the first element of block_offsets to 0 since the InclusiveSum below
   // starts at the second element.
   CUDF_CUDA_TRY(cudaMemsetAsync(block_offsets.begin(), 0, sizeof(cudf::size_type), stream.value()));
+  nvtxRangePop();
 
   // 2. Find the offset for each block's output using a scan of block counts
+  nvtxRangePush("grid.num_blocks > 1");
   if (grid.num_blocks > 1) {
     // Determine and allocate temporary device storage
     size_t temp_storage_bytes = 0;
@@ -370,25 +398,32 @@ std::unique_ptr<table> copy_if(table_view const& input,
                                   grid.num_blocks,
                                   stream.value());
   }
+  nvtxRangePop();
 
   // As it is InclusiveSum, last value in block_offsets will be output_size
   // unless num_blocks == 1, in which case output_size is just block_counts[0]
-  cudf::size_type output_size{0};
+  nvtxRangePush("output_size_copy_is_pageable??");
+  cudf::size_type* res = cudf_pinned_value_storage.get<cudf::size_type>();
   CUDF_CUDA_TRY(cudaMemcpyAsync(
-    &output_size,
+    res,
     grid.num_blocks > 1 ? block_offsets.begin() + grid.num_blocks : block_counts.begin(),
     sizeof(cudf::size_type),
     cudaMemcpyDefault,
     stream.value()));
-
   stream.synchronize();
+  cudf::size_type output_size = *res;
+  nvtxRangePop();
 
   if (output_size == input.num_rows()) {
-    return std::make_unique<table>(input, stream, mr);
+    nvtxRangePush("make another table");
+    auto t = std::make_unique<table>(input, stream, mr);
+    nvtxRangePop();
+    return t;
   } else if (output_size > 0) {
     std::vector<std::unique_ptr<column>> out_columns(input.num_columns());
     std::transform(input.begin(), input.end(), out_columns.begin(), [&](auto col_view) {
-      return cudf::type_dispatcher(col_view.type(),
+      nvtxRangePush("transform a col");
+      auto c = cudf::type_dispatcher(col_view.type(),
                                    scatter_gather_functor<Filter, block_size>{},
                                    col_view,
                                    output_size,
@@ -397,9 +432,13 @@ std::unique_ptr<table> copy_if(table_view const& input,
                                    per_thread,
                                    stream,
                                    mr);
+      nvtxRangePop();
+      return c;
     });
-
-    return std::make_unique<table>(std::move(out_columns));
+    nvtxRangePush("make a table");
+    auto t = std::make_unique<table>(std::move(out_columns));
+    nvtxRangePop();
+    return t;
   } else {
     return empty_like(input);
   }
