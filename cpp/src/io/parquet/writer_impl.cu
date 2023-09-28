@@ -54,6 +54,7 @@
 #include <cstring>
 #include <numeric>
 #include <utility>
+#include <iostream>
 
 namespace cudf::io::parquet::detail {
 
@@ -1188,6 +1189,9 @@ build_chunk_dictionaries(hostdevice_2dvector<EncColumnChunk>& chunks,
       // of bits required to encode indices into the dictionary
       auto max_dict_index = (ck.num_dict_entries > 0) ? ck.num_dict_entries - 1 : 0;
       auto nbits          = std::max(CompactProtocolReader::NumRequiredBits(max_dict_index), 1);
+      std::cout << "max_dict_index: " << max_dict_index 
+                << ", NumRequiredBits(max_dict_index): " << CompactProtocolReader::NumRequiredBits(max_dict_index) 
+                << ", nbits: " << nbits << std::endl;
 
       // We don't use dictionary if the indices are > MAX_DICT_BITS bits because that's the maximum
       // bitpacking bitsize we efficiently support
