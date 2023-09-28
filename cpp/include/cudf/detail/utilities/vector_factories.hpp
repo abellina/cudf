@@ -108,6 +108,7 @@ rmm::device_uvector<T> make_device_uvector_async(host_span<T const> source_data,
                                 source_data.size() * sizeof(T),
                                 cudaMemcpyDefault,
                                 stream.value()));
+  stream.synchronize();
   return ret;
 }
 
