@@ -3,7 +3,6 @@
 //#include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/nvtx/nvtx3.hpp>
 #include <rmm/device_scalar.hpp>
-#include <rmm/detail/stack_trace.hpp>
 //#include "cuda_runtime.h"
 
 namespace cudf { namespace detail { 
@@ -24,14 +23,11 @@ namespace cudf { namespace detail {
 
         template <class T>
         void get(T& out_ref, const rmm::device_scalar<T>& ds, rmm::cuda_stream_view stream) const {
-            out_ref = ds.value(stream);
-            //rmm::detail::stack_trace st;
-            //nvtxRangePush("pinned::get");
-            //T* res = get<T>();
-            //ds.value(stream, *res); // d2h pinned + sync
-            //out_ref = *res; // copy h2h
-            //nvtxRangePop();
-            //std::cout << st << std::endl;
+            nvtxRangePush("pinned::get");
+            T* res = get<T>();
+            ds.value(stream, *res); // d2h pinned + sync
+            out_ref = *res; // copy h2h
+            nvtxRangePop();
         }
 
     private:
