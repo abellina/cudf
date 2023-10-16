@@ -27,39 +27,37 @@
 
 namespace cudf::detail {
 
-class static_pinned_memory_resource {
-  public:
-    static_pinned_memory_resource() {
-      // Construct explicit pool
-      cudaMemPoolProps pool_props{};
-      pool_props.allocType   = cudaMemAllocationTypePinned;
-      pool_props.handleTypes = static_cast<cudaMemAllocationHandleType>(
-          export_handle_type.value_or(allocation_handle_type::none));
-      //RMM_EXPECTS(rmm::detail::async_alloc::is_export_handle_type_supported(pool_props.handleTypes),
-      //    "Requested IPC memory handle type not supported");
-      pool_props.location.type = cudaMemLocationTypeHost;
-      pool_props.maxSize = 16L*1024*1024*1024;
-      //pool_props.location.id   = rmm::get_current_cuda_device().value();
-      RMM_CUDA_TRY(rmm::detail::async_alloc::cudaMemPoolCreate(&_pinned_pool_handle, &pool_props));
-    }
-
-    ~static_pinned_memory_resource() {
-      cudaMemPoolDestroy(_pinned_pool_handle);
-    }
-
-    cudaError_t allocate(void** ptr, size_t sz, cudaStream_t stream) {
-      return cudaMallocFromPoolAsync(ptr, sz, _pinned_pool_handle, stream);
-    }
-
-    cudaError_t free(void** ptr, cudaStream_t stream) {
-      return cudaFreeAsync(ptr, stream);
-    }
-    
-  private:
-    cudaMemPool_t _pinned_pool_handle;
-};
-
-inline static static_pinned_memory_resource pinned_mr;
+// class static_pinned_memory_resource {
+//   public:
+//     static_pinned_memory_resource() {
+//       // Construct explicit pool
+//       cudaMemPoolProps pool_props{};
+//       pool_props.allocType   = cudaMemAllocationTypePinned;
+//       //RMM_EXPECTS(rmm::detail::async_alloc::is_export_handle_type_supported(pool_props.handleTypes),
+//       //    "Requested IPC memory handle type not supported");
+//       pool_props.location.type = cudaMemLocationTypeHost;
+//       pool_props.maxSize = 16L*1024*1024*1024;
+//       //pool_props.location.id   = rmm::get_current_cuda_device().value();
+//       RMM_CUDA_TRY(cudaMemPoolCreate(&_pinned_pool_handle, &pool_props));
+//     }
+//
+//     ~static_pinned_memory_resource() {
+//       cudaMemPoolDestroy(_pinned_pool_handle);
+//     }
+//
+//     cudaError_t allocate(void** ptr, size_t sz, cudaStream_t stream) {
+//       return cudaMallocFromPoolAsync(ptr, sz, _pinned_pool_handle, stream);
+//     }
+//
+//     cudaError_t free(void** ptr, cudaStream_t stream) {
+//       return cudaFreeAsync(ptr, stream);
+//     }
+//     
+//   private:
+//     cudaMemPool_t _pinned_pool_handle;
+// };
+//
+// inline static static_pinned_memory_resource pinned_mr;
 
 /*! \p pinned_allocator is a CUDA-specific host memory allocator
  *  that employs \c cudaMallocHost for allocation.
@@ -190,7 +188,6 @@ class pinned_allocator {
 
     pointer result(0);
     CUDF_CUDA_TRY(pinned_mr.allocate(reinterpret_cast<void**>(&result), cnt * sizeof(value_type), (cudaStream_t)0));
-
     return result;
   }
 
