@@ -2046,6 +2046,7 @@ JNIEXPORT long JNICALL Java_ai_rapids_cudf_Table_writeORCBufferBegin(
                                           .enable_statistics(ORC_STATISTICS_ROW_GROUP)
                                           .key_value_metadata(kv_metadata)
                                           .compression_statistics(stats)
+                                          .row_index_stride(100000)
                                           .build();
     auto writer_ptr = std::make_unique<cudf::io::orc_chunked_writer>(opts);
     cudf::jni::native_orc_writer_handle *ret = new cudf::jni::native_orc_writer_handle(
