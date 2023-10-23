@@ -236,6 +236,7 @@ endif()
 
 add_library(
   cudf
+  src/utilities/pinned_pool.cpp
   src/aggregation/aggregation.cpp
   src/aggregation/aggregation.cu
   src/aggregation/result_cache.cpp

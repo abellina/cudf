@@ -15,6 +15,7 @@
  */
 
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/detail/pinned.hpp>
 
 namespace cudf {
 
@@ -26,7 +27,9 @@ rmm::cuda_stream_view const default_stream_value{rmm::cuda_stream_per_thread};
 rmm::cuda_stream_view const default_stream_value{};
 #endif
 
+
 //static thread_local pinned_value_storage cudf_pinned_value_storage;
+//static_pinned_pool* static_pinned_pool::pinned_pool_ = new static_pinned_pool();
 
 }  // namespace detail
 

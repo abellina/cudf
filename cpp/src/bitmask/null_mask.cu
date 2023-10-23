@@ -333,9 +333,10 @@ cudf::size_type count_set_bits(bitmask_type const* bitmask,
       bitmask, start, stop - 1, non_zero_count.data());
 
   
-  cudf::size_type* ptr = cudf_pinned_value_storage.get<cudf::size_type>();
-  non_zero_count.value(stream, *ptr);
-  return cudf::size_type(*ptr);
+  //TODO: cudf::size_type* ptr = cudf_pinned_value_storage.get<cudf::size_type>();
+  // non_zero_count.value(stream, *ptr);
+  // return cudf::size_type(*ptr);
+  return non_zero_count.value(stream);
 }
 
 // Count zero bits in the specified range
