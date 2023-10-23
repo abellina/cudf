@@ -20,6 +20,7 @@
 #include <iostream>
 #include <limits>
 #include <mutex>
+#include <iostream>
 
 #include <rmm/mr/device/aligned_resource_adaptor.hpp>
 #include <rmm/mr/device/arena_memory_resource.hpp>
@@ -31,6 +32,8 @@
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
+
+#include <cudf/detail/utilities/pinned_pool.hpp>
 
 #include "cudf_jni_apis.hpp"
 
@@ -394,6 +397,9 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_initDefaultCudaDevice(JNIEnv *env
   // Now that RMM has successfully initialized, setup all threads calling
   // cudf to use the same device RMM is using.
   cudf::jni::set_cudf_device(device_id);
+//  void* throwaway;
+//  cudf::detail::static_pinned_pool::get_instance()->allocate(&throwaway, 0);
+//  std::cout << "Initialized static pinned pool!" << std::endl;
 }
 
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_cleanupDefaultCudaDevice(JNIEnv *env, jclass clazz) {
