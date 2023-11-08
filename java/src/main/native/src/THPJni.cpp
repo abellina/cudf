@@ -32,8 +32,10 @@ constexpr static std::size_t huge_page_size = 1 << 21; // 2 MiB
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_THP_allocate(
     JNIEnv *env, jclass, jlong len) {
   void *p = nullptr;
-  posix_memalign(&p, huge_page_size, len);
-  madvise(p, len, MADV_HUGEPAGE);
+  if (len >= huge_page_size) {
+    posix_memalign(&p, huge_page_size, len);
+    madvise(p, len, MADV_HUGEPAGE);
+  }
   if (p == nullptr) {
     return 0;
   } else {
