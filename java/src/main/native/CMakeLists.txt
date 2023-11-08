@@ -145,6 +145,7 @@ add_library(
   src/RmmJni.cpp
   src/ScalarJni.cpp
   src/TableJni.cpp
+  src/THPJni.cpp
   src/aggregation128_utils.cu
   src/maps_column_view.cu
   src/row_conversion.cu
