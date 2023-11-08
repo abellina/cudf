@@ -76,7 +76,12 @@ class UnsafeMemoryAccessor {
    * @return - allocated address
    */
   public static long allocate(long bytes) {
-    return UNSAFE.allocateMemory(bytes);
+    long thp = THP.allocate(bytes);
+    if (thp == 0) {
+      return UNSAFE.allocateMemory(bytes);
+    } else [
+      return thp;
+    ]
   }
 
   /**
