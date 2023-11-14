@@ -612,16 +612,17 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size) gpuComputeStringPageBo
   // the level stream decoders
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
   __shared__ rle_run<level_t> rep_runs[rle_run_buffer_size];
-  rle_stream<level_t, preprocess_block_size> decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs},
-                                                                                      {rep_runs}};
+  rle_stream<level_t, preprocess_block_size> 
+    decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
+  auto const mask = BitOr(decode_kernel_mask::STRING, decode_kernel_mask::DELTA_BYTE_ARRAY);
   if (!setupLocalPageInfo(s,
                           pp,
                           chunks,
                           min_row,
                           num_rows,
-                          mask_filter{STRINGS_MASK},
+                          mask_filter{mask},
                           page_processing_stage::STRING_BOUNDS)) {
     return;
   }
