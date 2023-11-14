@@ -146,6 +146,7 @@ class aggregate_reader_metadata {
       if (elm.is_one_level_list(pfm.schema[elm.parent_idx])) { depth++; }
       schema_index = elm.parent_idx;
     }
+    //printf("got %i depth for schema_index %i\n", depth, schema_index);
     return depth;
   }
 

@@ -351,6 +351,7 @@ struct row_count_compare {
 
 void reader::impl::create_global_chunk_info()
 {
+  // TODO: abellina create_global_chunk_info
   auto const num_rows         = _file_itm_data.global_num_rows;
   auto const& row_groups_info = _file_itm_data.row_groups;
   auto& chunks                = _file_itm_data.chunks;
@@ -379,7 +380,6 @@ void reader::impl::create_global_chunk_info()
                         schema.type,
                         schema.converted_type,
                         schema.type_length);
-
       chunks.push_back(ColumnChunkDesc(col_meta.total_compressed_size,
                                        nullptr,
                                        col_meta.num_values,

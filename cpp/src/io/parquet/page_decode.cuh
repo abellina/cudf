@@ -19,6 +19,7 @@
 #include "error.hpp"
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
+#include "inttypes.h"
 
 #include <io/utilities/block_utils.cuh>
 
@@ -242,21 +243,22 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
   int dict_bits      = s->dict_bits;
   int pos            = s->dict_pos;
   int str_len        = 0;
-
-  // NOTE: racecheck warns about a RAW involving s->dict_pos, which is likely a false positive
-  // because the only path that does not include a sync will lead to s->dict_pos being overwritten
-  // with the same value
-
+  [[maybe_unused]] int print_it = s->dict_run <= 0;
+  
   while (pos < target_pos) {
+    [[maybe_unused]] int last_pos = pos;
     int is_literal, batch_len;
     if (!t) {
       uint32_t run       = s->dict_run;
       uint8_t const* cur = s->data_start;
+      [[maybe_unused]] uint8_t const* start_cur = cur;
+      int bytecnt = -1;
       if (run <= 1) {
+        print_it = 1;
         run = (cur < end) ? get_vlq32(cur, end) : 0;
         if (!(run & 1)) {
           // Repeated value
-          int bytecnt = (dict_bits + 7) >> 3;
+          bytecnt = (dict_bits + 7) >> 3;
           if (cur + bytecnt <= end) {
             int32_t run_val = cur[0];
             if (bytecnt > 1) {
@@ -276,12 +278,25 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
         int batch_len_div8;
         batch_len      = max(min(32, (int)(run >> 1) * 8), 1);
         batch_len_div8 = (batch_len + 7) >> 3;
+        //if (print_it) {
+        //  printf("t: %i is_literal: 1 level_run: %i batch_len = %i\n", 
+        //  t,
+        //  (int)run,
+        //  batch_len_div8 * dict_bits);
+        //}
         run -= batch_len_div8 * 2;
         cur += batch_len_div8 * dict_bits;
       } else {
+        //if (print_it) {
+        //  printf("t: %i is_literal: 0 level_run: %i batch_len = %i\n", 
+        //    t,
+        //    (int)run,
+        //    bytecnt);
+        //}
         batch_len = max(min(32, (int)(run >> 1)), 1);
         run -= batch_len * 2;
       }
+      
       s->dict_run   = run;
       s->data_start = cur;
       is_literal    = run & 1;
@@ -317,9 +332,21 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
 
       // if we're not computing sizes, store off the dictionary index
       if constexpr (!sizes_only) {
+        //auto idx = pos + t;
+        //auto level_val = dict_idx;
         sb->dict_idx[rolling_index<state_buf::dict_buf_size>(pos + t)] = dict_idx;
+        // TODO: abellina, re-enable this
+        //for (int idx = last_pos; idx < pos + batch_len; ++idx) {
+        //  if (!t) {
+        //  printf("old[%i]=%i\n",
+        //          idx,
+        //          sb->dict_idx[rolling_index<state_buf::dict_buf_size>(idx)]);
+        //  }
+        //}
       }
     }
+
+    print_it = 0;
 
     // if we're computing sizes, add the length(s)
     if constexpr (sizes_only) {
@@ -339,6 +366,7 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
       str_len += WarpReduce(temp_storage).Sum(len);
     }
 
+    last_pos = pos;
     pos += batch_len;
   }
   return {pos, str_len};
@@ -489,10 +517,14 @@ __device__ void gpuDecodeStream(
   int32_t num_input_values  = s->num_input_values;
   int32_t value_count       = s->lvl_count[lvl];
   int32_t batch_coded_count = 0;
+  [[maybe_unused]] bool new_or_initial = value_count == 0;
 
+  [[maybe_unused]] int the_level_run = level_run;
   while (s->error == 0 && value_count < target_count && value_count < num_input_values) {
     int batch_len;
+    // TODO: we need to print values here to compare with rle_stream
     if (level_run <= 1) {
+      new_or_initial = true;
       // Get a new run symbol from the byte stream
       int sym_len = 0;
       if (!t) {
@@ -515,8 +547,10 @@ __device__ void gpuDecodeStream(
       sym_len   = shuffle(sym_len);
       level_val = shuffle(level_val);
       level_run = shuffle(level_run);
+      the_level_run = level_run;
       cur_def += sym_len;
     }
+    
     if (s->error != 0) { break; }
 
     batch_len = min(num_input_values - value_count, 32);
@@ -545,8 +579,16 @@ __device__ void gpuDecodeStream(
       batch_len = min(batch_len, level_run >> 1);
       level_run -= batch_len * 2;
     }
+    //if (new_or_initial && t == 0) {
+    //  printf(
+    //    "t: %i is_literal: %i level_run: %i batch_len: %i\n", 
+    //    t, the_level_run & 1, the_level_run, batch_len);
+    //}
+    new_or_initial = false;
+
     if (t < batch_len) {
       int idx                                      = value_count + t;
+      //printf("old[%i]=%i\n", idx, level_val);
       output[rolling_index<rolling_buf_size>(idx)] = level_val;
     }
     batch_coded_count += batch_len;
@@ -649,6 +691,7 @@ inline __device__ void get_nesting_bounds(int& start_depth,
   if (input_value_count + t < target_input_value_count) {
     int const index = rolling_index<rolling_buf_size>(input_value_count + t);
     d               = static_cast<int>(def[index]);
+      
     // if we have repetition (there are list columns involved) we have to
     // bound what nesting levels we apply values to
     if (s->col.max_level[level_type::REPETITION] > 0) {
@@ -1059,21 +1102,17 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
   // if we can use the nesting decode cache, set it up now
   auto const can_use_decode_cache = s->page.nesting_info_size <= max_cacheable_nesting_decode_info;
   if (can_use_decode_cache) {
-    int depth = 0;
+    int depth = 0; 
     while (depth < s->page.nesting_info_size) {
       int const thread_depth = depth + t;
       if (thread_depth < s->page.nesting_info_size) {
         // these values need to be copied over from global
-        s->nesting_decode_cache[thread_depth].max_def_level =
-          s->page.nesting_decode[thread_depth].max_def_level;
-        s->nesting_decode_cache[thread_depth].page_start_value =
-          s->page.nesting_decode[thread_depth].page_start_value;
-        s->nesting_decode_cache[thread_depth].start_depth =
-          s->page.nesting_decode[thread_depth].start_depth;
-        s->nesting_decode_cache[thread_depth].end_depth =
-          s->page.nesting_decode[thread_depth].end_depth;
+        s->nesting_decode_cache[thread_depth].max_def_level = s->page.nesting_decode[thread_depth].max_def_level;
+        s->nesting_decode_cache[thread_depth].page_start_value = s->page.nesting_decode[thread_depth].page_start_value;
+        s->nesting_decode_cache[thread_depth].start_depth = s->page.nesting_decode[thread_depth].start_depth;
+        s->nesting_decode_cache[thread_depth].end_depth = s->page.nesting_decode[thread_depth].end_depth;
       }
-      depth += blockDim.x;
+      depth += blockDim.x; 
     }
   }
 
@@ -1104,6 +1143,8 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
 
   // zero counts
   int depth = 0;
+  // TODO: how big is num_output_nested_levels
+  // and how is it that we can throw 128 threads at it
   while (depth < s->page.num_output_nesting_levels) {
     int const thread_depth = depth + t;
     if (thread_depth < s->page.num_output_nesting_levels) {
@@ -1141,6 +1182,7 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
     // values. The case is:
     // - On page N-1, the last row starts, with 2/6 values encoded
     // - On page N, the remaining 4/6 values are encoded, but there are no new rows.
+    // TODO: abellina why is this if commented out
     // if (s->page.num_input_values > 0 && s->page.num_rows > 0) {
     if (s->page.num_input_values > 0) {
       uint8_t* cur = s->page.page_data;
@@ -1243,6 +1285,7 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
         int max_depth = s->col.max_nesting_depth;
         for (int idx = 0; idx < max_depth; idx++) {
           PageNestingDecodeInfo* nesting_info = &s->nesting_info[idx];
+          //printf("nested info at idx %i max_depth %i\n", idx, max_depth);
 
           size_t output_offset;
           // schemas without lists
@@ -1254,7 +1297,10 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
             output_offset = nesting_info->page_start_value;
           }
 
+          // TODO: ab why is this ok
           if (s->col.column_data_base != nullptr) {
+            // ok this becomes 0 column_data_base[1]
+            //printf("s->col.column_data_base[idx] %" PRIu64 " idx %i\n", s->col.column_data_base[idx], idx);
             nesting_info->data_out = static_cast<uint8_t*>(s->col.column_data_base[idx]);
             if (s->col.column_string_base != nullptr) {
               nesting_info->string_out = static_cast<uint8_t*>(s->col.column_string_base[idx]);
@@ -1279,6 +1325,8 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
               nesting_info->valid_map += output_offset >> 5;
               nesting_info->valid_map_offset = (int32_t)(output_offset & 0x1f);
             }
+          } else {
+            printf ("column_data_base is null :(\n");
           }
         }
       }
@@ -1294,6 +1342,9 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
       s->dict_size = 0;
       // NOTE:  if additional encodings are supported in the future, modifications must
       // be made to is_supported_encoding() in reader_impl_preprocess.cu
+      #ifdef ABDEBUG
+      printf("page encoding: %i\n", s->page.encoding);
+      #endif
       switch (s->page.encoding) {
         case Encoding::PLAIN_DICTIONARY:
         case Encoding::RLE_DICTIONARY:

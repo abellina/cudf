@@ -207,6 +207,8 @@ enum class decode_kernel_mask {
   DELTA_BINARY     = (1 << 2),  // Run decode kernel for DELTA_BINARY_PACKED data
   DELTA_BYTE_ARRAY = (1 << 3),  // Run decode kernel for DELTA_BYTE_ARRAY encoded data
   DELTA_LENGTH_BA  = (1 << 4),  // Run decode kernel for DELTA_LENGTH_BYTE_ARRAY encoded data
+  FIXED_WIDTH_NO_DICT = (1 << 5),
+  FIXED_WIDTH_DICT =    (1 << 6)
 };
 
 // mask representing all the ways in which a string can be encoded
