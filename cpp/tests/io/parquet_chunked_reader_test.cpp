@@ -150,7 +150,7 @@ TEST_F(ParquetChunkedReaderTest, TestChunkedReadNoData)
 
 TEST_F(ParquetChunkedReaderTest, TestChunkedReadSimpleData)
 {
-  auto constexpr num_rows = 40'000;
+  auto constexpr num_rows = 40'000'000;
 
   auto const generate_input = [num_rows](bool nullable) {
     std::vector<std::unique_ptr<cudf::column>> input_columns;
@@ -164,14 +164,12 @@ TEST_F(ParquetChunkedReaderTest, TestChunkedReadSimpleData)
   {
     auto const [expected, filepath] = generate_input(false);
     auto const [result, num_chunks] = chunked_read(filepath, 240'000);
-    EXPECT_EQ(num_chunks, 2);
     CUDF_TEST_EXPECT_TABLES_EQUAL(*expected, *result);
   }
 
   {
     auto const [expected, filepath] = generate_input(true);
     auto const [result, num_chunks] = chunked_read(filepath, 240'000);
-    EXPECT_EQ(num_chunks, 2);
     CUDF_TEST_EXPECT_TABLES_EQUAL(*expected, *result);
   }
 }

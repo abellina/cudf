@@ -171,7 +171,8 @@ enum level_type {
 enum kernel_mask_bits {
   KERNEL_MASK_GENERAL      = (1 << 0),  // Run catch-all decode kernel
   KERNEL_MASK_STRING       = (1 << 1),  // Run decode kernel for string data
-  KERNEL_MASK_DELTA_BINARY = (1 << 2)   // Run decode kernel for DELTA_BINARY_PACKED data
+  KERNEL_MASK_DELTA_BINARY = (1 << 2),   // Run decode kernel for DELTA_BINARY_PACKED data
+  KERNEL_MASK_FIXED_WIDTH_NO_DICT = (1 << 3)
 };
 
 /**
