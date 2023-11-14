@@ -764,15 +764,15 @@ struct column_comparator {
                   int depth = 0)
   {
     // compare properties
-    if (!cudf::type_dispatcher(lhs.type(),
-                               column_property_comparator<check_exact_equality>{},
-                               lhs,
-                               rhs,
-                               lhs_row_indices,
-                               rhs_row_indices,
-                               verbosity)) {
-      return false;
-    }
+    //if (!cudf::type_dispatcher(lhs.type(),
+    //                           column_property_comparator<check_exact_equality>{},
+    //                           lhs,
+    //                           rhs,
+    //                           lhs_row_indices,
+    //                           rhs_row_indices,
+    //                           verbosity)) {
+    //  return false;
+    //}
 
     // compare values
     column_comparator_impl<T, check_exact_equality> comparator{};

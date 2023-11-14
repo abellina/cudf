@@ -774,7 +774,6 @@ void reader::impl::allocate_level_decode_space()
   uint8_t* buf = static_cast<uint8_t*>(subpass.level_decode_data.data());
   for (size_t idx = 0; idx < pages.size(); idx++) {
     auto& p = pages[idx];
-
     p.lvl_decode_buf[level_type::DEFINITION] = buf;
     buf += (LEVEL_DECODE_BUF_SIZE * pass.level_type_size);
     p.lvl_decode_buf[level_type::REPETITION] = buf;
@@ -817,6 +816,7 @@ std::pair<bool, std::vector<std::future<void>>> reader::impl::read_column_chunks
     for (size_t i = 0; i < num_input_columns; ++i) {
       auto const& col = _input_columns[i];
       // look up metadata
+      // ColumnChunkMetaData
       auto& col_meta = _metadata->get_column_metadata(rg.index, rg.source_index, col.schema_idx);
 
       column_chunk_offsets[chunk_count] =
@@ -1211,6 +1211,7 @@ void reader::impl::preprocess_subpass_pages(bool uses_custom_row_bounds, size_t 
   // - if we have lists, the num_rows field in PageInfo will be incorrect coming out of the file
   // - if we are doing a chunked read, we need to compute the size of all string data
   if (has_lists || chunk_read_limit > 0) {
+    // TODO: abellina over here
     // computes:
     // PageNestingInfo::num_rows for each page. the true number of rows (taking repetition into
     // account), not just the number of values. PageNestingInfo::size for each level of nesting, for

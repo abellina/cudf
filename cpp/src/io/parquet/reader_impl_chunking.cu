@@ -1376,6 +1376,7 @@ void reader::impl::setup_next_subpass(bool uses_custom_row_bounds)
 
 void reader::impl::create_global_chunk_info()
 {
+  // TODO: abellina create_global_chunk_info
   auto const num_rows         = _file_itm_data.global_num_rows;
   auto const& row_groups_info = _file_itm_data.row_groups;
   auto& chunks                = _file_itm_data.chunks;
