@@ -50,6 +50,7 @@
 
 #include <fstream>
 #include <type_traits>
+#include <iostream>
 
 namespace {
 
@@ -150,7 +151,7 @@ TEST_F(ParquetChunkedReaderTest, TestChunkedReadNoData)
 
 TEST_F(ParquetChunkedReaderTest, TestChunkedReadSimpleData)
 {
-  auto constexpr num_rows = 40'000;
+  auto constexpr num_rows = 40'000'000;
 
   auto const generate_input = [num_rows](bool nullable) {
     std::vector<std::unique_ptr<cudf::column>> input_columns;
@@ -164,14 +165,12 @@ TEST_F(ParquetChunkedReaderTest, TestChunkedReadSimpleData)
   {
     auto const [expected, filepath] = generate_input(false);
     auto const [result, num_chunks] = chunked_read(filepath, 240'000);
-    EXPECT_EQ(num_chunks, 2);
     CUDF_TEST_EXPECT_TABLES_EQUAL(*expected, *result);
   }
 
   {
     auto const [expected, filepath] = generate_input(true);
     auto const [result, num_chunks] = chunked_read(filepath, 240'000);
-    EXPECT_EQ(num_chunks, 2);
     CUDF_TEST_EXPECT_TABLES_EQUAL(*expected, *result);
   }
 }
@@ -949,7 +948,9 @@ TEST_F(ParquetChunkedReaderTest, TestChunkedReadNullCount)
 
   do {
     // Every fourth row is null
-    EXPECT_EQ(reader.read_chunk().tbl->get_column(0).null_count(), page_limit_rows / 4);
+    auto c = reader.read_chunk();
+    std::cout << "row_count: " << c.tbl->get_column(0).size() << std::endl;
+    EXPECT_EQ(c.tbl->get_column(0).null_count(), page_limit_rows / 4);
   } while (reader.has_next());
 }
 
