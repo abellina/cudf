@@ -126,6 +126,42 @@ public class HostMemoryBuffer extends MemoryBuffer {
     }
   }
 
+  private static final class ThpCleaner extends MemoryBufferCleaner {
+    private long address;
+    private final long length;
+
+    ThpCleaner(long address, long length) {
+      this.address = address;
+      this.length = length;
+    }
+
+    @Override
+    protected boolean cleanImpl(boolean logErrorIfNotClean) {
+      boolean neededCleanup = false;
+      if (address != 0) {
+        try {
+          THP.free(address, length);
+        } finally {
+          // Always mark the resource as freed even if an exception is thrown.
+          // We cannot know how far it progressed before the exception, and
+          // therefore it is unsafe to retry.
+          address = 0;
+        }
+        neededCleanup = true;
+      }
+      if (neededCleanup && logErrorIfNotClean) {
+        log.error("A THP BUFFER WAS LEAKED!!!!");
+        logRefCountDebug("Leaked thp buffer");
+      }
+      return neededCleanup;
+    }
+
+    @Override
+    public boolean isClean() {
+      return address == 0;
+    }
+  }
+
   /**
    * Allocate memory, but be sure to close the returned buffer to avoid memory leaks.
    * @param bytes size in bytes to allocate
@@ -139,6 +175,12 @@ public class HostMemoryBuffer extends MemoryBuffer {
       HostMemoryBuffer pinnedBuffer = PinnedMemoryPool.tryAllocate(bytes);
       if (pinnedBuffer != null) {
         return pinnedBuffer;
+      }
+    }
+    if (System.getenv("DISABLE_CUDF_THP") == null) {
+      long thpAddr = THP.allocate(bytes);
+      if (thpAddr != 0) {
+        return new HostMemoryBuffer(thpAddr, bytes, new ThpCleaner(thpAddr, bytes));
       }
     }
     return new HostMemoryBuffer(UnsafeMemoryAccessor.allocate(bytes), bytes);
@@ -201,6 +243,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     // This is a slice so we are not going to mark it as allocated
   }
 
+
   /**
    * Return a ByteBuffer that provides access to the underlying memory.  Please note: if the buffer
    * is larger than a ByteBuffer can handle (2GB) an exception will be thrown.  Also
@@ -236,8 +279,13 @@ public class HostMemoryBuffer extends MemoryBuffer {
                                        long length) {
     addressOutOfBoundsCheck(address + destOffset, length, "copy from dest");
     srcData.addressOutOfBoundsCheck(srcData.address + srcOffset, length, "copy from source");
-    UnsafeMemoryAccessor.copyMemory(null, srcData.address + srcOffset, null,
-        address + destOffset, length);
+    if (cleaner instanceof ThpCleaner) {
+      THP.copyMemory(null, srcData.address + srcOffset, null,
+          address + destOffset, length);
+    } else {
+      UnsafeMemoryAccessor.copyMemory(null, srcData.address + srcOffset, null,
+          address + destOffset, length);
+    }
   }
 
   /**
@@ -545,7 +593,11 @@ public class HostMemoryBuffer extends MemoryBuffer {
 
   final void copyFromMemory(long fromAddress, long len) {
     addressOutOfBoundsCheck(address, len, "copy from memory");
-    UnsafeMemoryAccessor.copyMemory(null, fromAddress, null, address, len);
+    if (cleaner instanceof ThpCleaner) {
+      THP.copyMemory(null, fromAddress, null, address, len);
+    } else {
+      UnsafeMemoryAccessor.copyMemory(null, fromAddress, null, address, len);
+    }
   }
 
   /**
@@ -555,7 +607,11 @@ public class HostMemoryBuffer extends MemoryBuffer {
    */
   final void copyToMemory(long toAddress, long len) {
     addressOutOfBoundsCheck(address, len, "copy to memory");
-    UnsafeMemoryAccessor.copyMemory(null, address, null, toAddress, len);
+    if (cleaner instanceof ThpCleaner) {
+      THP.copyMemory(null, address, null, toAddress, len);
+    } else {
+      UnsafeMemoryAccessor.copyMemory(null, address, null, toAddress, len);
+    }
   }
 
   /**

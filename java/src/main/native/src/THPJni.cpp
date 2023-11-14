@@ -30,8 +30,9 @@ extern "C" {
 constexpr static std::size_t huge_page_size = 1 << 21; // 2 MiB
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_THP_allocate(
-    JNIEnv *env, jclass, jlong len) {
+    JNIEnv *env, jclass, jlong jlen) {
   void *p = nullptr;
+  const std::size_t len = static_cast<std::size_t>(jlen);
   if (len >= huge_page_size) {
     posix_memalign(&p, huge_page_size, len);
     madvise(p, len, MADV_HUGEPAGE);
@@ -39,8 +40,20 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_THP_allocate(
   if (p == nullptr) {
     return 0;
   } else {
-    return dynamic_cast<long>(p);
+    return reinterpret_cast<long>(p);
   }
 }
 
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_THP_free(
+    JNIEnv *env, jclass, jlong jaddr, jlong) {
+  void* addr = reinterpret_cast<void*>(jaddr);
+  std::free(addr);
+}
+
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_THP_copyMemoryNative(
+    JNIEnv *env, jclass, jlong jsrcAddr, jlong jdstAddr, jlong length) {
+  void* dstAddr = reinterpret_cast<void*>(jdstAddr);
+  void* srcAddr = reinterpret_cast<void*>(jsrcAddr);
+  memcpy(dstAddr, srcAddr, length);
+}
 } // extern "C"
