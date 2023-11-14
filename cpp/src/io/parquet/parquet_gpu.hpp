@@ -188,7 +188,8 @@ enum class decode_kernel_mask {
   GENERAL          = (1 << 0),  // Run catch-all decode kernel
   STRING           = (1 << 1),  // Run decode kernel for string data
   DELTA_BINARY     = (1 << 2),  // Run decode kernel for DELTA_BINARY_PACKED data
-  DELTA_BYTE_ARRAY = (1 << 3)   // Run decode kernel for DELTA_BYTE_ARRAY encoded data
+  DELTA_BYTE_ARRAY = (1 << 3),   // Run decode kernel for DELTA_BYTE_ARRAY encoded data
+  FIXED_WIDTH_NO_DICT = (1 << 4)
 };
 
 /**

@@ -22,6 +22,10 @@
 #include <cudf/detail/utilities/stream_pool.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
 
+// TODO: abellina.. need???? this include
+#include <rmm/cuda_stream_pool.hpp>
+#include "decode_fixed.hpp"
+
 #include <bitset>
 #include <numeric>
 
@@ -194,6 +198,11 @@ void reader::impl::decode_page_data(size_t skip_rows, size_t num_rows)
   if (BitAnd(kernel_mask, decode_kernel_mask::DELTA_BINARY) != 0) {
     DecodeDeltaBinary(
       pages, chunks, num_rows, skip_rows, level_type_size, error_code.data(), streams[s_idx++]);
+  }
+
+  if ((kernel_mask & KERNEL_MASK_FIXED_WIDTH_NO_DICT) != 0) {
+    DecodePageDataFixed(
+      pages, chunks, num_rows, skip_rows, level_type_size, streams[s_idx++]);
   }
 
   // launch the catch-all page decoder
