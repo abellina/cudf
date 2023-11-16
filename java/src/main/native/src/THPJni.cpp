@@ -27,10 +27,11 @@
 
 extern "C" {
 
-constexpr static std::size_t huge_page_size = 1 << 21; // 2 MiB
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_THP_allocate(
     JNIEnv *env, jclass, jlong jlen) {
+  //const std::size_t huge_page_size = 1 << 21; // 2 MiB
+  const std::size_t huge_page_size = sysconf(_SC_PAGESIZE);
   void *p = nullptr;
   const std::size_t len = static_cast<std::size_t>(jlen);
   if (len >= huge_page_size) {
