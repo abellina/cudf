@@ -52,9 +52,30 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_THP_free(
 }
 
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_THP_copyMemoryNative(
-    JNIEnv *env, jclass, jlong jsrcAddr, jlong jdstAddr, jlong length) {
+    JNIEnv *env, jclass, jobject src, jlong jsrcAddr, 
+    jobject dst, jlong jdstAddr, jlong length) {
   void* dstAddr = reinterpret_cast<void*>(jdstAddr);
   void* srcAddr = reinterpret_cast<void*>(jsrcAddr);
+  jbyte* jSrcArray = nullptr;
+  jbyte* jDstArray = nullptr;
+
+  if (src != nullptr) {
+    jSrcArray = env->GetByteArrayElements(src, NULL);
+    srcAddr += reinterpret_cast<void*>(jSrcArray);
+  }
+
+  if (dst != nullptr) {
+    jDstArray = env->GetByteArrayElements(dst, NULL);
+    dstAddr += reinterpret_cast<void*>(jDstArray);
+  }
+
   memcpy(dstAddr, srcAddr, length);
+
+  if (jSrcArray != nullptr) {
+    env->ReleaseByteArrayElements(src, jSrcArray, 0);
+  }
+  if (jDstArray != nullptr) {
+    env->ReleaseByteArrayElements(dst, jDstArray, 0);
+  }
 }
 } // extern "C"

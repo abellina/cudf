@@ -345,7 +345,11 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert srcOffset >= 0;
     long requestedAddress = this.address + srcOffset;
     addressOutOfBoundsCheck(requestedAddress, len, "getBytes");
-    UnsafeMemoryAccessor.getBytes(dst, dstOffset, requestedAddress, len);
+    if (cleaner instanceof ThpCleaner) {
+      THP.getBytes(dst, dstOffset, requestedAddress, len);
+    } else {
+      UnsafeMemoryAccessor.getBytes(dst, dstOffset, requestedAddress, len);
+    }
   }
 
   /**
@@ -359,7 +363,11 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert srcOffset >= 0;
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, len, "setBytes");
-    UnsafeMemoryAccessor.setBytes(requestedAddress, data, srcOffset, len);
+    if (cleaner instanceof ThpCleaner) {
+      THP.setBytes(requestedAddress, data, srcOffset, len);
+    } else {
+      UnsafeMemoryAccessor.setBytes(requestedAddress, data, srcOffset, len);
+    }
   }
 
   /**
