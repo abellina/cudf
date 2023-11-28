@@ -30,13 +30,16 @@ extern "C" {
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_THP_allocate(
     JNIEnv *env, jclass, jlong jlen) {
-  //const std::size_t huge_page_size = 1 << 21; // 2 MiB
+  const std::size_t huge_page_limit = 1 << 21; // 2 MiB
   const std::size_t huge_page_size = sysconf(_SC_PAGESIZE);
   void *p = nullptr;
   const std::size_t len = static_cast<std::size_t>(jlen);
-  if (len >= huge_page_size) {
+  if (len >= huge_page_limit) {
+    char* disable_it = getenv("DISABLE_THP_MADVISE");
     posix_memalign(&p, huge_page_size, len);
-    madvise(p, len, MADV_HUGEPAGE);
+    if (disable_it == nullptr || disable_it[0] == '0') {
+      madvise(p, len, MADV_HUGEPAGE);
+    }
   }
   if (p == nullptr) {
     return 0;
@@ -52,8 +55,8 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_THP_free(
 }
 
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_THP_copyMemoryNative(
-    JNIEnv *env, jclass, jobject src, jlong jsrcAddr, 
-    jobject dst, jlong jdstAddr, jlong length) {
+    JNIEnv *env, jclass, jbyteArray src, jlong jsrcAddr, 
+    jbyteArray dst, jlong jdstAddr, jlong length) {
   void* dstAddr = reinterpret_cast<void*>(jdstAddr);
   void* srcAddr = reinterpret_cast<void*>(jsrcAddr);
   jbyte* jSrcArray = nullptr;
@@ -61,12 +64,14 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_THP_copyMemoryNative(
 
   if (src != nullptr) {
     jSrcArray = env->GetByteArrayElements(src, NULL);
-    srcAddr += reinterpret_cast<void*>(jSrcArray);
+    srcAddr = reinterpret_cast<void*>(
+      reinterpret_cast<long>(jSrcArray) + reinterpret_cast<long>(srcAddr));
   }
 
   if (dst != nullptr) {
     jDstArray = env->GetByteArrayElements(dst, NULL);
-    dstAddr += reinterpret_cast<void*>(jDstArray);
+    dstAddr = reinterpret_cast<void*>(
+      reinterpret_cast<long>(jDstArray) + reinterpret_cast<long>(dstAddr));
   }
 
   memcpy(dstAddr, srcAddr, length);

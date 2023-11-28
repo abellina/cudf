@@ -6,12 +6,22 @@ class THP {
     private static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
     public static void copyMemory(byte[] src, long srcOffset, byte[] dst, long dstOffset,
                                     long length) {
-        // Check if dstOffset is before or after srcOffset to determine if we should copy
-        // forward or backwards. This is necessary in case src and dst overlap.
         if (dstOffset < srcOffset) {
         while (length > 0) {
             long size = Math.min(length, UNSAFE_COPY_THRESHOLD);
+            //System.out.println(
+            //    "copying src: " + src + 
+            //    " srcOffset: " + srcOffset + 
+            //    " dst: " + dst + 
+            //    " dstOffset: " + dstOffset +
+            //    " size: " + size);
             copyMemoryNative(src, srcOffset, dst, dstOffset, size);
+            //System.out.println(
+            //    "done with copy src: " + src + 
+            //    " srcOffset: " + srcOffset + 
+            //    " dst: " + dst + 
+            //    " dstOffset: " + dstOffset +
+            //    " size: " + size);
             length -= size;
             srcOffset += size;
             dstOffset += size;
@@ -23,7 +33,19 @@ class THP {
             long size = Math.min(length, UNSAFE_COPY_THRESHOLD);
             srcOffset -= size;
             dstOffset -= size;
+            //System.out.println(
+            //    "copying src: " + src + 
+            //    " srcOffset: " + srcOffset + 
+            //    " dst: " + dst + 
+            //    " dstOffset: " + dstOffset +
+            //    " size: " + size);
             copyMemoryNative(src, srcOffset, dst, dstOffset, size);
+            //System.out.println(
+            //    "done with copy src: " + src + 
+            //    " srcOffset: " + srcOffset + 
+            //    " dst: " + dst + 
+            //    " dstOffset: " + dstOffset +
+            //    " size: " + size);
             length -= size;
         }
 
@@ -35,13 +57,11 @@ class THP {
     }
 
     public static void setBytes(long address, byte[] values, long offset, long len) {
-        copyMemory(values, UnsafeMemoryAccessor.BYTE_ARRAY_OFFSET + offset,
-            null, address, len);
+        copyMemory(values, offset, null, address, len);
     }
 
     public static void getBytes(byte[] dst, long dstOffset, long address, long len) {
-        copyMemory(null, address,
-            dst, UnsafeMemoryAccessor.BYTE_ARRAY_OFFSET + dstOffset, len);
+        copyMemory(null, address, dst, dstOffset, len);
     }
 
     private static native void copyMemoryNative(

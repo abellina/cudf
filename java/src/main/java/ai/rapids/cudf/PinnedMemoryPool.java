@@ -307,7 +307,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
       Cuda.freeZero();
     }
     this.totalPoolSize = poolSize;
-    this.pinnedPoolBase = Cuda.hostAllocPinned(poolSize);
+    this.pinnedPoolBase = THP.allocate(poolSize); //Cuda.hostAllocPinned(poolSize);
     freeHeap.add(new MemorySection(pinnedPoolBase, poolSize));
     this.availableBytes = poolSize;
   }
@@ -315,7 +315,8 @@ public final class PinnedMemoryPool implements AutoCloseable {
   @Override
   public void close() {
     assert numAllocatedSections == 0 : "Leaked " + numAllocatedSections + " pinned allocations";
-    Cuda.freePinned(pinnedPoolBase);
+    THP.free(pinnedPoolBase, this.totalPoolSize);
+    //Cuda.freePinned(pinnedPoolBase);
   }
 
   /**
@@ -369,8 +370,10 @@ public final class PinnedMemoryPool implements AutoCloseable {
     if (allocated == null) {
       return null;
     } else {
-      return new HostMemoryBuffer(allocated.baseAddress, bytes,
+      try (NvtxRange r = new NvtxRange("thp_pool_alloc", NvtxColor.RED)) {
+        return new HostMemoryBuffer(allocated.baseAddress, bytes,
               new PinnedHostBufferCleaner(allocated, bytes));
+      }
     }
   }
 
