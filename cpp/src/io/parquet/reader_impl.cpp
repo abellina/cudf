@@ -200,7 +200,7 @@ void reader::impl::decode_page_data(size_t skip_rows, size_t num_rows)
       pages, chunks, num_rows, skip_rows, level_type_size, error_code.data(), streams[s_idx++]);
   }
 
-  if ((kernel_mask & KERNEL_MASK_FIXED_WIDTH_NO_DICT) != 0) {
+  if ((kernel_mask & decode_kernel_mask::FIXED_WIDTH_NO_DICT) != 0) {
     DecodePageDataFixed(
       pages, chunks, num_rows, skip_rows, level_type_size, streams[s_idx++]);
   }
