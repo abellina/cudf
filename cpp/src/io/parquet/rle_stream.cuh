@@ -22,12 +22,24 @@
 
 namespace cudf::io::parquet::detail {
 
-template <int num_threads>
+template<int num_threads>
 constexpr int rle_stream_required_run_buffer_size()
 {
-  constexpr int num_rle_stream_decode_warps = (num_threads / cudf::detail::warp_size) - 1;
+  int num_rle_stream_decode_warps = (num_threads / cudf::detail::warp_size) - 1;
   return (num_rle_stream_decode_warps * 2);
 }
+
+
+// TODO: consider if these should be template parameters to rle_stream
+constexpr int num_rle_stream_decode_threads = 512;
+// the -1 here is for the look-ahead warp that fills in the list of runs to be decoded
+// in an overlapped manner. so if we had 16 total warps:
+// - warp 0 would be filling in batches of runs to be processed
+// - warps 1-15 would be decoding the previous batch of runs generated
+constexpr int num_rle_stream_decode_warps =
+  (num_rle_stream_decode_threads / cudf::detail::warp_size) - 1;
+
+constexpr int run_buffer_size = (num_rle_stream_decode_warps * 2);
 
 /**
  * @brief Read a 32-bit varint integer
@@ -65,7 +77,7 @@ struct rle_batch {
   int level_run;
   int size;
 
-  __device__ inline void decode(uint8_t const* const end, int level_bits, int lane, int warp_id)
+  __device__ inline void decode(uint8_t const* const end, int level_bits, int lane, int warp_id, int roll)
   {
     int output_pos = 0;
     int remain     = size;
@@ -114,7 +126,12 @@ struct rle_batch {
       }
 
       // store level_val
-      if (lane < batch_len && (lane + output_pos) >= 0) { output[lane + output_pos] = level_val; }
+      if (lane < batch_len && (lane + output_pos) >= 0) { 
+        int ix = rolling_index<run_buffer_size>(lane + output_pos + roll);
+        //printf("run_buffer_size: %i rolling index %i, lane %i, output_pos %i roll %i\n", 
+        //(int)run_buffer_size, (int)ix, (int)lane, (int)output_pos, (int)roll);
+        output[rolling_index<run_buffer_size>(lane + output_pos + roll)] = level_val;
+      }
       remain -= batch_len;
       output_pos += batch_len;
     }
@@ -142,6 +159,7 @@ struct rle_run {
 // a stream of rle_runs
 template <typename level_t, int decode_threads>
 struct rle_stream {
+  // TODO: consider if these should be template parameters to rle_stream
   static constexpr int num_rle_stream_decode_threads = decode_threads;
   // the -1 here is for the look-ahead warp that fills in the list of runs to be decoded
   // in an overlapped manner. so if we had 16 total warps:
@@ -185,7 +203,7 @@ struct rle_stream {
     start      = _start;
     cur        = _start;
     end        = _end;
-
+;
     max_output_values = _max_output_values;
     output            = _output;
 
@@ -290,9 +308,21 @@ struct rle_stream {
     }
   }
 
-  __device__ inline int decode_next(int t)
+  __device__ inline int decode_next(int t, int count, int roll)
   {
-    int const output_count = min(max_output_values, (total_values - cur_values));
+    int const output_count = 
+      count < 0 ? 
+        min(max_output_values, (total_values - cur_values)) : 
+        count;
+
+    //{ // remove me
+    //  int written = 0;
+    //  while (written < output_count) {
+    //    int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
+    //    if (t < batch_size) { output[written + t] = 0; }
+    //    written += batch_size;
+    //  }
+    //}
 
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
@@ -339,7 +369,7 @@ struct rle_stream {
         auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
-        batch.decode(end, level_bits, warp_lane, warp_decode_id);
+        batch.decode(end, level_bits, warp_lane, warp_decode_id, roll);
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
@@ -360,6 +390,11 @@ struct rle_stream {
     // valid for every thread
     return values_processed;
   }
+
+  __device__ inline int decode_next(int t) {
+    return decode_next(t, -1, 0);
+  }
+
 };
 
-}  // namespace cudf::io::parquet::detail
+}  // namespace cudf::io::parquet::gpu

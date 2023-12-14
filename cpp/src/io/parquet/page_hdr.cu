@@ -149,13 +149,21 @@ __device__ void skip_struct_field(byte_stream_s* bs, int field_type)
  */
 __device__ decode_kernel_mask kernel_mask_for_page(PageInfo const& page,
                                                    ColumnChunkDesc const& chunk,
-                                                   bool use_fixed_op)
+                                                   int use_fixed_op)
 {
   if (page.flags & PAGEINFO_FLAGS_DICTIONARY) { return decode_kernel_mask::NONE; }
   // TODO: abellina
-  if (use_fixed_op && page.encoding == Encoding::PLAIN && chunk.max_nesting_depth == 1 &&
-      (chunk.data_type & 7) != BYTE_ARRAY && (chunk.data_type & 7) != BOOLEAN) {
-    return decode_kernel_mask::FIXED_WIDTH_NO_DICT;
+  if (use_fixed_op != 0 && 
+      chunk.max_nesting_depth == 1 &&
+      (chunk.data_type & 7) != BYTE_ARRAY && 
+      (chunk.data_type & 7) != BOOLEAN) {
+    if (page.encoding == Encoding::PLAIN) {
+      printf("marking page as FIXED_WIDTH_NO_DICT\n");
+      return decode_kernel_mask::FIXED_WIDTH_NO_DICT;
+    } else if (use_fixed_op == 2 && page.encoding == Encoding::PLAIN_DICTIONARY) {
+      printf("marking page as FIXED_WIDTH_DICT\n");
+      return decode_kernel_mask::FIXED_WIDTH_DICT;
+    }
   }
   if (page.encoding == Encoding::DELTA_BINARY_PACKED) {
     return decode_kernel_mask::DELTA_BINARY;
@@ -353,8 +361,8 @@ struct gpuParsePageHeader {
 // blockDim {128,1,1}
 __global__ void __launch_bounds__(128) gpuDecodePageHeaders(ColumnChunkDesc* chunks, 
 							    int32_t num_chunks, 
-							    kernel_error::pointer* error_code, 
-							    bool use_fixed_op)
+							    kernel_error::pointer error_code, 
+							    int use_fixed_op)
 {
   using cudf::detail::warp_size;
   gpuParsePageHeader parse_page_header;
@@ -528,8 +536,10 @@ void __host__ DecodePageHeaders(ColumnChunkDesc* chunks,
 {
   dim3 dim_block(128, 1);
   dim3 dim_grid((num_chunks + 3) >> 2, 1);  // 1 chunk per warp, 4 warps per block
-  bool use_fixed_op = std::getenv("USE_FIXED_OP") != nullptr;
-  gpuDecodePageHeaders<<<dim_grid, dim_block, 0, stream.value()>>>(chunks, num_chunks, error_code, use_fixed_op);
+  char * opt = std::getenv("USE_FIXED_OP");
+  int use_fixed_op = opt == nullptr ? 0 : (opt[0] == '1' ? 1 : 2);
+  gpuDecodePageHeaders<<<dim_grid, dim_block, 0, stream.value()>>>(
+    chunks, num_chunks, error_code, use_fixed_op);
 }
 
 void __host__ BuildStringDictionaryIndex(ColumnChunkDesc* chunks,

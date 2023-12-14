@@ -29,6 +29,13 @@ void DecodePageDataFixed(cudf::detail::hostdevice_vector<PageInfo>& pages,
                          int level_type_size,
                          rmm::cuda_stream_view stream);
 
+void DecodePageDataFixedDict(cudf::detail::hostdevice_vector<PageInfo>& pages,
+                             cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
+                             std::size_t num_rows,
+                             size_t min_row,
+                             int level_type_size,
+                             rmm::cuda_stream_view stream);
+
 }  // namespace gpu
 }  // namespace parquet
 }  // namespace io

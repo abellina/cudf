@@ -21,6 +21,10 @@
 
 namespace cudf::io::parquet::detail {
 
+namespace { 
+constexpr int decode_block_size = 128;
+constexpr int rolling_buf_size  = decode_block_size * 2;
+}
 
 // # of threads we're decoding with
 // TODO: abellina
@@ -351,6 +355,116 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   }
 }
 
+template <typename level_t>
+__global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
+  PageInfo* pages, device_span<ColumnChunkDesc const> chunks, size_t min_row, size_t num_rows)
+{
+  __shared__ __align__(16) page_state_s state_g;
+  __shared__ __align__(16) page_state_buffers_s<rolling_buf_size,  // size of nz_idx buffer
+                                                1,                 // unused in this kernel
+                                                1>                 // unused in this kernel
+    state_buffers;
+
+  page_state_s* const s = &state_g;
+  auto* const sb        = &state_buffers;
+  int page_idx          = blockIdx.x;
+  int t                 = threadIdx.x;
+  PageInfo* pp          = &pages[page_idx];
+
+  if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT))) { return; }
+  // TODO: abellina all_types_filter???
+  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, true)) { return; }
+
+  // must come after the kernel mask check
+  [[maybe_unused]] null_count_back_copier _{s, t};
+
+  // the level stream decoders
+  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
+  rle_stream<level_t, decode_block_size> def_decoder{def_runs};
+
+  bool const has_repetition = false;
+  bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
+
+  // if we have no work to do (eg, in a skip_rows/num_rows case) in this page.
+  //
+  // corner case: in the case of lists, we can have pages that contain "0" rows if the current row
+  // starts before this page and ends after this page:
+  //       P0        P1        P2
+  //  |---------|---------|----------|
+  //        ^------------------^
+  //      row start           row end
+  // P1 will contain 0 rows
+  //
+  // TODO: abellina added `has_repetition` argument to call to is_bounds_page`
+  if (s->num_rows == 0 && !(has_repetition && (is_bounds_page(s, min_row, num_rows, has_repetition) ||
+                                               is_page_contained(s, min_row, num_rows)))) {
+    return;
+  }
+
+  // initialize the stream decoders (requires values computed in setupLocalPageInfo)
+  int const max_batch_size = rolling_buf_size;
+  level_t* def             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::DEFINITION]);
+  if (nullable) {
+    def_decoder.init(s->col.level_bits[level_type::DEFINITION],
+                     s->abs_lvl_start[level_type::DEFINITION],
+                     s->abs_lvl_end[level_type::DEFINITION],
+                     max_batch_size,
+                     def,
+                     s->page.num_input_values);
+  }
+  __syncthreads();
+
+  __shared__ rle_run<uint32_t> dict_runs[256];
+  rle_stream<uint32_t, decode_block_size> dict_stream { dict_runs };
+  dict_stream.init(s->dict_bits,
+                   s->data_start,
+                   s->data_end,
+                   max_batch_size,
+                   sb->dict_idx,
+                   s->page.num_input_values);
+  __syncthreads();
+  //printf("DONE init dict decoder %i\n", (int)t);
+
+  // the core loop. decode batches of level stream data using rle_stream objects
+  // and pass the results to gpuUpdatePageSizes
+  int processed = 0;
+  int valid     = 0;
+  while (processed < s->page.num_input_values) {
+    int next_valid;
+
+    // only need to process definition levels if this is a nullable column
+    int this_processed;
+    if (nullable) {
+      this_processed = def_decoder.decode_next(t);
+      __syncthreads();
+
+      next_valid = gpuUpdateValidityOffsetsAndRowIndicesFlat<true, level_t>(
+        processed + this_processed, s, sb, def, t, page_idx);
+    }
+    // if we wanted to split off the skip_rows/num_rows case into a separate kernel, we could skip
+    // this function call entirely since all it will ever generate is a mapping of (i -> i) for
+    // nz_idx.  gpuDecodeValues would be the only work that happens.
+    else {
+      this_processed = min(max_batch_size, s->page.num_input_values - processed);
+      next_valid     = gpuUpdateValidityOffsetsAndRowIndicesFlat<false, level_t>(
+        processed + this_processed, s, sb, nullptr, t, page_idx);
+    }
+    __syncthreads();
+
+    // abellina: this_valid == next_valid??
+    //printf("dict decoder decode_next %i next_valid %i valid %i \n", (int)t, next_valid, valid);
+    dict_stream.decode_next(t, next_valid, valid);
+    __syncthreads();
+
+    // decode the values themselves
+    gpuDecodeValues(s, sb, valid, next_valid, t);
+    __syncthreads();
+
+    processed += this_processed;
+    valid = next_valid;
+  }
+}
+
 }  // anonymous namespace
 
 void __host__ DecodePageDataFixed(cudf::detail::hostdevice_vector<PageInfo>& pages,
@@ -369,6 +483,28 @@ void __host__ DecodePageDataFixed(cudf::detail::hostdevice_vector<PageInfo>& pag
   } else {
     gpuDecodePageDataFixed<uint16_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(pages.device_ptr(), chunks, min_row, num_rows);
+  }
+}
+
+void __host__ DecodePageDataFixedDict(
+  cudf::detail::hostdevice_vector<PageInfo>& pages,
+  cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
+  size_t num_rows,
+  size_t min_row,
+  int level_type_size,
+  rmm::cuda_stream_view stream)
+{
+  dim3 dim_block(decode_block_size, 1);
+  dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
+
+  if (level_type_size == 1) {
+    gpuDecodePageDataFixedDict<uint8_t>
+      <<<dim_grid, dim_block, 0, stream.value()>>>(
+        pages.device_ptr(), chunks, min_row, num_rows);
+  } else {
+    gpuDecodePageDataFixedDict<uint16_t>
+      <<<dim_grid, dim_block, 0, stream.value()>>>(
+        pages.device_ptr(), chunks, min_row, num_rows);
   }
 }
 

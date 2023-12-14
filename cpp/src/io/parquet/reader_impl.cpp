@@ -201,12 +201,20 @@ void reader::impl::decode_page_data(size_t skip_rows, size_t num_rows)
   }
 
   if (BitAnd(kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT) != 0) {
+    printf("decoding fixed\n");
     DecodePageDataFixed(
+      pages, chunks, num_rows, skip_rows, level_type_size, streams[s_idx++]);
+  }
+
+  if (BitAnd(kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT) != 0) {
+    printf("decoding fixed dict\n");
+    DecodePageDataFixedDict(
       pages, chunks, num_rows, skip_rows, level_type_size, streams[s_idx++]);
   }
 
   // launch the catch-all page decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::GENERAL) != 0) {
+    printf("decoding general\n");
     DecodePageData(
       pages, chunks, num_rows, skip_rows, level_type_size, error_code.data(), streams[s_idx++]);
   }
