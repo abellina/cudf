@@ -144,6 +144,8 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
     if (is_valid) {
       int const dst_pos = (value_count + thread_value_count) - 1;
       int const src_pos = (valid_count + thread_valid_count) - 1;
+      auto ix = rolling_index<state_buf::nz_buf_size>(src_pos);
+      printf("nz_idx... rolling_index %i src_pos %i dst_pos %i\n", ix, src_pos, dst_pos);
       sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)] = dst_pos;
     }
 
@@ -438,6 +440,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
       this_processed = def_decoder.decode_next(t);
       __syncthreads();
 
+      // count of valid items in this batch
       next_valid = gpuUpdateValidityOffsetsAndRowIndicesFlat<true, level_t>(
         processed + this_processed, s, sb, def, t, page_idx);
     }

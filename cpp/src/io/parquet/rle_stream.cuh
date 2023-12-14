@@ -128,8 +128,8 @@ struct rle_batch {
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         int ix = rolling_index<run_buffer_size>(lane + output_pos + roll);
-        //printf("run_buffer_size: %i rolling index %i, lane %i, output_pos %i roll %i\n", 
-        //(int)run_buffer_size, (int)ix, (int)lane, (int)output_pos, (int)roll);
+        printf("run_buffer_size: %i rolling index %i, lane %i, output_pos %i roll %i level_val %i\n", 
+        (int)run_buffer_size, (int)ix, (int)lane, (int)output_pos, (int)roll, (int)level_val);
         output[rolling_index<run_buffer_size>(lane + output_pos + roll)] = level_val;
       }
       remain -= batch_len;
@@ -315,14 +315,6 @@ struct rle_stream {
         min(max_output_values, (total_values - cur_values)) : 
         count;
 
-    //{ // remove me
-    //  int written = 0;
-    //  while (written < output_count) {
-    //    int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
-    //    if (t < batch_size) { output[written + t] = 0; }
-    //    written += batch_size;
-    //  }
-    //}
 
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
@@ -330,7 +322,7 @@ struct rle_stream {
       int written = 0;
       while (written < output_count) {
         int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
-        if (t < batch_size) { output[written + t] = 0; }
+        if (t < batch_size) { output[rolling_index<run_buffer_size>(written + t + roll)] = 0; }
         written += batch_size;
       }
       cur_values += output_count;

@@ -18,6 +18,8 @@
 #include <cudf/groupby.hpp>
 #include <cudf/io/parquet.hpp>
 #include <cudf/table/table.hpp>
+#include <cudf/detail/iterator.cuh>
+#include <cudf_test/column_wrapper.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
@@ -38,6 +40,24 @@ cudf::io::table_with_metadata read_parquet(std::string const& file_path)
   return cudf::io::read_parquet(options);
 }
 
+void simple_int_column()
+{  
+  std::string filepath("/home/abellina/table_with_dict.parquet");
+  constexpr auto num_rows = 512;
+  auto valids = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return i % 2 == 0 ? 1 : 0; });
+  auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return 1; });
+  cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows, valids);
+  auto tbl = cudf::table_view{{col1}}; 
+  
+  cudf::io::parquet_writer_options out_opts =
+    cudf::io::parquet_writer_options::builder(cudf::io::sink_info{filepath}, tbl)    
+    .dictionary_policy(cudf::io::dictionary_policy::ALWAYS);
+  cudf::io::write_parquet(out_opts);
+
+  cudf::io::parquet_reader_options in_opts = cudf::io::parquet_reader_options::builder(cudf::io::source_info{filepath});
+  auto result = cudf::io::read_parquet(in_opts);
+}
+
 int main(int argc, char** argv)
 {
   // Construct a CUDA memory resource using RAPIDS Memory Manager (RMM)
@@ -56,7 +76,9 @@ int main(int argc, char** argv)
   rmm::mr::set_current_device_resource(&mr);
 
   // Read data
-  auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
+  //auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
+  simple_int_column();
+  auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
 
   std::cout << "over here" << std::endl;
 
