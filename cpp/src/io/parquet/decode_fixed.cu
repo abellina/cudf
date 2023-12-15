@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+#define ABDEBUG 1
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
 #include "page_decode.cuh"
@@ -145,7 +145,9 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
       int const dst_pos = (value_count + thread_value_count) - 1;
       int const src_pos = (valid_count + thread_valid_count) - 1;
       auto ix = rolling_index<state_buf::nz_buf_size>(src_pos);
+      #ifdef ABDEBUG
       printf("nz_idx... rolling_index %i src_pos %i dst_pos %i\n", ix, src_pos, dst_pos);
+      #endif
       sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)] = dst_pos;
     }
 
@@ -186,10 +188,13 @@ __device__ inline void gpuDecodeValues(
 
     // the position in the output column/buffer
     int dst_pos = sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)] - s->first_row;
-
+    
     // target_pos will always be properly bounded by num_rows, but dst_pos may be negative (values
     // before first_row) in the flat hierarchy case.
     if (src_pos < target_pos && dst_pos >= 0) {
+      #ifdef ABDEBUG
+      printf("t %i src_pos %i dst_pos %i target_pos %i \n", (int) t, (int)src_pos, (int)dst_pos, (int)target_pos);
+      #endif
       // nesting level that is storing actual leaf values
       int leaf_level_index = s->col.max_nesting_depth - 1;
 
@@ -244,6 +249,13 @@ __device__ inline void gpuDecodeValues(
       } else {
         gpuOutputGeneric(s, sb, src_pos, static_cast<uint8_t*>(dst), dtype_len);
       }
+      #ifdef ABDEBUG
+      printf("DONE t %i src_pos %i dst_pos %i target_pos %i \n", (int) t, (int)src_pos, (int)dst_pos, (int)target_pos);
+      #endif
+    } else {
+      #ifdef ABDEBUG
+      printf("else t %i src_pos %i dst_pos %i targe_pos %i \n", (int) t, (int)src_pos, (int)dst_pos, (int)target_pos);
+      #endif
     }
 
     pos += batch_size;
@@ -287,8 +299,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   [[maybe_unused]] null_count_back_copier _{s, t};
 
   // the level stream decoders
-  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
-  rle_stream<level_t, decode_block_size> def_decoder{def_runs};
+  __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
+  rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
   bool const has_repetition = false;
   bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
@@ -316,7 +328,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
-                     max_batch_size,
                      def,
                      s->page.num_input_values);
   }
@@ -381,8 +392,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   [[maybe_unused]] null_count_back_copier _{s, t};
 
   // the level stream decoders
-  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
-  rle_stream<level_t, decode_block_size> def_decoder{def_runs};
+  __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
+  rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
   bool const has_repetition = false;
   bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
@@ -410,18 +421,18 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
-                     max_batch_size,
                      def,
                      s->page.num_input_values);
   }
   __syncthreads();
 
-  __shared__ rle_run<uint32_t> dict_runs[256];
-  rle_stream<uint32_t, decode_block_size> dict_stream { dict_runs };
+
+// should the size be 1/2 (128?)
+  __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[max_batch_size];
+  rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream { dict_runs };
   dict_stream.init(s->dict_bits,
                    s->data_start,
                    s->data_end,
-                   max_batch_size,
                    sb->dict_idx,
                    s->page.num_input_values);
   __syncthreads();
@@ -431,13 +442,24 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // and pass the results to gpuUpdatePageSizes
   int processed = 0;
   int valid     = 0;
+  #ifdef ABDEBUG
+  int iter = 0;
+  #endif
   while (processed < s->page.num_input_values) {
     int next_valid;
 
     // only need to process definition levels if this is a nullable column
     int this_processed;
     if (nullable) {
-      this_processed = def_decoder.decode_next(t);
+      //-1 don't cap it
+
+      #ifdef ABDEBUG
+      printf("t: %i loop iter %i processed %i \n", t, iter, processed);
+      #endif
+      this_processed = def_decoder.decode_next(t, -1, processed);
+      #ifdef ABDEBUG
+      printf("t: %i loop iter %i processed %i this_processed %i \n", t, iter++, processed, this_processed);
+      #endif
       __syncthreads();
 
       // count of valid items in this batch
@@ -453,6 +475,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
+    #ifdef ABDEBUG
+    printf("t: %i next_valid is %i\n", (int)t, (int)next_valid);
+    #endif
 
     // abellina: this_valid == next_valid??
     //printf("dict decoder decode_next %i next_valid %i valid %i \n", (int)t, next_valid, valid);
@@ -464,7 +489,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     __syncthreads();
 
     processed += this_processed;
-    valid = next_valid;
+    valid += next_valid;
   }
 }
 

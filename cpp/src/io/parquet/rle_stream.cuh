@@ -69,7 +69,7 @@ inline __device__ uint32_t get_vlq32(uint8_t const*& cur, uint8_t const* end)
 
 // an individual batch. processed by a warp.
 // batches should be in shared memory.
-template <typename level_t>
+template <typename level_t, int max_output_values>
 struct rle_batch {
   uint8_t const* run_start;  // start of the run we are part of
   int run_offset;            // value offset of this batch from the start of the run
@@ -81,6 +81,7 @@ struct rle_batch {
   {
     int output_pos = 0;
     int remain     = size;
+    printf("decode lane %i warp_id %i roll %i remain %i\n", lane, warp_id, roll, remain);
 
     // for bitpacked/literal runs, total size is always a multiple of 8. so we need to take care if
     // we are not starting/ending exactly on a run boundary
@@ -93,12 +94,16 @@ struct rle_batch {
       cur = run_start + ((effective_offset >> 3) * level_bits);
     }
 
+    printf("done1\n");
+
     // if this is a repeated run, compute the repeated value
     int level_val;
     if (!(level_run & 1)) {
       level_val = run_start[0];
+      printf("level bits?? %i level_val %i\n", level_bits, level_val);
       if (level_bits > 8) { level_val |= run_start[1] << 8; }
     }
+    printf("done2\n");
 
     // process
     while (remain > 0) {
@@ -127,19 +132,22 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        int ix = rolling_index<run_buffer_size>(lane + output_pos + roll);
+        int ix = rolling_index<max_output_values>(lane + output_pos + roll);
+        #ifdef ABDEBUG
         printf("run_buffer_size: %i rolling index %i, lane %i, output_pos %i roll %i level_val %i\n", 
         (int)run_buffer_size, (int)ix, (int)lane, (int)output_pos, (int)roll, (int)level_val);
-        output[rolling_index<run_buffer_size>(lane + output_pos + roll)] = level_val;
+        #endif
+        output[rolling_index<max_output_values>(lane + output_pos + roll)] = level_val;
       }
       remain -= batch_len;
       output_pos += batch_len;
     }
+    printf("leaving decode lane %i\n", lane);
   }
 };
 
 // a single rle run. may be broken up into multiple rle_batches
-template <typename level_t>
+template <typename level_t, int max_output_values>
 struct rle_run {
   int size;  // total size of the run
   int output_pos;
@@ -147,17 +155,17 @@ struct rle_run {
   int level_run;  // level_run header value
   int remaining;
 
-  __device__ __inline__ rle_batch<level_t> next_batch(level_t* const output, int max_size)
+  __device__ __inline__ rle_batch<level_t, max_output_values> next_batch(level_t* const output, int max_size)
   {
     int const batch_len  = min(max_size, remaining);
     int const run_offset = size - remaining;
     remaining -= batch_len;
-    return rle_batch<level_t>{start, run_offset, output, level_run, batch_len};
+    return rle_batch<level_t, max_output_values>{start, run_offset, output, level_run, batch_len};
   }
 };
 
 // a stream of rle_runs
-template <typename level_t, int decode_threads>
+template <typename level_t, int decode_threads, int max_output_values>
 struct rle_stream {
   // TODO: consider if these should be template parameters to rle_stream
   static constexpr int num_rle_stream_decode_threads = decode_threads;
@@ -175,13 +183,12 @@ struct rle_stream {
   uint8_t const* cur;
   uint8_t const* end;
 
-  int max_output_values;
   int total_values;
   int cur_values;
 
   level_t* output;
 
-  rle_run<level_t>* runs;
+  rle_run<level_t, max_output_values>* runs;
   int run_index;
   int run_count;
   int output_pos;
@@ -190,12 +197,11 @@ struct rle_stream {
   int next_batch_run_start;
   int next_batch_run_count;
 
-  __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {}
+  __device__ rle_stream(rle_run<level_t, max_output_values>* _runs) : runs(_runs) {}
 
   __device__ void init(int _level_bits,
                        uint8_t const* _start,
                        uint8_t const* _end,
-                       int _max_output_values,
                        level_t* _output,
                        int _total_values)
   {
@@ -203,8 +209,6 @@ struct rle_stream {
     start      = _start;
     cur        = _start;
     end        = _end;
-;
-    max_output_values = _max_output_values;
     output            = _output;
 
     run_index            = 0;
@@ -241,6 +245,7 @@ struct rle_stream {
       // bytes for the varint header
       uint8_t const* _cur = cur;
       int const level_run = get_vlq32(_cur, end);
+      printf("level_run %i\n", level_run);
       int run_bytes       = _cur - cur;
 
       // literal run
@@ -315,6 +320,7 @@ struct rle_stream {
         min(max_output_values, (total_values - cur_values)) : 
         count;
 
+    printf("decode_next i %i count %i roll %i\n", t, count, roll);
 
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
@@ -322,7 +328,7 @@ struct rle_stream {
       int written = 0;
       while (written < output_count) {
         int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
-        if (t < batch_size) { output[rolling_index<run_buffer_size>(written + t + roll)] = 0; }
+        if (t < batch_size) { output[rolling_index<max_output_values>(written + t + roll)] = 0; }
         written += batch_size;
       }
       cur_values += output_count;
@@ -362,9 +368,11 @@ struct rle_stream {
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
         batch.decode(end, level_bits, warp_lane, warp_decode_id, roll);
-        // last warp updates total values processed
+        printf("done with decode warp_lane %i\n", warp_lane);
+      // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
+          printf("values_processed=%i\n",values_processed);
         }
       }
       __syncthreads();
@@ -378,6 +386,8 @@ struct rle_stream {
     } while (num_runs > 0 && values_processed < output_count);
 
     cur_values += values_processed;
+
+    printf("returning values_processed %i\n", values_processed);
 
     // valid for every thread
     return values_processed;

@@ -43,7 +43,7 @@ cudf::io::table_with_metadata read_parquet(std::string const& file_path)
 void simple_int_column()
 {  
   std::string filepath("/home/abellina/table_with_dict.parquet");
-  constexpr auto num_rows = 512;
+  constexpr auto num_rows = 128;
   auto valids = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return i % 2 == 0 ? 1 : 0; });
   auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return 1; });
   cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows, valids);

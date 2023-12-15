@@ -226,30 +226,27 @@ __global__ void __launch_bounds__(preprocess_block_size)
   bool has_repetition = chunks[pp->chunk_idx].max_level[level_type::REPETITION] > 0;
 
   // the level stream decoders
-  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
-  __shared__ rle_run<level_t> rep_runs[rle_run_buffer_size];
-  rle_stream<level_t, preprocess_block_size> decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs},
-                                                                                      {rep_runs}};
+  __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
+  __shared__ rle_run<level_t, rolling_buf_size> rep_runs[rle_run_buffer_size];
+  rle_stream<level_t, preprocess_block_size, rolling_buf_size> 
+    decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
   if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, false)) { return; }
 
   // initialize the stream decoders (requires values computed in setupLocalPageInfo)
   // the size of the rolling batch buffer
-  int const max_batch_size = rolling_buf_size;
   level_t* rep             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::REPETITION]);
   level_t* def             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::DEFINITION]);
   decoders[level_type::DEFINITION].init(s->col.level_bits[level_type::DEFINITION],
                                         s->abs_lvl_start[level_type::DEFINITION],
                                         s->abs_lvl_end[level_type::DEFINITION],
-                                        max_batch_size,
                                         def,
                                         s->page.num_input_values);
   if (has_repetition) {
     decoders[level_type::REPETITION].init(s->col.level_bits[level_type::REPETITION],
                                           s->abs_lvl_start[level_type::REPETITION],
                                           s->abs_lvl_end[level_type::REPETITION],
-                                          max_batch_size,
                                           rep,
                                           s->page.num_input_values);
   }
