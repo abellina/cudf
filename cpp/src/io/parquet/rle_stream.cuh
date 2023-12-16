@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <inttypes.h>
 #include "parquet_gpu.hpp"
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
@@ -81,7 +82,9 @@ struct rle_batch {
   {
     int output_pos = 0;
     int remain     = size;
+    #ifdef ABDEBUG
     printf("decode lane %i warp_id %i roll %i remain %i\n", lane, warp_id, roll, remain);
+    #endif
 
     // for bitpacked/literal runs, total size is always a multiple of 8. so we need to take care if
     // we are not starting/ending exactly on a run boundary
@@ -94,16 +97,22 @@ struct rle_batch {
       cur = run_start + ((effective_offset >> 3) * level_bits);
     }
 
-    printf("done1\n");
+    #ifdef ABDEBUG
+    printf("done1 level_run %i\n", level_run);
+    #endif
 
     // if this is a repeated run, compute the repeated value
     int level_val;
     if (!(level_run & 1)) {
       level_val = run_start[0];
+      #ifdef ABDEBUG
       printf("level bits?? %i level_val %i\n", level_bits, level_val);
+      #endif
       if (level_bits > 8) { level_val |= run_start[1] << 8; }
     }
+    #ifdef ABDEBUG
     printf("done2\n");
+    #endif
 
     // process
     while (remain > 0) {
@@ -135,14 +144,16 @@ struct rle_batch {
         int ix = rolling_index<max_output_values>(lane + output_pos + roll);
         #ifdef ABDEBUG
         printf("run_buffer_size: %i rolling index %i, lane %i, output_pos %i roll %i level_val %i\n", 
-        (int)run_buffer_size, (int)ix, (int)lane, (int)output_pos, (int)roll, (int)level_val);
+          (int)run_buffer_size, (int)ix, (int)lane, (int)output_pos, (int)roll, (int)level_val);
         #endif
         output[rolling_index<max_output_values>(lane + output_pos + roll)] = level_val;
       }
       remain -= batch_len;
       output_pos += batch_len;
     }
+    #ifdef ABDEBUG
     printf("leaving decode lane %i\n", lane);
+    #endif
   }
 };
 
@@ -160,7 +171,8 @@ struct rle_run {
     int const batch_len  = min(max_size, remaining);
     int const run_offset = size - remaining;
     remaining -= batch_len;
-    return rle_batch<level_t, max_output_values>{start, run_offset, output, level_run, batch_len};
+    return rle_batch<level_t, max_output_values>{
+      start, run_offset, output, level_run, batch_len};
   }
 };
 
@@ -229,7 +241,7 @@ struct rle_stream {
 
   // fill in up to num_rle_stream_decode_warps runs or until we reach the max_count limit.
   // this function is the critical hotspot.  please be very careful altering it.
-  __device__ inline void fill_run_batch(int max_count)
+  __device__ void fill_run_batch(int max_count)
   {
     // if we spilled over, we've already got a run at the beginning
     next_batch_run_start = spill ? run_index - 1 : run_index;
@@ -245,11 +257,16 @@ struct rle_stream {
       // bytes for the varint header
       uint8_t const* _cur = cur;
       int const level_run = get_vlq32(_cur, end);
-      printf("level_run %i\n", level_run);
       int run_bytes       = _cur - cur;
+      #ifdef ABDEBUG
+      printf("run_index %i level_run %i end-cur %i run_bytes %i\n", run_index, level_run, (int)(end-cur), run_bytes);
+      #endif
 
       // literal run
       if (level_run & 1) {
+        #ifdef ABDEBUG
+        printf("literal run\n");
+        #endif
         int const run_size  = (level_run >> 1) * 8;
         run.size            = run_size;
         int const run_size8 = (run_size + 7) >> 3;
@@ -257,6 +274,9 @@ struct rle_stream {
       }
       // repeated value run
       else {
+        #ifdef ABDEBUG
+        printf("repeated run\n");
+        #endif
         run.size = (level_run >> 1);
         run_bytes++;
         // can this ever be > 16?  it effectively encodes nesting depth so that would require
@@ -268,6 +288,9 @@ struct rle_stream {
       run.level_run  = level_run;
       run.remaining  = run.size;
       cur += run_bytes;
+      #ifdef ABDEBUG
+      printf("run_bytes finished at %i\n", run_bytes);
+      #endif
 
       output_pos += run.size;
       run_count++;
@@ -277,6 +300,10 @@ struct rle_stream {
     // the above loop computes a batch of runs to be processed. mark down
     // the number of runs because the code after this point resets run_count
     // for the next batch. each batch is returned via get_next_batch().
+
+    #ifdef ABDEBUG
+    printf("run_count is %i", run_count);
+    #endif
     next_batch_run_count = run_count;
 
     // -------------------------------------
@@ -313,14 +340,16 @@ struct rle_stream {
     }
   }
 
-  __device__ inline int decode_next(int t, int count, int roll)
+  __device__ int decode_next(int t, int count, int roll)
   {
     int const output_count = 
       count < 0 ? 
         min(max_output_values, (total_values - cur_values)) : 
         count;
 
+    #ifdef ABDEBUG
     printf("decode_next i %i count %i roll %i\n", t, count, roll);
+    #endif
 
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
@@ -365,14 +394,21 @@ struct rle_stream {
         // definition levels take ~11ms - the difference is entirely due to long runs in the
         // definition levels.
         auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
+        #ifdef ABDEBUG
+        printf("trying run_start %i  run.start %" PRIu64 "\n", (int)run_start, (uint64_t)run.start);
+        #endif
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
         batch.decode(end, level_bits, warp_lane, warp_decode_id, roll);
+        #ifdef ABDEBUG
         printf("done with decode warp_lane %i\n", warp_lane);
+        #endif
       // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
+          #ifdef ABDEBUG
           printf("values_processed=%i\n",values_processed);
+          #endif
         }
       }
       __syncthreads();
@@ -383,11 +419,16 @@ struct rle_stream {
         thrust::tie(run_start, num_runs) = get_run_batch();
       }
       __syncthreads();
+      #ifdef ABDEBUG
+      printf("values_processed %i, output_count %i\n", values_processed, output_count);
+      #endif
     } while (num_runs > 0 && values_processed < output_count);
 
     cur_values += values_processed;
 
+    #ifdef ABDEBUG
     printf("returning values_processed %i\n", values_processed);
+    #endif
 
     // valid for every thread
     return values_processed;

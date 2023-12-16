@@ -40,10 +40,9 @@ cudf::io::table_with_metadata read_parquet(std::string const& file_path)
   return cudf::io::read_parquet(options);
 }
 
-void simple_int_column()
+void simple_int_column(int num_rows)
 {  
   std::string filepath("/home/abellina/table_with_dict.parquet");
-  constexpr auto num_rows = 128;
   auto valids = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return i % 2 == 0 ? 1 : 0; });
   auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return 1; });
   cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows, valids);
@@ -76,9 +75,13 @@ int main(int argc, char** argv)
   rmm::mr::set_current_device_resource(&mr);
 
   // Read data
-  //auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
-  simple_int_column();
-  auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
+  auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
+  int num_rows = 128;
+  if (argc > 1) {
+    num_rows = atoi(argv[1]);
+  }
+  //simple_int_column(num_rows);
+  //auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
 
   std::cout << "over here" << std::endl;
 

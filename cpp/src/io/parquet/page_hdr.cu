@@ -158,10 +158,10 @@ __device__ decode_kernel_mask kernel_mask_for_page(PageInfo const& page,
       (chunk.data_type & 7) != BYTE_ARRAY && 
       (chunk.data_type & 7) != BOOLEAN) {
     if (page.encoding == Encoding::PLAIN) {
-      printf("marking page as FIXED_WIDTH_NO_DICT\n");
+      printf("marking page as FIXED_WIDTH_NO_DICT %i\n", use_fixed_op);
       return decode_kernel_mask::FIXED_WIDTH_NO_DICT;
     } else if (use_fixed_op == 2 && page.encoding == Encoding::PLAIN_DICTIONARY) {
-      printf("marking page as FIXED_WIDTH_DICT\n");
+      printf("marking page as FIXED_WIDTH_DICT %i\n", use_fixed_op);
       return decode_kernel_mask::FIXED_WIDTH_DICT;
     }
   }
@@ -537,7 +537,7 @@ void __host__ DecodePageHeaders(ColumnChunkDesc* chunks,
   dim3 dim_block(128, 1);
   dim3 dim_grid((num_chunks + 3) >> 2, 1);  // 1 chunk per warp, 4 warps per block
   char * opt = std::getenv("USE_FIXED_OP");
-  int use_fixed_op = opt == nullptr ? 0 : (opt[0] == '1' ? 1 : 2);
+  int use_fixed_op = (opt == nullptr || opt[0] == '0') ? 0 : (opt[0] == '1' ? 1 : 2);
   gpuDecodePageHeaders<<<dim_grid, dim_block, 0, stream.value()>>>(
     chunks, num_chunks, error_code, use_fixed_op);
 }

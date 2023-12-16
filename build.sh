@@ -142,6 +142,7 @@ function buildLibCudfJniInDocker {
                 -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
                 -DCMAKE_CXX_LINKER_LAUNCHER=ccache \
                 -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+                -DCUDA_ENABLE_LINEINFO=${CUDA_ENABLE_LINEINFO} \
                 -DCUDA_STATIC_RUNTIME=ON \
                 -DCMAKE_CUDA_ARCHITECTURES=${CUDF_CMAKE_CUDA_ARCHITECTURES} \
                 -DCMAKE_INSTALL_PREFIX=/usr/local/rapids \
@@ -195,6 +196,7 @@ if hasArg -v; then
 fi
 if hasArg -g; then
     BUILD_TYPE=Debug
+    CUDA_ENABLE_LINEINFO=1
 fi
 if hasArg -n; then
     INSTALL_TARGET=""
@@ -288,6 +290,7 @@ if buildAll || hasArg libcudf; then
           -DDISABLE_DEPRECATION_WARNINGS=${BUILD_DISABLE_DEPRECATION_WARNINGS} \
           -DCUDF_USE_PER_THREAD_DEFAULT_STREAM=${BUILD_PER_THREAD_DEFAULT_STREAM} \
           -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+	  -DCUDA_ENABLE_LINEINFO=${CUDA_ENABLE_LINEINFO} \
           ${EXTRA_CMAKE_ARGS}
 
     cd ${LIB_BUILD_DIR}

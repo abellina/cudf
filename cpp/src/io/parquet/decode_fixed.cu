@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define ABDEBUG 1
+//#define ABDEBUG 0
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
 #include "page_decode.cuh"
@@ -187,6 +187,11 @@ __device__ inline void gpuDecodeValues(
     int const src_pos    = pos + t;
 
     // the position in the output column/buffer
+    auto nz_idx = sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)];
+    #ifdef ABDEBUG
+    printf("t %i src_pos %i nz_buf_size %i nz_idx %i \n", 
+      (int) t, (int)src_pos, (int)state_buf::nz_buf_size, nz_idx);
+    #endif
     int dst_pos = sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)] - s->first_row;
     
     // target_pos will always be properly bounded by num_rows, but dst_pos may be negative (values
@@ -374,7 +379,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16) page_state_buffers_s<rolling_buf_size,  // size of nz_idx buffer
-                                                1,                 // unused in this kernel
+                                                rolling_buf_size,  // unused in this kernel
                                                 1>                 // unused in this kernel
     state_buffers;
 
@@ -446,6 +451,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   int iter = 0;
   #endif
   while (processed < s->page.num_input_values) {
+    #ifdef ABDEBUG
+    printf("processed %i, num_input_values %i\n", processed, s->page.num_input_values);
+    #endif
     int next_valid;
 
     // only need to process definition levels if this is a nullable column
@@ -481,12 +489,16 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
 
     // abellina: this_valid == next_valid??
     //printf("dict decoder decode_next %i next_valid %i valid %i \n", (int)t, next_valid, valid);
-    dict_stream.decode_next(t, next_valid, valid);
-    __syncthreads();
-
+    if (processed < 256) {
+      dict_stream.decode_next(t, next_valid, valid);
+      __syncthreads();
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t);
     __syncthreads();
+    }
+    
+
+    
 
     processed += this_processed;
     valid += next_valid;
