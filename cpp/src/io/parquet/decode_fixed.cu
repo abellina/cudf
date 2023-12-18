@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-//#define ABDEBUG 0
+#define ABDEBUG 1
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
 #include "page_decode.cuh"
@@ -180,6 +180,7 @@ __device__ inline void gpuDecodeValues(
 
   // decode values
   int pos = start;
+  //printf("gpuDecodeValues start %i end %i\n", start, end);
   while (pos < end) {
     int const batch_size = min(max_batch_size, end - pos);
 
@@ -188,17 +189,17 @@ __device__ inline void gpuDecodeValues(
 
     // the position in the output column/buffer
     auto nz_idx = sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)];
-    #ifdef ABDEBUG
-    printf("t %i src_pos %i nz_buf_size %i nz_idx %i \n", 
-      (int) t, (int)src_pos, (int)state_buf::nz_buf_size, nz_idx);
-    #endif
     int dst_pos = sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)] - s->first_row;
+    #ifdef ABDEBUG
+    //printf("t %i src_pos %i nz_buf_size %i nz_idx %i dst_pos %i target_pos %i\n", 
+    //  (int) t, (int)src_pos, (int)state_buf::nz_buf_size, nz_idx, dst_pos, target_pos);
+    #endif
     
     // target_pos will always be properly bounded by num_rows, but dst_pos may be negative (values
     // before first_row) in the flat hierarchy case.
     if (src_pos < target_pos && dst_pos >= 0) {
       #ifdef ABDEBUG
-      printf("t %i src_pos %i dst_pos %i target_pos %i \n", (int) t, (int)src_pos, (int)dst_pos, (int)target_pos);
+      //printf("t %i src_pos %i dst_pos %i target_pos %i \n", (int) t, (int)src_pos, (int)dst_pos, (int)target_pos);
       #endif
       // nesting level that is storing actual leaf values
       int leaf_level_index = s->col.max_nesting_depth - 1;
@@ -254,13 +255,6 @@ __device__ inline void gpuDecodeValues(
       } else {
         gpuOutputGeneric(s, sb, src_pos, static_cast<uint8_t*>(dst), dtype_len);
       }
-      #ifdef ABDEBUG
-      printf("DONE t %i src_pos %i dst_pos %i target_pos %i \n", (int) t, (int)src_pos, (int)dst_pos, (int)target_pos);
-      #endif
-    } else {
-      #ifdef ABDEBUG
-      printf("else t %i src_pos %i dst_pos %i targe_pos %i \n", (int) t, (int)src_pos, (int)dst_pos, (int)target_pos);
-      #endif
     }
 
     pos += batch_size;
@@ -297,13 +291,38 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   PageInfo* pp          = &pages[page_idx];
 
   if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT))) { return; }
+
+  if (t == 0) {
+    printf(
+      "nodict page info: \n\tpage_idx: %i \n\tcompressed_page_size: %i \n\tuncompressed_page_size: %i \n\tnum_input_values: %i \n\tchunk_row: %i "
+      "\n\tnum_rows: %i \n\tnum_nulls: %i \n\tnum_valids: %i \n\tstart_val: %i \n\tend_val: %i \n\tchunk_idx: %i \n\tsrc_col_schema: %i "
+      "\n\tencoding: %i \n\tdef_level_encoding: %i \n\trep_level_encoding: %i \n\tkernel_mask: %#08X\n",
+      page_idx,
+      pp->compressed_page_size,
+      pp->uncompressed_page_size,
+      pp->num_input_values,
+      pp->chunk_row,
+      pp->num_rows,
+      pp->num_nulls,
+      pp->num_valids,
+      pp->start_val,
+      pp->end_val,
+      pp->chunk_idx,
+      pp->src_col_schema,
+      (int)pp->encoding,
+      (int)pp->definition_level_encoding,
+      (int)pp->repetition_level_encoding,
+      (int)pp->kernel_mask);
+  }
   // TODO: abellina all_types_filter???
-  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, true)) { return; }
+  //if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, true)) { return; }
+  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, mask_filter{decode_kernel_mask::FIXED_WIDTH_NO_DICT}, true)) { return; }
 
   // must come after the kernel mask check
   [[maybe_unused]] null_count_back_copier _{s, t};
 
   // the level stream decoders
+  int const max_batch_size = rolling_buf_size;
   __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
   rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
@@ -327,7 +346,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   }
 
   // initialize the stream decoders (requires values computed in setupLocalPageInfo)
-  int const max_batch_size = rolling_buf_size;
+  
   level_t* def             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::DEFINITION]);
   if (nullable) {
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
@@ -375,7 +394,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
 
 template <typename level_t>
 __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
-  PageInfo* pages, device_span<ColumnChunkDesc const> chunks, size_t min_row, size_t num_rows)
+  PageInfo* pages, 
+  device_span<ColumnChunkDesc const> chunks, 
+  size_t min_row, 
+  size_t num_rows)
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16) page_state_buffers_s<rolling_buf_size,  // size of nz_idx buffer
@@ -389,9 +411,33 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
-  if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT))) { return; }
+  //if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT))) { return; }
+
   // TODO: abellina all_types_filter???
-  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, true)) { return; }
+  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, true)) { return; }
+
+  if (t == 0) {
+    printf(
+      "page info: \n\tpage_idx: %i \n\tcompressed_page_size: %i \n\tuncompressed_page_size: %i \n\tnum_input_values: %i \n\tchunk_row: %i "
+      "\n\tnum_rows: %i \n\tnum_nulls: %i \n\tnum_valids: %i \n\tstart_val: %i \n\tend_val: %i \n\tchunk_idx: %i \n\tsrc_col_schema: %i "
+      "\n\tencoding: %i \n\tdef_level_encoding: %i \n\trep_level_encoding: %i \n\tkernel_mask: %#08X\n",
+      page_idx,
+      pp->compressed_page_size,
+      pp->uncompressed_page_size,
+      pp->num_input_values,
+      pp->chunk_row,
+      pp->num_rows,
+      pp->num_nulls,
+      pp->num_valids,
+      pp->start_val,
+      pp->end_val,
+      pp->chunk_idx,
+      pp->src_col_schema,
+      (int)pp->encoding,
+      (int)pp->definition_level_encoding,
+      (int)pp->repetition_level_encoding,
+      (int)pp->kernel_mask);
+  }
 
   // must come after the kernel mask check
   [[maybe_unused]] null_count_back_copier _{s, t};
@@ -399,6 +445,11 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // the level stream decoders
   __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
   rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
+
+  // should the size be 1/2 (128?)
+  int const max_batch_size = rolling_buf_size;
+  __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[max_batch_size];
+  rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
 
   bool const has_repetition = false;
   bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
@@ -420,7 +471,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   }
 
   // initialize the stream decoders (requires values computed in setupLocalPageInfo)
-  int const max_batch_size = rolling_buf_size;
   level_t* def             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::DEFINITION]);
   if (nullable) {
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
@@ -430,44 +480,30 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
                      s->page.num_input_values);
   }
   __syncthreads();
+  
 
-
-// should the size be 1/2 (128?)
-  __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[max_batch_size];
-  rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream { dict_runs };
   dict_stream.init(s->dict_bits,
                    s->data_start,
                    s->data_end,
                    sb->dict_idx,
                    s->page.num_input_values);
   __syncthreads();
-  //printf("DONE init dict decoder %i\n", (int)t);
 
   // the core loop. decode batches of level stream data using rle_stream objects
   // and pass the results to gpuUpdatePageSizes
   int processed = 0;
-  int valid     = 0;
+  [[maybe_unused]] int valid     = 0;
   #ifdef ABDEBUG
   int iter = 0;
   #endif
   while (processed < s->page.num_input_values) {
-    #ifdef ABDEBUG
-    printf("processed %i, num_input_values %i\n", processed, s->page.num_input_values);
-    #endif
     int next_valid;
 
     // only need to process definition levels if this is a nullable column
     int this_processed;
     if (nullable) {
       //-1 don't cap it
-
-      #ifdef ABDEBUG
-      printf("t: %i loop iter %i processed %i \n", t, iter, processed);
-      #endif
-      this_processed = def_decoder.decode_next(t, -1, processed);
-      #ifdef ABDEBUG
-      printf("t: %i loop iter %i processed %i this_processed %i \n", t, iter++, processed, this_processed);
-      #endif
+      this_processed = def_decoder.decode_next(t, -1, processed, 1);
       __syncthreads();
 
       // count of valid items in this batch
@@ -483,25 +519,26 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-    #ifdef ABDEBUG
-    printf("t: %i next_valid is %i\n", (int)t, (int)next_valid);
-    #endif
 
-    // abellina: this_valid == next_valid??
-    //printf("dict decoder decode_next %i next_valid %i valid %i \n", (int)t, next_valid, valid);
-    if (processed < 256) {
-      dict_stream.decode_next(t, next_valid, valid);
-      __syncthreads();
+    dict_stream.decode_next(t, next_valid, valid, 1);
+    __syncthreads();
+
+    #ifdef ABDEBUG
+    if (t==0) {
+      //printf("t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", (int)t, iter, valid, (int)next_valid, processed, this_processed);
+      //for (int i = 0; i < this_processed; ++i) {
+      //  printf("\tt: %i iter %i i: %i def[i]=%i dict[i]=%i \n", t, iter, i, (int) def[i], (int) sb->dict_idx[i]);
+      //}
+    }
+    #endif
+    iter++;
+
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t);
     __syncthreads();
-    }
-    
-
-    
 
     processed += this_processed;
-    valid += next_valid;
+    valid = next_valid;
   }
 }
 

@@ -20,6 +20,7 @@
 #include <cudf/table/table.hpp>
 #include <cudf/detail/iterator.cuh>
 #include <cudf_test/column_wrapper.hpp>
+#include <cudf_test/debug_utilities.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
@@ -43,18 +44,17 @@ cudf::io::table_with_metadata read_parquet(std::string const& file_path)
 void simple_int_column(int num_rows)
 {  
   std::string filepath("/home/abellina/table_with_dict.parquet");
-  auto valids = cudf::detail::make_counting_transform_iterator(0, [](auto i) { return i % 2 == 0 ? 1 : 0; });
-  auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return 1; });
+  auto valids = cudf::detail::make_counting_transform_iterator(
+    0, [](auto i) { return i % 2 == 0 ? 1 : 0; });
+  auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 10; });
   cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows, valids);
+  //cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows);
   auto tbl = cudf::table_view{{col1}}; 
   
   cudf::io::parquet_writer_options out_opts =
     cudf::io::parquet_writer_options::builder(cudf::io::sink_info{filepath}, tbl)    
     .dictionary_policy(cudf::io::dictionary_policy::ALWAYS);
   cudf::io::write_parquet(out_opts);
-
-  cudf::io::parquet_reader_options in_opts = cudf::io::parquet_reader_options::builder(cudf::io::source_info{filepath});
-  auto result = cudf::io::read_parquet(in_opts);
 }
 
 int main(int argc, char** argv)
@@ -75,16 +75,16 @@ int main(int argc, char** argv)
   rmm::mr::set_current_device_resource(&mr);
 
   // Read data
-  auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
-  int num_rows = 128;
+  //auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
+  [[maybe_unused]] int num_rows = 128;
   if (argc > 1) {
     num_rows = atoi(argv[1]);
   }
-  //simple_int_column(num_rows);
-  //auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
+  simple_int_column(num_rows);
+  //std::cout << "you are not writing file.. dude" << std::endl;
+  auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
 
-  std::cout << "over here" << std::endl;
-
+  std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
 
   return 0;
 }
