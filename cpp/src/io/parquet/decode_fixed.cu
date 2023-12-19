@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-//#define ABDEBUG 1
+#define ABDEBUG 1
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
 #include "page_decode.cuh"
@@ -69,15 +69,20 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
   int const row_index_lower_bound = s->row_index_lower_bound;
 
   __syncthreads();
+  
   while (value_count < target_value_count) {
     int const batch_size = min(max_batch_size, target_value_count - value_count);
 
     // definition level. only need to process for nullable columns
-    int d;
+    int d = 0;
     if constexpr (nullable) {
       d = t < batch_size
             ? static_cast<int>(def[rolling_index<state_buf::nz_buf_size>(value_count + t)])
             : -1;
+    }
+    if (t == 0) {
+    printf("gpuUpdateValidFlat d %i value_count %i target_value_count %i valid_count %i\n",
+      d, value_count, target_value_count, valid_count);
     }
 
     int const thread_value_count = t + 1;
@@ -146,7 +151,7 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
       int const src_pos = (valid_count + thread_valid_count) - 1;
       auto ix = rolling_index<state_buf::nz_buf_size>(src_pos);
       #ifdef ABDEBUG
-      printf("nz_idx... rolling_index %i src_pos %i dst_pos %i\n", ix, src_pos, dst_pos);
+      //printf("nz_idx... rolling_index %i src_pos %i dst_pos %i\n", ix, src_pos, dst_pos);
       #endif
       sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)] = dst_pos;
     }
@@ -507,6 +512,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     // only need to process definition levels if this is a nullable column
     int this_processed;
     if (nullable) {
+      if (t == 0) {
+        printf("nullable iter %i\n", iter);
+      }
       //-1 don't cap it
       this_processed = def_decoder.decode_next(t, -1, processed, 0);
       __syncthreads();
@@ -519,14 +527,11 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     // this function call entirely since all it will ever generate is a mapping of (i -> i) for
     // nz_idx.  gpuDecodeValues would be the only work that happens.
     else {
+      printf("non nullable iter %i\n", iter);
       this_processed = min(max_batch_size, s->page.num_input_values - processed);
       next_valid     = gpuUpdateValidityOffsetsAndRowIndicesFlat<false, level_t>(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
-    __syncthreads();
-
-    //dict_stream.decode_next(t, this_processed, valid, 1);
-    dict_stream.decode_next(t, next_valid -valid, valid, 1);
     __syncthreads();
 
     #ifdef ABDEBUG
@@ -535,9 +540,12 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
       for (int i = 0; i < this_processed; ++i) {
         printf("\tt: %i iter %i i: %i def[i]=%i dict[i]=%i \n", t, iter, i, (int) def[i], (int) sb->dict_idx[i]);
       }
+      iter++;
     }
-    iter++;
     #endif
+    dict_stream.decode_next(t, next_valid -valid, valid, 1);
+    __syncthreads();
+
 
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t);
@@ -589,6 +597,7 @@ void __host__ DecodePageDataFixedDict(
       <<<dim_grid, dim_block, 0, stream.value()>>>(
         pages.device_ptr(), chunks, min_row, num_rows);
   }
+  cudaDeviceSynchronize();
 }
 
 }  // namespace cudf::io::parquet::detail

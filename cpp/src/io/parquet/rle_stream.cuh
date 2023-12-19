@@ -130,7 +130,7 @@ struct rle_batch {
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         int ix = rolling_index<max_output_values>(lane + output_pos + roll);
         #ifdef ABDEBUG
-        printf("dict? %i output[%i]=%i remain %i\n", print_it, ix, level_val, remain);
+        //printf("dict? %i output[%i]=%i remain %i\n", print_it, ix, level_val, remain);
         #endif
         output[rolling_index<max_output_values>(lane + output_pos + roll)] = level_val;
       }
@@ -262,15 +262,16 @@ struct rle_stream {
         int const run_size  = (level_run >> 1) * 8;
         run.size            = run_size; //valid count // print this
         #ifdef ABDEBUG
-        printf("literal dict? %i run: idx %i, output_pos %i, max_count: %i size %i start %" PRIu64 " cur: %" PRIu64 " end: %" PRIu64 "\n", 
-          print_it,
-          run_index,
-          output_pos,
-          max_count,
-          run.size,
-          (uint64_t)start, 
-          (uint64_t)cur, 
-          (uint64_t)end);
+        //printf("literal dict? %i level_bits %i run: idx %i, output_pos %i, max_count: %i size %i start %" PRIu64 " cur: %" PRIu64 " end: %" PRIu64 "\n", 
+        //  print_it,
+        //  level_bits,
+        //  run_index,
+        //  output_pos,
+        //  max_count,
+        //  run.size,
+        //  (uint64_t)start, 
+        //  (uint64_t)cur, 
+        //  (uint64_t)end);
         #endif
 
         int const run_size8 = (run_size + 7) >> 3;
@@ -281,15 +282,16 @@ struct rle_stream {
         run.size = (level_run >> 1);
         run_bytes++;
         #ifdef ABDEBUG
-        printf("repeated dict? %i run: idx %i, outpot_pos: %i max_count: %i size %i start %" PRIu64 " cur: %" PRIu64 " end: %" PRIu64 "\n", 
-        print_it,
-        run_index,
-        output_pos,
-        max_count,
-        run.size,
-        (uint64_t)start, 
-        (uint64_t)cur, 
-        (uint64_t)end);
+        //printf("repeated dict? %i level_bits %i run: idx %i, outpot_pos: %i max_count: %i size %i start %" PRIu64 " cur: %" PRIu64 " end: %" PRIu64 "\n", 
+        //print_it,
+        //level_bits,
+        //run_index,
+        //output_pos,
+        //max_count,
+        //run.size,
+        //(uint64_t)start, 
+        //(uint64_t)cur, 
+        //(uint64_t)end);
         #endif
         // can this ever be > 16?  it effectively encodes nesting depth so that would require
         // a nesting depth > 64k.
@@ -341,8 +343,8 @@ struct rle_stream {
       // no actual spill needed. just reset the output pos
       else {
         #ifdef ABDEBUG
-        printf("NOT spilling dict? %i run idx: %i output_pos: %i max_count: %i \n", 
-        print_it, run_index-1, output_pos, max_count);
+        //printf("NOT spilling dict? %i run idx: %i output_pos: %i max_count: %i \n", 
+        //print_it, run_index-1, output_pos, max_count);
         #endif
         output_pos = 0;
         run_count  = 0;
@@ -364,8 +366,8 @@ struct rle_stream {
 
     #ifdef ABDEBUG
     if (t == 0) {
-      printf("at decode_next for dict? %i, t %i  count %i roll %i output_count %i\n", 
-      print_it, t, count, roll, output_count);
+      //printf("at decode_next for dict? %i, t %i  count %i roll %i output_count %i level_bits %i\n", 
+      //print_it, t, count, roll, output_count, level_bits);
     }
     #endif
 
@@ -415,12 +417,12 @@ struct rle_stream {
         // definition levels.
         auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
         #ifdef ABDEBUG
-        if (warp_decode_id == 1) {
-        printf("run dict? %i wap_decode_id: %i remaining %i output_count %i run.output_pos %i max_size %i\n", 
-          print_it,
-          warp_decode_id,
-            run.remaining, output_count, run.output_pos, min(run.remaining, (output_count - run.output_pos)));
-        }
+        //if (warp_decode_id == 1) {
+        //printf("run dict? %i wap_decode_id: %i remaining %i output_count %i run.output_pos %i max_size %i\n", 
+        //  print_it,
+        //  warp_decode_id,
+        //    run.remaining, output_count, run.output_pos, min(run.remaining, (output_count - run.output_pos)));
+        //}
         #endif
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)), print_it);
