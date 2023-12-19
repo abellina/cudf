@@ -99,9 +99,6 @@ struct rle_batch {
     if (!(level_run & 1)) {
       level_val = run_start[0];
       if (level_bits > 8) { level_val |= run_start[1] << 8; }
-      if (print_it) {
-        //printf("repeated run level_val %i\n", level_val);
-      }
     }
 
     // process
@@ -132,9 +129,11 @@ struct rle_batch {
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         int ix = rolling_index<max_output_values>(lane + output_pos + roll);
+        #ifdef ABDEBUG
         if (print_it) {
            printf("output[%i]=%i remain %i\n", ix, level_val, remain);
         }
+        #endif
         output[rolling_index<max_output_values>(lane + output_pos + roll)] = level_val;
       }
       remain -= batch_len;
@@ -231,7 +230,7 @@ struct rle_stream {
 
   // fill in up to num_rle_stream_decode_warps runs or until we reach the max_count limit.
   // this function is the critical hotspot.  please be very careful altering it.
-  __device__ void fill_run_batch(int max_count)
+  __device__ void fill_run_batch(int max_count, int print_it)
   {
     // if we spilled over, we've already got a run at the beginning
     next_batch_run_start = spill ? run_index - 1 : run_index;
@@ -239,6 +238,17 @@ struct rle_stream {
 
     // generate runs until we either run out of warps to decode them with, or
     // we cross the output limit.
+    #ifdef ABDEBUG
+    printf("before while run_index %i dict? %i run_count %i num_rle_stream_decode_warps %i "
+           "output_pos %i max_count %i cur < end %i\n", 
+      run_index,
+      print_it,
+      run_count,
+      num_rle_stream_decode_warps,
+      output_pos,
+      max_count,
+      cur < end ? 1 : 0);
+    #endif
     while (run_count < num_rle_stream_decode_warps && output_pos < max_count && cur < end) {
       auto& run = runs[rolling_index<run_buffer_size>(run_index)];
 
@@ -252,7 +262,19 @@ struct rle_stream {
       // literal run
       if (level_run & 1) {
         int const run_size  = (level_run >> 1) * 8;
-        run.size            = run_size;
+        run.size            = run_size; //valid count // print this
+        #ifdef ABDEBUG
+        printf("literal dict? %i run: idx %i, output_pos %i, max_count: %i size %i start %" PRIu64 " cur: %" PRIu64 " end: %" PRIu64 "\n", 
+          print_it,
+          run_index,
+          output_pos,
+          max_count,
+          run.size,
+          (uint64_t)start, 
+          (uint64_t)cur, 
+          (uint64_t)end);
+        #endif
+
         int const run_size8 = (run_size + 7) >> 3;
         run_bytes += run_size8 * level_bits;
       }
@@ -260,6 +282,17 @@ struct rle_stream {
       else {
         run.size = (level_run >> 1);
         run_bytes++;
+        #ifdef ABDEBUG
+        printf("repeated dict? %i run: idx %i, outpot_pos: %i max_count: %i size %i start %" PRIu64 " cur: %" PRIu64 " end: %" PRIu64 "\n", 
+        print_it,
+        run_index,
+        output_pos,
+        max_count,
+        run.size,
+        (uint64_t)start, 
+        (uint64_t)cur, 
+        (uint64_t)end);
+        #endif
         // can this ever be > 16?  it effectively encodes nesting depth so that would require
         // a nesting depth > 64k.
         if (level_bits > 8) { run_bytes++; }
@@ -293,6 +326,10 @@ struct rle_stream {
       // a spill has occurred in the current run. spill the extra values over into the beginning of
       // the next run.
       if (spill_count > 0) {
+        #ifdef ABDEBUG
+        printf("spilling dict? %i run idx: %i output_pos: %i max_count: %i \n", 
+        print_it, run_index-1, output_pos, max_count);
+        #endif
         auto& spill_run      = runs[rolling_index<run_buffer_size>(run_index)];
         spill_run            = src;
         spill_run.output_pos = 0;
@@ -305,6 +342,10 @@ struct rle_stream {
       }
       // no actual spill needed. just reset the output pos
       else {
+        #ifdef ABDEBUG
+        printf("NOT spilling dict? %i run idx: %i output_pos: %i max_count: %i \n", 
+        print_it, run_index-1, output_pos, max_count);
+        #endif
         output_pos = 0;
         run_count  = 0;
       }
@@ -317,11 +358,18 @@ struct rle_stream {
 
   __device__ int decode_next(int t, int count, int roll, int print_it)
   {
+    
     int const output_count = 
       count < 0 ? 
         min(max_output_values, (total_values - cur_values)) : 
         count;
 
+    #ifdef ABDEBUG
+    if (t == 0) {
+      printf("at decode_next for dict? %i, t %i  count %i roll %i output_count %i\n", 
+      print_it, t, count, roll, output_count);
+    }
+    #endif
 
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
@@ -358,7 +406,7 @@ struct rle_stream {
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
         // kernel that uses an rle_stream.
-        if (warp_lane == 0) { fill_run_batch(output_count); }
+        if (warp_lane == 0) { fill_run_batch(output_count, print_it); }
       }
       // remaining warps decode the runs
       else if (warp_decode_id < num_runs) {
@@ -368,10 +416,14 @@ struct rle_stream {
         // definition levels take ~11ms - the difference is entirely due to long runs in the
         // definition levels.
         auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
-        //if (print_it) {
-        //  printf("run.remaining %i output_count %i run.output_pos %i max_size %i\n", 
-        //    run.remaining, output_count, run.output_pos, min(run.remaining, (output_count - run.output_pos)));
-        //}
+        #ifdef ABDEBUG
+        if (warp_decode_id == 1) {
+        printf("run dict? %i wap_decode_id: %i remaining %i output_count %i run.output_pos %i max_size %i\n", 
+          print_it,
+          warp_decode_id,
+            run.remaining, output_count, run.output_pos, min(run.remaining, (output_count - run.output_pos)));
+        }
+        #endif
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)), print_it);
         batch.decode(end, level_bits, warp_lane, warp_decode_id, roll, print_it);
