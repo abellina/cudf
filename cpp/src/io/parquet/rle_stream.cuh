@@ -130,9 +130,7 @@ struct rle_batch {
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         int ix = rolling_index<max_output_values>(lane + output_pos + roll);
         #ifdef ABDEBUG
-        if (print_it) {
-           printf("output[%i]=%i remain %i\n", ix, level_val, remain);
-        }
+        printf("dict? %i output[%i]=%i remain %i\n", print_it, ix, level_val, remain);
         #endif
         output[rolling_index<max_output_values>(lane + output_pos + roll)] = level_val;
       }

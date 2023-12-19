@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifdef ABDEBUG 1
+//#define ABDEBUG 1
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
 #include "page_decode.cuh"
@@ -525,15 +525,16 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     }
     __syncthreads();
 
-    dict_stream.decode_next(t, this_processed, valid, 1);
+    //dict_stream.decode_next(t, this_processed, valid, 1);
+    dict_stream.decode_next(t, next_valid -valid, valid, 1);
     __syncthreads();
 
     #ifdef ABDEBUG
     if (t==0) {
-      //printf("t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", (int)t, iter, valid, (int)next_valid, processed, this_processed);
-      //for (int i = 0; i < this_processed; ++i) {
-      //  printf("\tt: %i iter %i i: %i def[i]=%i dict[i]=%i \n", t, iter, i, (int) def[i], (int) sb->dict_idx[i]);
-      //}
+      printf("t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", (int)t, iter, valid, (int)next_valid, processed, this_processed);
+      for (int i = 0; i < this_processed; ++i) {
+        printf("\tt: %i iter %i i: %i def[i]=%i dict[i]=%i \n", t, iter, i, (int) def[i], (int) sb->dict_idx[i]);
+      }
     }
     iter++;
     #endif
