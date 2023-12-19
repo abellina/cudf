@@ -321,7 +321,11 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
 
   // TODO: abellina all_types_filter???
   //if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, true)) { return; }
-  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, mask_filter{decode_kernel_mask::FIXED_WIDTH_NO_DICT}, true)) { return; }
+  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, 
+    mask_filter{decode_kernel_mask::FIXED_WIDTH_NO_DICT}, 
+    page_processing_stage::DECODE)) { 
+      return; 
+  }
 
   // must come after the kernel mask check
   [[maybe_unused]] null_count_back_copier _{s, t};
@@ -420,7 +424,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT))) { return; }
 
   // TODO: abellina all_types_filter???
-  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, true)) { return; }
+  if (!setupLocalPageInfo(
+    s, pp, chunks, min_row, num_rows, 
+    mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
+    page_processing_stage::DECODE)) { return; }
 
   #ifdef ABDEBUG
   if (t == 0) {
