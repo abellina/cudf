@@ -414,7 +414,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
-  //if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT))) { return; }
+  if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT))) { return; }
 
   // TODO: abellina all_types_filter???
   if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, true)) { return; }

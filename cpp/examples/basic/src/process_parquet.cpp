@@ -75,16 +75,17 @@ int main(int argc, char** argv)
   rmm::mr::set_current_device_resource(&mr);
 
   // Read data
-  //auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
+  auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
   [[maybe_unused]] int num_rows = 128;
   if (argc > 1) {
     num_rows = atoi(argv[1]);
   }
-  simple_int_column(num_rows);
+  //simple_int_column(num_rows);
   //std::cout << "you are not writing file.. dude" << std::endl;
-  auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
+  //auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
 
-  std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
+  //std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
+  std::cout << "done" << std::endl;
 
   return 0;
 }

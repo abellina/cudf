@@ -152,7 +152,6 @@ __device__ decode_kernel_mask kernel_mask_for_page(PageInfo const& page,
                                                    int use_fixed_op)
 {
   if (page.flags & PAGEINFO_FLAGS_DICTIONARY) { return decode_kernel_mask::NONE; }
-  return decode_kernel_mask::FIXED_WIDTH_DICT;
   // TODO: abellina
   if (use_fixed_op != 0 && 
       chunk.max_nesting_depth == 1 &&
