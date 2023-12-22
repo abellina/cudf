@@ -46,7 +46,7 @@ void simple_int_column(int num_rows)
 {  
   std::string filepath("/home/abellina/table_with_dict.parquet");
   auto valids = cudf::detail::make_counting_transform_iterator(
-    0, [](auto i) { return i == 123 ? 0 : 1; });
+    0, [](auto i) { return i == 123 || i == 555 ? 0 : 1; });
   //  0, [](auto i) { return 1; });
   //  0, [](auto i) { return i == 123 || i == 777 ? 0 : 1; });
   auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 10; });

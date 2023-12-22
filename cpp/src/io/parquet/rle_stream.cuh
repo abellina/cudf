@@ -104,9 +104,11 @@ struct rle_batch {
     if (!(level_run & 1)) {
       level_val = run_start[0];
       if (level_bits > 8) { level_val |= run_start[1] << 8; }
+      #ifdef ABDEBUG
       if (print_it == 0 && lane == 0) {
         printf("is repeated run, level_val is %i\n", level_val);
       }
+      #endif
     }
 
     // process
@@ -132,10 +134,13 @@ struct rle_batch {
         }
 
         cur += batch_len8 * level_bits;
+        #ifdef ABDEBUG
         if (print_it == 0 && lane == 0) {
           printf("is literal run, level_val is %i\n", level_val);
         }
+        #endif
       }
+      #ifdef ABDEBUG
       if (other_run != nullptr && lane== 0) {
         for (int i = 0; i < 6; i++){ 
           printf("before_store other run rix %i level_run %i\n", 
@@ -143,11 +148,12 @@ struct rle_batch {
             (int)(other_run[i].level_run));
         }
       }
+      #endif
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        int ix = rolling_index<max_output_values>(offset + lane + output_pos + roll);
         #ifdef ABDEBUG
+        int ix = rolling_index<max_output_values>(offset + lane + output_pos + roll);
         printf("dict? %i addr %" PRIu64 " output[%i]=%i remain %i original %i\n", 
         print_it, 
         output + ix,
@@ -158,6 +164,7 @@ struct rle_batch {
         #endif
         output[rolling_index<max_output_values>(offset + lane + output_pos + roll)] = level_val;
       }
+      #ifdef ABDEBUG
       if (other_run != nullptr && lane == 0) {
         for (int i = 0; i < 6; i++){ 
           printf("after_store other run rix %i level_run %i\n", 
@@ -165,6 +172,7 @@ struct rle_batch {
             (int)(other_run[i].level_run));
         }
       }
+      #endif
       remain -= batch_len;
       output_pos += batch_len;
     }
@@ -187,8 +195,10 @@ struct rle_run {
     int const run_offset = size - remaining;
     remaining -= batch_len;
     //  // TODO: batch_len is weird. 58, 116, 174, 232, 98, 192, 348 and then 80... ??
+    #ifdef ABDEBUG
     printf("dict? %i next_batch run_offset %i remaining %i batch_len %i max_size %i output %" PRIu64 " offset %i\n", 
       print_it, run_offset, remaining, batch_len, max_size, output, offset);
+    #endif
     return rle_batch<level_t, max_output_values>{
       start, run_offset, output, offset, level_run, batch_len};
   }
@@ -261,9 +271,11 @@ struct rle_stream {
   // this function is the critical hotspot.  please be very careful altering it.
   __device__ void fill_run_batch(int max_count, int print_it)
   {
+    #ifdef ABDEBUG
     for (int i = 0; i < 6; i++){ 
       printf("dict? %i rix %i level_run %i\n", print_it, i, runs[i].level_run);
     }
+    #endif
     // if we spilled over, we've already got a run at the beginning
     next_batch_run_start = spill ? run_index - 1 : run_index;
     spill                = false;
@@ -271,7 +283,6 @@ struct rle_stream {
     // generate runs until we either run out of warps to decode them with, or
     // we cross the output limit.
     #ifdef ABDEBUG
-    
     int ri = rolling_index<run_buffer_size>(run_index);
     auto& run = runs[rolling_index<run_buffer_size>(run_index)];
     printf("before while run_index %i rolling_index %i level_run %i dict? %i run_count %i num_rle_stream_decode_warps %i "
@@ -344,8 +355,10 @@ struct rle_stream {
       run.output_pos = output_pos;
       run.start      = _cur;
       run.level_run  = level_run;
+      #ifdef ABDEBUG    
       printf("run_index: %i ri: %i run.level_run is %i output_pos %i run.size %i\n", 
         run_index, ri, run.level_run, output_pos, run.size);
+      #endif
       run.remaining  = run.size;
       cur += run_bytes;
 
@@ -372,8 +385,10 @@ struct rle_stream {
       auto const& src       = runs[rolling_index<run_buffer_size>(run_index - 1)];
       auto const& spillx = runs[rolling_index<run_buffer_size>(run_index)];
       int const spill_count = output_pos - max_count;
+      #ifdef ABDEBUG    
       printf("will spill did_loop %i dict? %i to_spill ri %i spilling to ri %i, spill_count? %i src.level_run %i spill.level_run %i\n", 
         did_loop, print_it, ri_to_spill, ri_spilling_to, spill_count, src.level_run, spillx.level_run);
+      #endif
 
       // a spill has occurred in the current run. spill the extra values over into the beginning of
       // the next run.
@@ -456,7 +471,6 @@ struct rle_stream {
     __syncthreads();
 
     do {
-      printf("warp_decode_id %i num_runs %i\n", warp_decode_id, num_runs);
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
@@ -485,6 +499,8 @@ struct rle_stream {
         // for the dictionary stream is bogus
         auto batch = run.next_batch(output, run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)), print_it);
+
+        #ifdef ABDEBUG
         if (warp_lane == 0) {
           for (int i = 0; i < 6; i++){ 
             printf("before_decode  dict? %i rix %i level_run %i\n", 
@@ -497,9 +513,13 @@ struct rle_stream {
                 (int)(other_run[i].level_run));
             }
           }
+          
         }
+          #endif
         batch.decode(
           end, level_bits, warp_lane, warp_decode_id, roll, print_it, other_run);
+
+        #ifdef ABDEBUG
         if (warp_lane == 0) {
           for (int i = 0; i < 6; i++){ 
             printf("after_decode dict? %i rix %i level_run %i\n", print_it, i, runs[i].level_run);
@@ -512,6 +532,7 @@ struct rle_stream {
             }
           }
         }
+        #endif
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;

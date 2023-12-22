@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#define ABDEBUG 1
+//#define ABDEBUG 1
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
 #include "page_decode.cuh"
@@ -80,10 +80,12 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
             ? static_cast<int>(def[rolling_index<state_buf::nz_buf_size>(value_count + t)])
             : -1;
     }
+    #ifdef ABDEBUG
     if (t == 0) {
     printf("gpuUpdateValidFlat d %i t %i def_ix %i nullable %i value_count %i target_value_count %i valid_count %i\n",
       d, t, rolling_index<state_buf::nz_buf_size>(value_count + t), nullable, value_count, target_value_count, valid_count);
     }
+    #endif
 
     int const thread_value_count = t + 1;
     int const block_value_count  = batch_size;
@@ -150,9 +152,6 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
       int const dst_pos = (value_count + thread_value_count) - 1;
       int const src_pos = (valid_count + thread_valid_count) - 1;
       auto ix = rolling_index<state_buf::nz_buf_size>(src_pos);
-      #ifdef ABDEBUG
-      //printf("nz_idx... rolling_index %i src_pos %i dst_pos %i\n", ix, src_pos, dst_pos);
-      #endif
       sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)] = dst_pos;
     }
 
@@ -185,7 +184,6 @@ __device__ inline void gpuDecodeValues(
 
   // decode values
   int pos = start;
-  //printf("gpuDecodeValues start %i end %i\n", start, end);
   while (pos < end) {
     int const batch_size = min(max_batch_size, end - pos);
 
@@ -195,17 +193,10 @@ __device__ inline void gpuDecodeValues(
     // the position in the output column/buffer
     auto nz_idx = sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)];
     int dst_pos = sb->nz_idx[rolling_index<state_buf::nz_buf_size>(src_pos)] - s->first_row;
-    #ifdef ABDEBUG
-    //printf("t %i src_pos %i nz_buf_size %i nz_idx %i dst_pos %i target_pos %i\n", 
-    //  (int) t, (int)src_pos, (int)state_buf::nz_buf_size, nz_idx, dst_pos, target_pos);
-    #endif
     
     // target_pos will always be properly bounded by num_rows, but dst_pos may be negative (values
     // before first_row) in the flat hierarchy case.
     if (src_pos < target_pos && dst_pos >= 0) {
-      #ifdef ABDEBUG
-      //printf("t %i src_pos %i dst_pos %i target_pos %i \n", (int) t, (int)src_pos, (int)dst_pos, (int)target_pos);
-      #endif
       // nesting level that is storing actual leaf values
       int leaf_level_index = s->col.max_nesting_depth - 1;
 
@@ -514,9 +505,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     // only need to process definition levels if this is a nullable column
     int this_processed;
     if (nullable) {
-      if (t == 0) {
-        printf("nullable iter %i\n", iter);
-      }
       //-1 don't cap it
       this_processed = def_decoder.decode_next(t); //, -1, processed, 0);
       __syncthreads();
@@ -529,7 +517,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     // this function call entirely since all it will ever generate is a mapping of (i -> i) for
     // nz_idx.  gpuDecodeValues would be the only work that happens.
     else {
-      printf("non nullable iter %i\n", iter);
       this_processed = min(max_batch_size, s->page.num_input_values - processed);
       next_valid     = gpuUpdateValidityOffsetsAndRowIndicesFlat<false, level_t>(
         processed + this_processed, s, sb, nullptr, t, page_idx);
