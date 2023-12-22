@@ -81,8 +81,8 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
             : -1;
     }
     if (t == 0) {
-    printf("gpuUpdateValidFlat d %i value_count %i target_value_count %i valid_count %i\n",
-      d, value_count, target_value_count, valid_count);
+    printf("gpuUpdateValidFlat d %i t %i def_ix %i nullable %i value_count %i target_value_count %i valid_count %i\n",
+      d, t, rolling_index<state_buf::nz_buf_size>(value_count + t), nullable, value_count, target_value_count, valid_count);
     }
 
     int const thread_value_count = t + 1;
@@ -453,11 +453,13 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   [[maybe_unused]] null_count_back_copier _{s, t};
 
   // the level stream decoders
+  // rolling_buf_size = 256
   __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
   rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
   // should the size be 1/2 (128?)
   int const max_batch_size = rolling_buf_size;
+  // max_batch_size = 256
   __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[max_batch_size];
   rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
 
@@ -516,7 +518,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         printf("nullable iter %i\n", iter);
       }
       //-1 don't cap it
-      this_processed = def_decoder.decode_next(t, -1, processed, 0);
+      this_processed = def_decoder.decode_next(t); //, -1, processed, 0);
       __syncthreads();
 
       // count of valid items in this batch
@@ -543,7 +545,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
       iter++;
     }
     #endif
-    dict_stream.decode_next(t, next_valid -valid, valid, 1);
+    dict_stream.decode_next<decltype(def_runs)>(
+      t, next_valid - valid, valid, 1, def_runs);
     __syncthreads();
 
 
