@@ -39,7 +39,9 @@ cudf::io::table_with_metadata read_parquet(std::string const& file_path)
   auto source_info = cudf::io::source_info(file_path);
   auto builder     = cudf::io::parquet_reader_options::builder(source_info);
   auto options     = builder.build();
-  return cudf::io::read_parquet(options);
+  auto res = cudf::io::read_parquet(options);
+  std::cout << "table of " << res.tbl->num_rows() << " rows scanned" << std::endl;
+  return res;
 }
 
 void simple_int_column(int num_rows)
@@ -70,15 +72,37 @@ int main(int argc, char** argv)
 
   // Read data
   //auto store_sales = read_parquet("/home/abellina/part-00191-9dcfb50c-76b0-4dbf-882b-b60e7ad5b925.c000.snappy.parquet");
-  [[maybe_unused]] int num_rows = 128;
-  if (argc > 1) {
-    num_rows = atoi(argv[1]);
+  //auto store_sales = read_parquet("/home/abellina/cudf/part-00000-f7d7d84a-8f00-4921-95d1-ef17638a1c83-c000.snappy.parquet");
+  //auto store_sales = read_parquet("/home/abellina/cudf/second_mill.snappy.parquet");
+  //auto store_sales = read_parquet("/home/abellina/cudf/s_1.5.snappy.parquet");
+  //auto store_sales = read_parquet("/home/abellina/cudf/s_1.25.snappy.parquet");
+  //auto store_sales = read_parquet("/home/abellina/cudf/s_1.125.snappy.parquet");
+  //auto store_sales = read_parquet("/home/abellina/cudf/s_1.005.snappy.parquet");
+  //auto store_sales = read_parquet("/home/abellina/cudf/part-00000-f7d7d84a-8f00-4921-95d1-ef17638a1c83-c000.snappy.parquet");
+  ///cudaDeviceSynchronize();
+// std::cout <<"done1"<<std::endl;
+  //auto store_sales = read_parquet("/home/abellina/cudf/first_1m.snappy.parquet");
+  const char* name = nullptr;
+  if (argc > 1){
+    name = argv[1];
+    auto store_sales2 = read_parquet(name);
+    cudaDeviceSynchronize();
+  } else {
+    auto store_sales2 = read_parquet(
+      "/home/abellina/cudf/s_1_1.snappy.parquet");
+    cudaDeviceSynchronize();
   }
-  simple_int_column(num_rows);
-  ////std::cout << "you are not writing file.. dude" << std::endl;
-  auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
+  
 
-  std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
+  [[maybe_unused]] int num_rows = 128;
+  if (argc > 2) {
+    num_rows = atoi(argv[2]);
+  }
+  //simple_int_column(num_rows);
+  ////std::cout << "you are not writing file.. dude" << std::endl;
+  //auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
+
+  //std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
   std::cout << "done" << std::endl;
 
   return 0;

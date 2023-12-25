@@ -12,8 +12,10 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */
+*/
 //#define ABDEBUG 1
+//#define ABDEBUG2 1
+//#define ABDEBUG3 1
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
 #include "page_decode.cuh"
@@ -286,14 +288,19 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
-  if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT))) { return; }
+  if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT))) { 
+    #ifdef ABDEBUG
+    printf("returning.. not a NO_DICT page kernel_mask %i\n", pages[page_idx].kernel_mask);
+    #endif
+    return; 
+  }
 
   #ifdef ABDEBUG
-  if (t == 0) {
     printf(
-      "nodict page info: \n\tpage_idx: %i \n\tcompressed_page_size: %i \n\tuncompressed_page_size: %i \n\tnum_input_values: %i \n\tchunk_row: %i "
+      "nodict page info: t %i \n\tpage_idx: %i \n\tcompressed_page_size: %i \n\tuncompressed_page_size: %i \n\tnum_input_values: %i \n\tchunk_row: %i "
       "\n\tnum_rows: %i \n\tnum_nulls: %i \n\tnum_valids: %i \n\tstart_val: %i \n\tend_val: %i \n\tchunk_idx: %i \n\tsrc_col_schema: %i "
       "\n\tencoding: %i \n\tdef_level_encoding: %i \n\trep_level_encoding: %i \n\tkernel_mask: %#08X\n",
+      t,
       page_idx,
       pp->compressed_page_size,
       pp->uncompressed_page_size,
@@ -310,7 +317,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
       (int)pp->definition_level_encoding,
       (int)pp->repetition_level_encoding,
       (int)pp->kernel_mask);
-  }
   #endif
 
   // TODO: abellina all_types_filter???
@@ -359,7 +365,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   // the core loop. decode batches of level stream data using rle_stream objects
   // and pass the results to gpuUpdatePageSizes
   int processed = 0;
-  int valid     = 0;
+  [[maybe_unused]] int valid     = 0;
   while (processed < s->page.num_input_values) {
     int next_valid;
 
@@ -496,9 +502,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // and pass the results to gpuUpdatePageSizes
   int processed = 0;
   [[maybe_unused]] int valid     = 0;
-  #ifdef ABDEBUG
-  int iter = 0;
-  #endif
+  [[maybe_unused]] int iter = 0;
   while (processed < s->page.num_input_values) {
     int next_valid;
 
@@ -523,7 +527,12 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     }
     __syncthreads();
 
-    #ifdef ABDEBUG
+    dict_stream.decode_next<decltype(def_runs)>(
+      t, next_valid - valid, valid, 1, def_runs);
+    __syncthreads();
+
+
+    #ifdef ABDEBUG3
     if (t==0) {
       printf("t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", (int)t, iter, valid, (int)next_valid, processed, this_processed);
       for (int i = 0; i < this_processed; ++i) {
@@ -531,11 +540,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
       }
       iter++;
     }
-    #endif
-    dict_stream.decode_next<decltype(def_runs)>(
-      t, next_valid - valid, valid, 1, def_runs);
     __syncthreads();
-
+    #endif
+    
 
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t);
@@ -560,10 +567,12 @@ void __host__ DecodePageDataFixed(cudf::detail::hostdevice_vector<PageInfo>& pag
 
   if (level_type_size == 1) {
     gpuDecodePageDataFixed<uint8_t>
-      <<<dim_grid, dim_block, 0, stream.value()>>>(pages.device_ptr(), chunks, min_row, num_rows);
+      <<<dim_grid, dim_block, 0, stream.value()>>>(
+        pages.device_ptr(), chunks, min_row, num_rows);
   } else {
     gpuDecodePageDataFixed<uint16_t>
-      <<<dim_grid, dim_block, 0, stream.value()>>>(pages.device_ptr(), chunks, min_row, num_rows);
+      <<<dim_grid, dim_block, 0, stream.value()>>>(
+        pages.device_ptr(), chunks, min_row, num_rows);
   }
 }
 

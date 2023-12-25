@@ -53,8 +53,8 @@ constexpr size_type MAX_DICT_SIZE = (1 << MAX_DICT_BITS) - 1;
 // level decode buffer size.
 constexpr int LEVEL_DECODE_BUF_SIZE = 2048;
 
-template <int rolling_size>
-constexpr int rolling_index(int index)
+template <long rolling_size>
+constexpr int rolling_index(long index)
 {
   return index % rolling_size;
 }

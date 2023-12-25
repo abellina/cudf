@@ -167,12 +167,16 @@ __device__ decode_kernel_mask kernel_mask_for_page(PageInfo const& page,
     }
   }
   if (page.encoding == Encoding::DELTA_BINARY_PACKED) {
+      printf("marking page as DELTA_BINARY_PACKED%i\n", use_fixed_op);
     return decode_kernel_mask::DELTA_BINARY;
   } else if (page.encoding == Encoding::DELTA_BYTE_ARRAY) {
+      printf("marking page as DELTA_BYTE_ARRAY%i\n", use_fixed_op);
     return decode_kernel_mask::DELTA_BYTE_ARRAY;
   } else if (is_string_col(chunk)) {
+      printf("marking page as STRING%i\n", use_fixed_op);
     return decode_kernel_mask::STRING;
   }
+  printf("marking page as GENERAL %i\n", use_fixed_op);
 
   // non-string, non-delta
   return decode_kernel_mask::GENERAL;
@@ -461,7 +465,8 @@ __global__ void __launch_bounds__(128) gpuDecodePageHeaders(ColumnChunkDesc* chu
             error[warp_id] |=
               static_cast<kernel_error::value_type>(decode_error::DATA_STREAM_OVERRUN);
           }
-          bs->page.kernel_mask = kernel_mask_for_page(bs->page, bs->ck, use_fixed_op);
+          bs->page.kernel_mask = kernel_mask_for_page(
+            bs->page, bs->ck, use_fixed_op);
         } else {
           bs->cur = bs->end;
         }

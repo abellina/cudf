@@ -140,7 +140,7 @@ struct rle_batch {
         }
         #endif
       }
-      #ifdef ABDEBUG
+      #ifdef ABDEBUG3
       if (other_run != nullptr && lane== 0) {
         for (int i = 0; i < 6; i++){ 
           printf("before_store other run rix %i level_run %i\n", 
@@ -152,19 +152,23 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        #ifdef ABDEBUG
         int ix = rolling_index<max_output_values>(offset + lane + output_pos + roll);
-        printf("dict? %i addr %" PRIu64 " output[%i]=%i remain %i original %i\n", 
+        #ifdef ABDEBUG3
+        printf("dict? %i addr %" PRIu64 " offset %i lane %i output_pos %i roll %i output[%i]=%i remain %i original %i\n", 
         print_it, 
         output + ix,
+        offset,
+        lane,
+        output_pos,
+        roll,
         ix, 
         level_val, 
         remain, 
         output[ix]);
-        #endif
         output[rolling_index<max_output_values>(offset + lane + output_pos + roll)] = level_val;
+        #endif
       }
-      #ifdef ABDEBUG
+      #ifdef ABDEBUG3
       if (other_run != nullptr && lane == 0) {
         for (int i = 0; i < 6; i++){ 
           printf("after_store other run rix %i level_run %i\n", 
@@ -195,7 +199,7 @@ struct rle_run {
     int const run_offset = size - remaining;
     remaining -= batch_len;
     //  // TODO: batch_len is weird. 58, 116, 174, 232, 98, 192, 348 and then 80... ??
-    #ifdef ABDEBUG
+    #ifdef ABDEBUG2
     printf("dict? %i next_batch run_offset %i remaining %i batch_len %i max_size %i output %" PRIu64 " offset %i\n", 
       print_it, run_offset, remaining, batch_len, max_size, output, offset);
     #endif
@@ -282,21 +286,19 @@ struct rle_stream {
 
     // generate runs until we either run out of warps to decode them with, or
     // we cross the output limit.
-    #ifdef ABDEBUG
     int ri = rolling_index<run_buffer_size>(run_index);
     auto& run = runs[rolling_index<run_buffer_size>(run_index)];
-    printf("before while run_index %i rolling_index %i level_run %i dict? %i run_count %i num_rle_stream_decode_warps %i "
-           "output_pos %i max_count %i cur < end %i\n", 
-           run_index,
-      ri,
-      run.level_run,
-      print_it,
-      run_count,
-      num_rle_stream_decode_warps,
-      output_pos,
-      max_count,
-      cur < end ? 1 : 0);
-    #endif
+    //printf("before while run_index %i rolling_index %i level_run %i dict? %i run_count %i num_rle_stream_decode_warps %i "
+    //       "output_pos %i max_count %i cur < end %i\n", 
+    //       run_index,
+    //  ri,
+    //  run.level_run,
+    //  print_it,
+    //  run_count,
+    //  num_rle_stream_decode_warps,
+    //  output_pos,
+    //  max_count,
+    //  cur < end ? 1 : 0);
     [[maybe_unused]] bool did_loop = false;
     while (run_count < num_rle_stream_decode_warps && output_pos < max_count && cur < end) {
       did_loop = true;
@@ -355,7 +357,7 @@ struct rle_stream {
       run.output_pos = output_pos;
       run.start      = _cur;
       run.level_run  = level_run;
-      #ifdef ABDEBUG    
+      #ifdef ABDEBUG   
       printf("run_index: %i ri: %i run.level_run is %i output_pos %i run.size %i\n", 
         run_index, ri, run.level_run, output_pos, run.size);
       #endif
@@ -434,7 +436,7 @@ struct rle_stream {
         count;
 
     if (output_count == 0) {
-    #ifdef ABDEBUG
+    #ifdef ABDEBUG3
     printf("zero output!! at decode_next for dict? %i, t %i  count %i roll %i output_count %i level_bits %i\n", 
     print_it, t, count, roll, output_count, level_bits);
     #endif
@@ -443,6 +445,7 @@ struct rle_stream {
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
     if (level_bits == 0) {
+      printf("level_bits is zero???\n");
       int written = 0;
       while (written < output_count) {
         int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
