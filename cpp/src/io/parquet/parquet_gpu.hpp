@@ -54,7 +54,7 @@ constexpr size_type MAX_DICT_SIZE = (1 << MAX_DICT_BITS) - 1;
 constexpr int LEVEL_DECODE_BUF_SIZE = 2048;
 
 template <long rolling_size>
-constexpr int rolling_index(long index)
+constexpr int rolling_index(int index)
 {
   return index % rolling_size;
 }

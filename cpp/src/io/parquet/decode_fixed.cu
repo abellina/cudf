@@ -457,9 +457,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // should the size be 1/2 (128?)
   int const max_batch_size = rolling_buf_size;
   // max_batch_size = 256
-  __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[max_batch_size];
+  __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[max_batch_size]; // should be array of 6
   rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
 
+  // has_repetition == nullable????
   bool const has_repetition = false;
   bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
 
@@ -474,6 +475,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // P1 will contain 0 rows
   //
   // TODO: abellina added `has_repetition` argument to call to is_bounds_page`
+  // check this with Dave
   if (s->num_rows == 0 && !(has_repetition && (is_bounds_page(s, min_row, num_rows, has_repetition) ||
                                                is_page_contained(s, min_row, num_rows)))) {
     return;
@@ -482,6 +484,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // initialize the stream decoders (requires values computed in setupLocalPageInfo)
   level_t* def             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::DEFINITION]);
   if (nullable) {
+    //printf("def_decoder init page_idx %i thread_id %i: level_bits %i total_values %i\n", 
+    //  page_idx, t,
+    //  s->col.level_bits[level_type::DEFINITION], 
+    //  s->page.num_input_values);
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
@@ -491,11 +497,14 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   __syncthreads();
   
 
+  printf("dict_stream init page_idx %i thread_id %i: level_bits %i total_values %i dict_size %i\n", 
+    page_idx, t,
+    s->dict_bits, s->page.num_input_values, s->dict_size);
   dict_stream.init(s->dict_bits,
                    s->data_start,
                    s->data_end,
                    sb->dict_idx,
-                   s->page.num_input_values);
+                   s->page.num_input_values); // why isn't this dict_size
   __syncthreads();
 
   // the core loop. decode batches of level stream data using rle_stream objects
@@ -532,21 +541,19 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     __syncthreads();
 
 
-    #ifdef ABDEBUG3
-    if (t==0) {
-      printf("t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", (int)t, iter, valid, (int)next_valid, processed, this_processed);
-      for (int i = 0; i < this_processed; ++i) {
-        printf("\tt: %i iter %i i: %i def[i]=%i dict[i]=%i \n", t, iter, i, (int) def[i], (int) sb->dict_idx[i]);
-      }
-      iter++;
+    if (t == 0) {
+    printf("page_idx: %i t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", 
+      page_idx, (int)t, iter, valid, (int)next_valid, processed, this_processed);
     }
-    __syncthreads();
-    #endif
+    //for (int i = processed; i < processed + this_processed; ++i) {
+    //  printf("\tt: %i iter %i i: %i def[i]=%i dict[i]=%i \n", t, iter, i, (int) def[i], (int) sb->dict_idx[i]);
+    //}
+    iter++;
     
 
     // decode the values themselves
-    gpuDecodeValues(s, sb, valid, next_valid, t);
-    __syncthreads();
+    //gpuDecodeValues(s, sb, valid, next_valid, t);
+    //__syncthreads();
 
     processed += this_processed;
     valid = next_valid;
@@ -584,8 +591,8 @@ void __host__ DecodePageDataFixedDict(
   int level_type_size,
   rmm::cuda_stream_view stream)
 {
-  dim3 dim_block(decode_block_size, 1);
-  dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
+  dim3 dim_block(decode_block_size, 1); // decode_block_size = 128 threads per block
+  dim3 dim_grid(pages.size(), 1);       // 1 thread block per pags => # blocks
 
   if (level_type_size == 1) {
     gpuDecodePageDataFixedDict<uint8_t>

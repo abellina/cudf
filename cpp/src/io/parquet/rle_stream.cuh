@@ -429,17 +429,14 @@ struct rle_stream {
   template<typename other_run_t>
   __device__ int decode_next(int t, int count, int roll, int print_it, other_run_t other_run)
   {
-    
     int const output_count = 
       count < 0 ? 
         min(max_output_values, (total_values - cur_values)) : 
-        count;
+        count; // should be 256
 
-    if (output_count == 0) {
-    #ifdef ABDEBUG3
-    printf("zero output!! at decode_next for dict? %i, t %i  count %i roll %i output_count %i level_bits %i\n", 
-    print_it, t, count, roll, output_count, level_bits);
-    #endif
+    if (t == 0) {
+    printf("at decode next for dictionary %i max_output_values %i total_values %i cur_values %i count %i roll %i\n",
+      print_it, max_output_values, total_values, cur_values, count, roll);
     }
 
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
@@ -537,6 +534,7 @@ struct rle_stream {
         }
         #endif
         // last warp updates total values processed
+        // TODO: why?? abellina . Why is the first warp doing X an the last warp doing Y
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
         }
@@ -549,6 +547,7 @@ struct rle_stream {
         thrust::tie(run_start, num_runs) = get_run_batch();
       }
       __syncthreads();
+      // TODO: abellina what bounds values_processed? does num_rows decrement?
     } while (num_runs > 0 && values_processed < output_count);
 
     cur_values += values_processed;

@@ -1044,21 +1044,17 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
   // if we can use the nesting decode cache, set it up now
   auto const can_use_decode_cache = s->page.nesting_info_size <= max_cacheable_nesting_decode_info;
   if (can_use_decode_cache) {
-    int depth = 0;
+    int depth = 0; 
     while (depth < s->page.nesting_info_size) {
       int const thread_depth = depth + t;
       if (thread_depth < s->page.nesting_info_size) {
         // these values need to be copied over from global
-        s->nesting_decode_cache[thread_depth].max_def_level =
-          s->page.nesting_decode[thread_depth].max_def_level;
-        s->nesting_decode_cache[thread_depth].page_start_value =
-          s->page.nesting_decode[thread_depth].page_start_value;
-        s->nesting_decode_cache[thread_depth].start_depth =
-          s->page.nesting_decode[thread_depth].start_depth;
-        s->nesting_decode_cache[thread_depth].end_depth =
-          s->page.nesting_decode[thread_depth].end_depth;
+        s->nesting_decode_cache[thread_depth].max_def_level = s->page.nesting_decode[thread_depth].max_def_level;
+        s->nesting_decode_cache[thread_depth].page_start_value = s->page.nesting_decode[thread_depth].page_start_value;
+        s->nesting_decode_cache[thread_depth].start_depth = s->page.nesting_decode[thread_depth].start_depth;
+        s->nesting_decode_cache[thread_depth].end_depth = s->page.nesting_decode[thread_depth].end_depth;
       }
-      depth += blockDim.x;
+      depth += blockDim.x; 
     }
   }
 
@@ -1089,6 +1085,8 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
 
   // zero counts
   int depth = 0;
+  // TODO: how big is num_output_nested_levels
+  // and how is it that we can throw 128 threads at it
   while (depth < s->page.num_output_nesting_levels) {
     int const thread_depth = depth + t;
     if (thread_depth < s->page.num_output_nesting_levels) {
@@ -1125,6 +1123,7 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
     // values. The case is:
     // - On page N-1, the last row starts, with 2/6 values encoded
     // - On page N, the remaining 4/6 values are encoded, but there are no new rows.
+    // TODO: abellina why is this if commented out
     // if (s->page.num_input_values > 0 && s->page.num_rows > 0) {
     if (s->page.num_input_values > 0) {
       uint8_t* cur = s->page.page_data;
