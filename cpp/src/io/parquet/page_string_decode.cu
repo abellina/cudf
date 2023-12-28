@@ -94,7 +94,7 @@ __device__ thrust::pair<int, int> page_bounds(page_state_s* const s,
   decoders[level_type::DEFINITION].init(s->col.level_bits[level_type::DEFINITION],
                                         s->abs_lvl_start[level_type::DEFINITION],
                                         s->abs_lvl_end[level_type::DEFINITION],
-                                        rolling_buf_size,
+                                        preproc_buf_size,
                                         def_decode,
                                         s->page.num_input_values);
   // only need repetition if this is a bounds page. otherwise all we need is def level info
@@ -103,7 +103,7 @@ __device__ thrust::pair<int, int> page_bounds(page_state_s* const s,
     decoders[level_type::REPETITION].init(s->col.level_bits[level_type::REPETITION],
                                           s->abs_lvl_start[level_type::REPETITION],
                                           s->abs_lvl_end[level_type::REPETITION],
-                                          rolling_buf_size,
+                                          preproc_buf_size,
                                           rep_decode,
                                           s->page.num_input_values);
   }

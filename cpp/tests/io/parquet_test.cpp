@@ -2776,7 +2776,12 @@ TEST_F(ParquetReaderTest, UserBoundsWithNullsMixedTypes)
 
   // read it back
   std::vector<std::pair<int, int>> params{
-    {-1, -1}, {0, num_rows}, {1, num_rows - 1}, {num_rows - 1, 1}, {517, 22000}};
+    {-1, -1}, 
+    {0, num_rows}, 
+    {1, num_rows - 1}, 
+    {num_rows - 1, 1}, 
+    {517, 22000} // this breaks
+  };
   for (auto p : params) {
     cudf::io::parquet_reader_options read_args =
       cudf::io::parquet_reader_options::builder(cudf::io::source_info{filepath});

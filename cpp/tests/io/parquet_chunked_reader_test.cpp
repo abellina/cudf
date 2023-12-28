@@ -47,6 +47,7 @@
 
 #include <fstream>
 #include <type_traits>
+#include <iostream>
 
 namespace {
 // Global environment for temporary files
@@ -947,7 +948,9 @@ TEST_F(ParquetChunkedReaderTest, TestChunkedReadNullCount)
 
   do {
     // Every fourth row is null
-    EXPECT_EQ(reader.read_chunk().tbl->get_column(0).null_count(), page_limit_rows / 4);
+    auto c = reader.read_chunk();
+    std::cout << "row_count: " << c.tbl->get_column(0).size() << std::endl;
+    EXPECT_EQ(c.tbl->get_column(0).null_count(), page_limit_rows / 4);
   } while (reader.has_next());
 }
 
