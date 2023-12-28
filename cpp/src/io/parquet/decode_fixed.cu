@@ -499,9 +499,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   __syncthreads();
   
 
-  printf("dict_stream init page_idx %i thread_id %i: level_bits %i total_values %i dict_size %i\n", 
-    page_idx, t,
-    s->dict_bits, s->page.num_input_values, s->dict_size);
+  //printf("dict_stream init page_idx %i thread_id %i: level_bits %i total_values %i dict_size %i\n", 
+    //page_idx, t,
+  //  s->dict_bits, s->page.num_input_values, s->dict_size);
   dict_stream.init(s->dict_bits,
                    s->data_start,
                    s->data_end,
@@ -543,10 +543,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     __syncthreads();
 
 
-    if (t == 0) {
-    printf("page_idx: %i t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", 
-      page_idx, (int)t, iter, valid, (int)next_valid, processed, this_processed);
-    }
+ //if (t == 0) {
+ //printf("page_idx: %i t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", 
+ //  page_idx, (int)t, iter, valid, (int)next_valid, processed, this_processed);
+ //}
     //for (int i = processed; i < processed + this_processed; ++i) {
     //  printf("\tt: %i iter %i i: %i def[i]=%i dict[i]=%i \n", t, iter, i, (int) def[i], (int) sb->dict_idx[i]);
     //}

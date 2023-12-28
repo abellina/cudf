@@ -1032,11 +1032,6 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
     s->page         = *p;
     s->nesting_info = nullptr;
     s->col          = chunks[s->page.chunk_idx];
-    int max_depth = s->col.max_nesting_depth;
-    for (int d = 0; d < max_depth; ++d) {
-    printf("chunk t: %i chunk_idx: %i d: %i s->col.column_data_base[idx] %" PRIu64 "\n",
-      t, s->page.chunk_idx, d, s->col.column_data_base);
-    }
   }
   __syncthreads();
 
@@ -1233,7 +1228,7 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
         int max_depth = s->col.max_nesting_depth;
         for (int idx = 0; idx < max_depth; idx++) {
           PageNestingDecodeInfo* nesting_info = &s->nesting_info[idx];
-          printf("nested info at idx %i max_depth %i\n", idx, max_depth);
+          //printf("nested info at idx %i max_depth %i\n", idx, max_depth);
 
           size_t output_offset;
           // schemas without lists
@@ -1248,7 +1243,7 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
           // TODO: ab why is this ok
           if (s->col.column_data_base != nullptr) {
             // ok this becomes 0 column_data_base[1]
-            printf("s->col.column_data_base[idx] %" PRIu64 " idx %i\n", s->col.column_data_base[idx], idx);
+            //printf("s->col.column_data_base[idx] %" PRIu64 " idx %i\n", s->col.column_data_base[idx], idx);
             nesting_info->data_out = static_cast<uint8_t*>(s->col.column_data_base[idx]);
             if (s->col.column_string_base != nullptr) {
               nesting_info->string_out = static_cast<uint8_t*>(s->col.column_string_base[idx]);
