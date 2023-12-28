@@ -351,6 +351,7 @@ struct row_count_compare {
 
 void reader::impl::create_global_chunk_info()
 {
+  // TODO: abellina create_global_chunk_info
   auto const num_rows         = _file_itm_data.global_num_rows;
   auto const& row_groups_info = _file_itm_data.row_groups;
   auto& chunks                = _file_itm_data.chunks;
@@ -368,6 +369,7 @@ void reader::impl::create_global_chunk_info()
 
     // generate ColumnChunkDesc objects for everything to be decoded (all input columns)
     for (size_t i = 0; i < num_input_columns; ++i) {
+      printf("creating global chunk info. Column %i\n", (int)i);
       auto col = _input_columns[i];
       // look up metadata
       auto& col_meta = _metadata->get_column_metadata(rg.index, rg.source_index, col.schema_idx);
@@ -379,7 +381,7 @@ void reader::impl::create_global_chunk_info()
                         schema.type,
                         schema.converted_type,
                         schema.type_length);
-
+      printf("pushing new column chunk %i\n", (int)i);
       chunks.push_back(ColumnChunkDesc(col_meta.total_compressed_size,
                                        nullptr,
                                        col_meta.num_values,
@@ -485,8 +487,15 @@ void reader::impl::setup_next_pass()
   auto chunk_start = _file_itm_data.chunks.begin() + (row_group_start * chunks_per_rowgroup);
   auto chunk_end   = _file_itm_data.chunks.begin() + (row_group_end * chunks_per_rowgroup);
 
+  printf("setting chunks to num_chunks %i\n", (int)num_chunks);
   _pass_itm_data->chunks = cudf::detail::hostdevice_vector<ColumnChunkDesc>(num_chunks, _stream);
   std::copy(chunk_start, chunk_end, _pass_itm_data->chunks.begin());
+  for (int i = 0; i < (int)num_chunks; ++i) {
+    printf("chunk %i data_base=%lu string_base=%lu\n", 
+      i,
+      (uint64_t)_pass_itm_data->chunks[i].column_data_base,
+      (uint64_t)_pass_itm_data->chunks[i].column_string_base);
+  }
 
   // adjust skip_rows and num_rows by what's available in the row groups we are processing
   if (num_passes == 1) {

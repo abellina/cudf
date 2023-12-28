@@ -28,11 +28,13 @@
 
 #include <bitset>
 #include <numeric>
+#include <inttypes.h>
 
 namespace cudf::io::parquet::detail {
 
 void reader::impl::decode_page_data(size_t skip_rows, size_t num_rows)
 {
+  printf("decode_page_data skip_rows %i num_rows %i\n", (int)skip_rows, (int)num_rows);
   auto& chunks               = _pass_itm_data->chunks;
   auto& pages                = _pass_itm_data->pages_info;
   auto& page_nesting         = _pass_itm_data->page_nesting_info;
@@ -103,8 +105,11 @@ void reader::impl::decode_page_data(size_t skip_rows, size_t num_rows)
 
     // get a slice of size `nesting depth` from `chunk_nested_data` to store an array of pointers to
     // out data
+    printf("HERE !!!");
     auto data                  = chunk_nested_data.host_ptr(chunk_off);
     chunks[c].column_data_base = chunk_nested_data.device_ptr(chunk_off);
+    printf("c: %i page_count: %i chunk_offset: %i column_data_base %" PRIu64 "\n", 
+      (int)c, (int)page_count, (int)chunk_off, (uint64_t)(chunks[c].column_data_base));
 
     auto str_data = has_strings ? chunk_nested_str_data.host_ptr(chunk_off) : nullptr;
     chunks[c].column_string_base =
@@ -217,7 +222,7 @@ void reader::impl::decode_page_data(size_t skip_rows, size_t num_rows)
 
   // launch the catch-all page decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::GENERAL) != 0) {
-    printf("NOT decoding GENERAL page\n");
+    printf("decoding GENERAL page\n");
     DecodePageData(
       pages, chunks, num_rows, skip_rows, level_type_size, error_code.data(), streams[s_idx++]);
   }
@@ -434,6 +439,7 @@ void reader::impl::populate_metadata(table_metadata& out_metadata)
 table_with_metadata reader::impl::read_chunk_internal(
   bool uses_custom_row_bounds, std::optional<std::reference_wrapper<ast::expression const>> filter)
 {
+  printf("at read_chunk_internal\n");
   // If `_output_metadata` has been constructed, just copy it over.
   auto out_metadata = _output_metadata ? table_metadata{*_output_metadata} : table_metadata{};
   out_metadata.schema_info.resize(_output_buffers.size());

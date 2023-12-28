@@ -457,7 +457,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // should the size be 1/2 (128?)
   int const max_batch_size = rolling_buf_size;
   // max_batch_size = 256
-  __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[max_batch_size]; // should be array of 6
+  __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[rle_run_buffer_size]; // should be array of 6
   rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
 
   // has_repetition == nullable????
@@ -552,8 +552,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     
 
     // decode the values themselves
-    //gpuDecodeValues(s, sb, valid, next_valid, t);
-    //__syncthreads();
+    gpuDecodeValues(s, sb, valid, next_valid, t);
+    __syncthreads();
 
     processed += this_processed;
     valid = next_valid;

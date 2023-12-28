@@ -64,6 +64,7 @@ void generate_depth_remappings(std::map<int, std::pair<std::vector<int>, std::ve
                                int src_col_schema,
                                aggregate_reader_metadata const& md)
 {
+  printf("at generate_depth_remappings for col %i\n", src_col_schema);
   // already generated for this level
   if (remap.find(src_col_schema) != remap.end()) { return; }
   auto schema   = md.get_schema(src_col_schema);
@@ -524,6 +525,7 @@ int decode_page_headers(cudf::detail::hostdevice_vector<ColumnChunkDesc>& chunks
 
 void reader::impl::allocate_nesting_info()
 {
+  printf("allocate_nesting_info\n");
   auto const& chunks             = _pass_itm_data->chunks;
   auto& pages                    = _pass_itm_data->pages_info;
   auto& page_nesting_info        = _pass_itm_data->page_nesting_info;
@@ -539,6 +541,8 @@ void reader::impl::allocate_nesting_info()
         schema.max_definition_level + 1, _metadata->get_output_nesting_depth(chunk.src_col_schema));
       return total + (per_page_nesting_info_size * chunk.num_data_pages);
     });
+
+  printf("total_page_nesting_infos=%i\n", (int)total_page_nesting_infos);
 
   page_nesting_info =
     cudf::detail::hostdevice_vector<PageNestingInfo>{total_page_nesting_infos, _stream};
@@ -677,6 +681,7 @@ std::pair<bool, std::vector<std::future<void>>> reader::impl::read_and_decompres
   auto const num_rows         = _pass_itm_data->num_rows;
 
   auto& raw_page_data = _pass_itm_data->raw_page_data;
+  printf("setting chunks to _pass_itm_data->chunks\n");
   auto& chunks        = _pass_itm_data->chunks;
 
   // Descriptors for all the chunks that make up the selected columns
@@ -706,6 +711,7 @@ std::pair<bool, std::vector<std::future<void>>> reader::impl::read_and_decompres
     for (size_t i = 0; i < num_input_columns; ++i) {
       auto const& col = _input_columns[i];
       // look up metadata
+      // ColumnChunkMetaData
       auto& col_meta = _metadata->get_column_metadata(rg.index, rg.source_index, col.schema_idx);
 
       column_chunk_offsets[chunk_count] =
@@ -1229,6 +1235,7 @@ void reader::impl::preprocess_pages(bool uses_custom_row_bounds, size_t chunk_re
 
   // intermediate data we will need for further chunked reads
   if (has_lists || chunk_read_limit > 0) {
+    // TODO: abellina over here
     // computes:
     // PageNestingInfo::num_rows for each page. the true number of rows (taking repetition into
     // account), not just the number of values. PageNestingInfo::size for each level of nesting, for

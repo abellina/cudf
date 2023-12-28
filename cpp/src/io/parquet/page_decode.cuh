@@ -643,10 +643,13 @@ inline __device__ void get_nesting_bounds(int& start_depth,
   if (input_value_count + t < target_input_value_count) {
     int const index = rolling_index<rolling_buf_size>(input_value_count + t);
     d               = static_cast<int>(def[index]);
+      
     // if we have repetition (there are list columns involved) we have to
     // bound what nesting levels we apply values to
     if (s->col.max_level[level_type::REPETITION] > 0) {
       int r       = rep[index];
+      printf("getting nesting bounds t %i index %i r %i d %i input_value_count %i batch_size %i\n",
+        t, index, r, d, input_value_count, target_input_value_count);
       start_depth = s->nesting_info[r].start_depth;
       end_depth   = s->nesting_info[d].end_depth;
     }
@@ -1030,6 +1033,11 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
     s->page         = *p;
     s->nesting_info = nullptr;
     s->col          = chunks[s->page.chunk_idx];
+    int max_depth = s->col.max_nesting_depth;
+    for (int d = 0; d < max_depth; ++d) {
+    printf("chunk t: %i chunk_idx: %i d: %i s->col.column_data_base[idx] %" PRIu64 "\n",
+      t, s->page.chunk_idx, d, s->col.column_data_base);
+    }
   }
   __syncthreads();
 
@@ -1226,6 +1234,7 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
         int max_depth = s->col.max_nesting_depth;
         for (int idx = 0; idx < max_depth; idx++) {
           PageNestingDecodeInfo* nesting_info = &s->nesting_info[idx];
+          printf("nested info at idx %i max_depth %i\n", idx, max_depth);
 
           size_t output_offset;
           // schemas without lists
@@ -1237,7 +1246,10 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
             output_offset = nesting_info->page_start_value;
           }
 
+          // TODO: ab why is this ok
           if (s->col.column_data_base != nullptr) {
+            // ok this becomes 0 column_data_base[1]
+            printf("s->col.column_data_base[idx] %" PRIu64 " idx %i\n", s->col.column_data_base[idx], idx);
             nesting_info->data_out = static_cast<uint8_t*>(s->col.column_data_base[idx]);
             if (s->col.column_string_base != nullptr) {
               nesting_info->string_out = static_cast<uint8_t*>(s->col.column_string_base[idx]);
@@ -1262,6 +1274,8 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
               nesting_info->valid_map += output_offset >> 5;
               nesting_info->valid_map_offset = (int32_t)(output_offset & 0x1f);
             }
+          } else {
+            printf ("column_data_base is null :(\n");
           }
         }
       }

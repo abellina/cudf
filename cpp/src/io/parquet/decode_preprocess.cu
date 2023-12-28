@@ -222,6 +222,7 @@ __global__ void __launch_bounds__(preprocess_block_size)
   int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
+  // TODO: abellina woldn't this access of chunks be allowed to go out of bounds
   // whether or not we have repetition levels (lists)
   bool has_repetition = chunks[pp->chunk_idx].max_level[level_type::REPETITION] > 0;
 
@@ -232,7 +233,9 @@ __global__ void __launch_bounds__(preprocess_block_size)
     decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
-  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, false)) { return; }
+  if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, false)) { 
+    return; 
+  }
 
   // initialize the stream decoders (requires values computed in setupLocalPageInfo)
   // the size of the rolling batch buffer
