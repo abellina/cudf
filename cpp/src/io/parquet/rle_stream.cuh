@@ -29,6 +29,11 @@ constexpr int rle_stream_required_run_buffer_size()
   return (num_rle_stream_decode_warps * 2);
 }
 
+inline __device__ int rolling_index_d(int index, int rolling_size)
+{
+  return index % rolling_size;
+}
+
 /**
  * @brief Read a 32-bit varint integer
  *
@@ -65,7 +70,9 @@ struct rle_batch {
   int level_run;
   int size;
 
-  __device__ inline void decode(uint8_t const* const end, int level_bits, int lane, int warp_id)
+  __device__ inline void decode(
+    uint8_t const* const end, int level_bits, int lane, int warp_id, 
+    int roll, int run_buffer_size)
   {
     int output_pos = 0;
     int remain     = size;
@@ -114,7 +121,9 @@ struct rle_batch {
       }
 
       // store level_val
-      if (lane < batch_len && (lane + output_pos) >= 0) { output[lane + output_pos] = level_val; }
+      if (lane < batch_len && (lane + output_pos) >= 0) { 
+        output[lane + output_pos] = level_val; 
+      }
       remain -= batch_len;
       output_pos += batch_len;
     }
@@ -290,7 +299,7 @@ struct rle_stream {
     }
   }
 
-  __device__ inline int decode_next(int t)
+  __device__ inline int decode_next(int t, int count, int roll)
   {
     int const output_count = min(max_output_values, (total_values - cur_values));
 
@@ -339,7 +348,7 @@ struct rle_stream {
         auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
-        batch.decode(end, level_bits, warp_lane, warp_decode_id);
+        batch.decode(end, level_bits, warp_lane, warp_decode_id, roll, run_buffer_size);
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
@@ -359,6 +368,10 @@ struct rle_stream {
 
     // valid for every thread
     return values_processed;
+  }
+
+  __device__ inline int decode_next(int t) {
+    return decode_next(t, -1, 0);
   }
 };
 
