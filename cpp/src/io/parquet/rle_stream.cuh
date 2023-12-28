@@ -72,7 +72,7 @@ struct rle_batch {
 
   __device__ inline void decode(
     uint8_t const* const end, int level_bits, int lane, int warp_id, 
-    int roll, int run_buffer_size)
+    int roll, int max_output_values)
   {
     int output_pos = 0;
     int remain     = size;
@@ -122,7 +122,7 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        output[lane + output_pos] = level_val; 
+        output[rolling_index_d(lane + output_pos + roll, max_output_values)] = level_val; 
       }
       remain -= batch_len;
       output_pos += batch_len;
@@ -301,7 +301,8 @@ struct rle_stream {
 
   __device__ inline int decode_next(int t, int count, int roll)
   {
-    int const output_count = min(max_output_values, (total_values - cur_values));
+    int const output_count = count < 0 ?
+      min(max_output_values, (total_values - cur_values)) : count;
 
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
@@ -309,7 +310,9 @@ struct rle_stream {
       int written = 0;
       while (written < output_count) {
         int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
-        if (t < batch_size) { output[written + t] = 0; }
+        if (t < batch_size) { 
+          output[rolling_index_d(written + t + roll, max_output_values)] = 0; 
+        }
         written += batch_size;
       }
       cur_values += output_count;
@@ -348,7 +351,8 @@ struct rle_stream {
         auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
-        batch.decode(end, level_bits, warp_lane, warp_decode_id, roll, run_buffer_size);
+        batch.decode(end, level_bits, warp_lane, warp_decode_id, 
+          roll, max_output_values);
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;

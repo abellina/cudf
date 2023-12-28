@@ -649,8 +649,6 @@ inline __device__ void get_nesting_bounds(int& start_depth,
     // bound what nesting levels we apply values to
     if (s->col.max_level[level_type::REPETITION] > 0) {
       int r       = rep[index];
-      printf("getting nesting bounds t %i index %i r %i d %i input_value_count %i batch_size %i\n",
-        t, index, r, d, input_value_count, target_input_value_count);
       start_depth = s->nesting_info[r].start_depth;
       end_depth   = s->nesting_info[d].end_depth;
     }
