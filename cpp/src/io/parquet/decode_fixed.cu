@@ -328,8 +328,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
 
   // the level stream decoders
   int const max_batch_size = rolling_buf_size;
-  __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
-  rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
+  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
+  rle_stream<level_t, decode_block_size> def_decoder{def_runs};
 
   bool const has_repetition = false;
   bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
@@ -357,6 +357,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
+                     rolling_buf_size,
                      def,
                      s->page.num_input_values);
   }
@@ -451,14 +452,14 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
 
   // the level stream decoders
   // rolling_buf_size = 256
-  __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
-  rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
+  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
+  rle_stream<level_t, decode_block_size> def_decoder{def_runs};
 
   // should the size be 1/2 (128?)
   int const max_batch_size = rolling_buf_size;
   // max_batch_size = 256
-  __shared__ rle_run<uint32_t, rolling_buf_size> dict_runs[rle_run_buffer_size]; // should be array of 6
-  rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
+  __shared__ rle_run<uint32_t> dict_runs[rle_run_buffer_size]; // should be array of 6
+  rle_stream<uint32_t, decode_block_size> dict_stream{dict_runs};
 
   // has_repetition == nullable????
   bool const has_repetition = false;
@@ -491,6 +492,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
+                     rolling_buf_size,
                      def,
                      s->page.num_input_values);
   }
@@ -503,6 +505,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   dict_stream.init(s->dict_bits,
                    s->data_start,
                    s->data_end,
+                   rolling_buf_size,
                    sb->dict_idx,
                    s->page.num_input_values); // why isn't this dict_size
   __syncthreads();
@@ -536,8 +539,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     }
     __syncthreads();
 
-    dict_stream.decode_next<decltype(def_runs)>(
-      t, next_valid - valid, valid, 1, def_runs);
+    dict_stream.decode_next(t, next_valid - valid, valid);
     __syncthreads();
 
 

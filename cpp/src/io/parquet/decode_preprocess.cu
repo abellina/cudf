@@ -227,9 +227,9 @@ __global__ void __launch_bounds__(preprocess_block_size)
   bool has_repetition = chunks[pp->chunk_idx].max_level[level_type::REPETITION] > 0;
 
   // the level stream decoders
-  __shared__ rle_run<level_t, rolling_buf_size> def_runs[rle_run_buffer_size];
-  __shared__ rle_run<level_t, rolling_buf_size> rep_runs[rle_run_buffer_size];
-  rle_stream<level_t, preprocess_block_size, rolling_buf_size> 
+  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
+  __shared__ rle_run<level_t> rep_runs[rle_run_buffer_size];
+  rle_stream<level_t, preprocess_block_size> 
     decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
@@ -244,12 +244,14 @@ __global__ void __launch_bounds__(preprocess_block_size)
   decoders[level_type::DEFINITION].init(s->col.level_bits[level_type::DEFINITION],
                                         s->abs_lvl_start[level_type::DEFINITION],
                                         s->abs_lvl_end[level_type::DEFINITION],
+                                        rolling_buf_size,
                                         def,
                                         s->page.num_input_values);
   if (has_repetition) {
     decoders[level_type::REPETITION].init(s->col.level_bits[level_type::REPETITION],
                                           s->abs_lvl_start[level_type::REPETITION],
                                           s->abs_lvl_end[level_type::REPETITION],
+                                          rolling_buf_size,
                                           rep,
                                           s->page.num_input_values);
   }

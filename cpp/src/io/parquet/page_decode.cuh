@@ -19,6 +19,7 @@
 #include "error.hpp"
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
+#include "inttypes.h"
 
 #include <io/utilities/block_utils.cuh>
 

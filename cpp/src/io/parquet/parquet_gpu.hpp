@@ -59,6 +59,11 @@ constexpr int rolling_index(int index)
   return index % rolling_size;
 }
 
+int rolling_index_d(int index, int rolling_size)
+{
+  return index % rolling_size;
+}
+
 // PARQUET-2261 allows for not writing the level histograms in certain cases.
 // The repetition level histogram may be omitted when max_rep_level equals 0. The definition
 // level histogram may be omitted when max_def_level equals 0 or 1. In the case of
