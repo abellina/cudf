@@ -423,6 +423,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
 
   if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT))) { return; }
 
+  // must come after the kernel mask check
+  [[maybe_unused]] null_count_back_copier _{s, t};
+
   // TODO: abellina all_types_filter???
   if (!setupLocalPageInfo(
     s, pp, chunks, min_row, num_rows, 
@@ -453,9 +456,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
       (int)pp->kernel_mask);
   }
   #endif
-
-  // must come after the kernel mask check
-  [[maybe_unused]] null_count_back_copier _{s, t};
 
   // the level stream decoders
   // rolling_buf_size = 256
