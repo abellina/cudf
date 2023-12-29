@@ -319,6 +319,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
       (int)pp->kernel_mask);
   #endif
 
+  // must come after the kernel mask check
+  [[maybe_unused]] null_count_back_copier _{s, t};
+
   // TODO: abellina all_types_filter???
   //if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, true)) { return; }
   if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, 
@@ -326,9 +329,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     page_processing_stage::DECODE)) { 
       return; 
   }
-
-  // must come after the kernel mask check
-  [[maybe_unused]] null_count_back_copier _{s, t};
 
   // the level stream decoders
   int const max_batch_size = rolling_buf_size;
@@ -394,8 +394,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     __syncthreads();
 
     // decode the values themselves
-    gpuDecodeValues(s, sb, valid, next_valid, t);
-    __syncthreads();
+    //gpuDecodeValues(s, sb, valid, next_valid, t);
+    //__syncthreads();
 
     processed += this_processed;
     valid = next_valid;
@@ -499,7 +499,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
-                     rolling_buf_size,
+                     rolling_buf_size/2,
                      def,
                      s->page.num_input_values);
   }
@@ -512,7 +512,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   dict_stream.init(s->dict_bits,
                    s->data_start,
                    s->data_end,
-                   rolling_buf_size,
+                   rolling_buf_size/2,
                    sb->dict_idx,
                    s->page.num_input_values); // why isn't this dict_size
   __syncthreads();
@@ -529,7 +529,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     int this_processed;
     if (nullable) {
       //-1 don't cap it
-      this_processed = def_decoder.decode_next(t); //, -1, processed, 0);
+      this_processed = def_decoder.decode_next(t);
       __syncthreads();
 
       // count of valid items in this batch
@@ -546,19 +546,12 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     }
     __syncthreads();
 
+    //printf("page_idx(block id): %i t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", 
+    //  page_idx, (int)t, iter, valid, (int)next_valid, processed, this_processed);
+    //iter++;
+
     dict_stream.decode_next(t, next_valid - valid, valid);
     __syncthreads();
-
-
- //if (t == 0) {
- //printf("page_idx: %i t: %i iter %i valid %i next_valid %i processed %i this_processed %i\n", 
- //  page_idx, (int)t, iter, valid, (int)next_valid, processed, this_processed);
- //}
-    //for (int i = processed; i < processed + this_processed; ++i) {
-    //  printf("\tt: %i iter %i i: %i def[i]=%i dict[i]=%i \n", t, iter, i, (int) def[i], (int) sb->dict_idx[i]);
-    //}
-    iter++;
-    
 
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t);

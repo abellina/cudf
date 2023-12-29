@@ -47,9 +47,10 @@ cudf::io::table_with_metadata read_parquet(std::string const& file_path)
 void simple_int_column(int num_rows)
 {  
   std::string filepath("/home/abellina/table_with_dict.parquet");
+
   auto valids = cudf::detail::make_counting_transform_iterator(
     0, [](auto i) { return i == 123 || i == 555 ? 0 : 1; });
-  //  0, [](auto i) { return 1; });
+  /// 0, [](auto i) { return 1; });
   //  0, [](auto i) { return i == 123 || i == 777 ? 0 : 1; });
   auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 10; });
   cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows, valids);
@@ -82,6 +83,8 @@ int main(int argc, char** argv)
   ///cudaDeviceSynchronize();
 // std::cout <<"done1"<<std::endl;
   //auto store_sales = read_parquet("/home/abellina/cudf/first_1m.snappy.parquet");
+
+// ENABLE THIS
   const char* name = nullptr;
   if (argc > 1){
     name = argv[1];
@@ -94,15 +97,14 @@ int main(int argc, char** argv)
   }
   
 
-  [[maybe_unused]] int num_rows = 128;
-  if (argc > 2) {
-    num_rows = atoi(argv[2]);
-  }
+  //[[maybe_unused]] int num_rows = 128;
+  //if (argc > 1) {
+  //  num_rows = atoi(argv[1]);
+  //}
   //simple_int_column(num_rows);
-  ////std::cout << "you are not writing file.. dude" << std::endl;
   //auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
 
-  //std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
+  ////std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
   std::cout << "done" << std::endl;
 
   return 0;
