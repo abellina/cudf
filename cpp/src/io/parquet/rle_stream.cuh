@@ -19,6 +19,7 @@
 #include "parquet_gpu.hpp"
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
+#include <inttypes.h>
 
 namespace cudf::io::parquet::detail {
 
@@ -73,7 +74,7 @@ struct rle_batch {
   __device__ inline void decode(
     int t,
     uint8_t const* const end, int level_bits, int lane, int warp_id, 
-    int roll, int max_output_values)
+    int roll, int max_output_values, int do_print)
   {
     int output_pos = 0;
     int remain     = size;
@@ -123,8 +124,10 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        //printf("t: %i rolling_index_d: %i\n",
-        //  t, rolling_index_d(lane + output_pos + roll, max_output_values));
+        //if (do_print >= 0) {
+        //  printf("t: %i rolling_index_d: %i dict = %i val: %i\n",
+        //    t, rolling_index_d(lane + output_pos + roll, max_output_values), do_print, level_val);
+        //}
         output[rolling_index_d(lane + output_pos + roll, max_output_values)] = level_val; 
       }
       remain -= batch_len;
@@ -183,6 +186,8 @@ struct rle_stream {
 
   int next_batch_run_start;
   int next_batch_run_count;
+  int dict;
+  int t;
 
   __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {}
 
@@ -191,7 +196,9 @@ struct rle_stream {
                        uint8_t const* _end,
                        int _max_output_values,
                        level_t* _output,
-                       int _total_values)
+                       int _total_values,
+                       int _dict,
+                       int _t)
   {
     level_bits = _level_bits;
     start      = _start;
@@ -210,6 +217,17 @@ struct rle_stream {
 
     total_values = _total_values;
     cur_values   = 0;
+    dict = _dict;
+    t = _t;
+  }
+
+  __device__ void init(int _level_bits,
+                       uint8_t const* _start,
+                       uint8_t const* _end,
+                       int _max_output_values,
+                       level_t* _output,
+                       int _total_values) {
+    init(_level_bits, _start, _end, _max_output_values, _output, _total_values, -1, -1);
   }
 
   __device__ inline thrust::pair<int, int> get_run_batch()
@@ -223,10 +241,12 @@ struct rle_stream {
   {
     // if we spilled over, we've already got a run at the beginning
     next_batch_run_start = spill ? run_index - 1 : run_index;
+    [[maybe_unused]] int was_spill = spill? 1:0;
     spill                = false;
 
     // generate runs until we either run out of warps to decode them with, or
     // we cross the output limit.
+    [[maybe_unused]] uint8_t const* my_start = cur;
     while (run_count < num_rle_stream_decode_warps && output_pos < max_count && cur < end) {
       auto& run = runs[rolling_index<run_buffer_size>(run_index)];
 
@@ -234,15 +254,24 @@ struct rle_stream {
 
       // bytes for the varint header
       uint8_t const* _cur = cur;
+      //printf("run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 "\n", run_count, 
+      //(uint64_t)my_start, (uint64_t)_cur);
       int const level_run = get_vlq32(_cur, end);
+      // run_bytes includes the header size
       int run_bytes       = _cur - cur;
+     //printf("run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " run_bytes: %i \n", 
+     //run_count, (uint64_t)my_start, (uint64_t)_cur, run_bytes);
 
       // literal run
       if (level_run & 1) {
-        int const run_size  = (level_run >> 1) * 8;
-        run.size            = run_size;
+        int const run_size  = (level_run >> 1) * 8; // why times 8, is this bytes? then what is run_size8 
+        //gpuDecodeDictionaryIndices does: 
+        //int const run_size = max(min(32, (int)(level_run >> 1) * 8), 1);
+        run.size            = run_size; //this is rows
         int const run_size8 = (run_size + 7) >> 3;
         run_bytes += run_size8 * level_bits;
+        //printf("literal run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " was spill: %i level_run: %i run_size: %i run_size_8 %i run_bytes: %i \n", 
+        //run_count, (uint64_t)my_start, (uint64_t)_cur, was_spill, level_run, run.size, run_size8, run_bytes);
       }
       // repeated value run
       else {
@@ -251,21 +280,49 @@ struct rle_stream {
         // can this ever be > 16?  it effectively encodes nesting depth so that would require
         // a nesting depth > 64k.
         if (level_bits > 8) { run_bytes++; }
+        if (level_bits > 16) { run_bytes++; }
+        if (level_bits > 24) { run_bytes++; }
+       //printf("repeated run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " was spill: %i level_run: %i run_size: %i run_bytes: %i \n", 
+       //run_count, (uint64_t)my_start, (uint64_t)_cur, was_spill, level_run, run.size, run_bytes);
       }
       run.output_pos = output_pos;
       run.start      = _cur;
       run.level_run  = level_run;
       run.remaining  = run.size;
       cur += run_bytes;
-
+      
       output_pos += run.size;
-      run_count++;
       run_index++;
+      run_count++;
+
+      //if (dict > 0) {
+      //  printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
+      //         " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  "
+      //         "is_literal: %i\n",
+      //         t,
+      //         dict,
+      //         was_spill,
+      //         run_count,
+      //         (uint64_t)my_start,
+      //         (uint64_t)_cur,
+      //         run_bytes,
+      //         run_count,
+      //         run.size,
+      //         output_pos,
+      //         level_run,
+      //         level_run & 1 ? 1 : 0);
+      //}
+      //printf("spill? %i  run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  is_literal: %i\n", 
+      //  was_spill,
+      //  run_count, (uint64_t)my_start, (uint64_t)_cur, 
+      //  run_bytes, run_count, run.size, output_pos, level_run, level_run & 1 ? 1 : 0);
     }
 
     // the above loop computes a batch of runs to be processed. mark down
     // the number of runs because the code after this point resets run_count
     // for the next batch. each batch is returned via get_next_batch().
+
+    //TODO: abellina run_count looks to be wrong for dictionary pages
     next_batch_run_count = run_count;
 
     // -------------------------------------
@@ -302,11 +359,14 @@ struct rle_stream {
     }
   }
 
-  __device__ inline int decode_next(int t, int count, int roll)
+  __device__ inline int decode_next(int t, int do_print, int count, int roll)
   {
-    int const output_count = min(
-      max_output_values, 
-      count < 0 ? (total_values - cur_values) : count);
+    int const output_count = 
+      count < 0 ? min(max_output_values, total_values - cur_values) : count;
+
+//   if (do_print>0) {
+//     printf("t: %i will fill upto %i\n", t, output_count);
+//   }
 
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
@@ -356,10 +416,14 @@ struct rle_stream {
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
         batch.decode(t, end, level_bits, warp_lane, warp_decode_id, 
-          roll, max_output_values);
+          roll, max_output_values, do_print);
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
+          //if (do_print > 0) { 
+          //  printf("t: %i num_runs %i batch.size %i values_processed %i dict? %i\n", 
+          //    t, num_runs, batch.size, values_processed, do_print);
+          //}
         }
       }
       __syncthreads();
@@ -379,7 +443,11 @@ struct rle_stream {
   }
 
   __device__ inline int decode_next(int t) {
-    return decode_next(t, -1, 0);
+    return decode_next(t, 0, -1, 0);
+  }
+
+  __device__ inline int decode_next(int t, int do_print) {
+    return decode_next(t, do_print, -1, 0);
   }
 };
 

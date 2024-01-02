@@ -249,6 +249,7 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
     if (!t) {
       uint32_t run       = s->dict_run;
       uint8_t const* cur = s->data_start;
+      [[maybe_unused]] uint8_t const* start_cur = cur;
       if (run <= 1) {
         run = (cur < end) ? get_vlq32(cur, end) : 0;
         if (!(run & 1)) {
@@ -269,6 +270,8 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
         }
       }
       if (run & 1) {
+        //printf("literal start_cur: %" PRIu64" run >> 1: %i\n", 
+        //  (uint64_t) start_cur, (int)(run >> 1));
         // Literal batch: must output a multiple of 8, except for the last batch
         int batch_len_div8;
         batch_len      = max(min(32, (int)(run >> 1) * 8), 1);
@@ -276,6 +279,8 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
         run -= batch_len_div8 * 2;
         cur += batch_len_div8 * dict_bits;
       } else {
+        //printf("repeated start_cur: %" PRIu64" run >> 1: %i\n", 
+        //  (uint64_t) start_cur, (int)(run >> 1));
         batch_len = max(min(32, (int)(run >> 1)), 1);
         run -= batch_len * 2;
       }

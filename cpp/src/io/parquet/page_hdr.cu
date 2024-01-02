@@ -159,25 +159,18 @@ __device__ decode_kernel_mask kernel_mask_for_page(PageInfo const& page,
       (chunk.data_type & 7) != BYTE_ARRAY && 
       (chunk.data_type & 7) != BOOLEAN) {
     if (page.encoding == Encoding::PLAIN) {
-      printf("marking page as FIXED_WIDTH_NO_DICT %i\n", use_fixed_op);
       return decode_kernel_mask::FIXED_WIDTH_NO_DICT;
     } else if (use_fixed_op == 2 && page.encoding == Encoding::PLAIN_DICTIONARY) {
-      printf("marking page as FIXED_WIDTH_DICT %i\n", use_fixed_op);
       return decode_kernel_mask::FIXED_WIDTH_DICT;
     }
   }
   if (page.encoding == Encoding::DELTA_BINARY_PACKED) {
-      printf("marking page as DELTA_BINARY_PACKED%i\n", use_fixed_op);
     return decode_kernel_mask::DELTA_BINARY;
   } else if (page.encoding == Encoding::DELTA_BYTE_ARRAY) {
-      printf("marking page as DELTA_BYTE_ARRAY%i\n", use_fixed_op);
     return decode_kernel_mask::DELTA_BYTE_ARRAY;
   } else if (is_string_col(chunk)) {
-      printf("marking page as STRING%i\n", use_fixed_op);
     return decode_kernel_mask::STRING;
   }
-  printf("marking page as GENERAL %i\n", use_fixed_op);
-
   // non-string, non-delta
   return decode_kernel_mask::GENERAL;
 }

@@ -525,7 +525,6 @@ int decode_page_headers(cudf::detail::hostdevice_vector<ColumnChunkDesc>& chunks
 
 void reader::impl::allocate_nesting_info()
 {
-  printf("allocate_nesting_info\n");
   auto const& chunks             = _pass_itm_data->chunks;
   auto& pages                    = _pass_itm_data->pages_info;
   auto& page_nesting_info        = _pass_itm_data->page_nesting_info;
@@ -541,8 +540,6 @@ void reader::impl::allocate_nesting_info()
         schema.max_definition_level + 1, _metadata->get_output_nesting_depth(chunk.src_col_schema));
       return total + (per_page_nesting_info_size * chunk.num_data_pages);
     });
-
-  printf("total_page_nesting_infos=%i\n", (int)total_page_nesting_infos);
 
   page_nesting_info =
     cudf::detail::hostdevice_vector<PageNestingInfo>{total_page_nesting_infos, _stream};
@@ -667,7 +664,6 @@ void reader::impl::allocate_level_decode_space()
   uint8_t* buf = static_cast<uint8_t*>(_pass_itm_data->level_decode_data.data());
   for (size_t idx = 0; idx < pages.size(); idx++) {
     auto& p = pages[idx];
-
     p.lvl_decode_buf[level_type::DEFINITION] = buf;
     buf += (LEVEL_DECODE_BUF_SIZE * _pass_itm_data->level_type_size);
     p.lvl_decode_buf[level_type::REPETITION] = buf;
@@ -681,7 +677,6 @@ std::pair<bool, std::vector<std::future<void>>> reader::impl::read_and_decompres
   auto const num_rows         = _pass_itm_data->num_rows;
 
   auto& raw_page_data = _pass_itm_data->raw_page_data;
-  printf("setting chunks to _pass_itm_data->chunks\n");
   auto& chunks        = _pass_itm_data->chunks;
 
   // Descriptors for all the chunks that make up the selected columns
