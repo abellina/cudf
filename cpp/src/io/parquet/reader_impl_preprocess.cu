@@ -64,7 +64,6 @@ void generate_depth_remappings(std::map<int, std::pair<std::vector<int>, std::ve
                                int src_col_schema,
                                aggregate_reader_metadata const& md)
 {
-  printf("at generate_depth_remappings for col %i\n", src_col_schema);
   // already generated for this level
   if (remap.find(src_col_schema) != remap.end()) { return; }
   auto schema   = md.get_schema(src_col_schema);

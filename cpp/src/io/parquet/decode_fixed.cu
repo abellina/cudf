@@ -526,7 +526,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     __syncthreads();
 
     // are we decoding dictionary entries or rows??
-    //dict_stream.decode_next(t, next_valid - valid, valid);
+    //dict_stream.decode_next(t, 2, next_valid - valid, valid);
     dict_stream.decode_next(t, 2, this_processed, processed);
     __syncthreads();
 
