@@ -41,6 +41,12 @@ cudf::io::table_with_metadata read_parquet(std::string const& file_path)
   auto options     = builder.build();
   auto res = cudf::io::read_parquet(options);
   std::cout << "table of " << res.tbl->num_rows() << " rows scanned" << std::endl;
+  for (int i = 0; i < res.tbl->num_columns(); ++i) { 
+    std::cout << "Col " << i 
+              << " num_rows: " << res.tbl->get_column(i).size() 
+              << " num_nulls: " << res.tbl->get_column(i).null_count() << std::endl;
+  }
+
   return res;
 }
 
@@ -49,7 +55,9 @@ void simple_int_column(int num_rows)
   std::string filepath("/home/abellina/table_with_dict.parquet");
 
   auto valids = cudf::detail::make_counting_transform_iterator(
-    0, [](auto i) { return i == 123 || i == 555 ? 0 : 1; });
+    0, [](auto i) { return i % 2 == 0; });
+    //0, [](auto i) { return i == 123 || i == 555 ? 0 : 1; });
+    
   /// 0, [](auto i) { return 1; });
   //  0, [](auto i) { return i == 123 || i == 777 ? 0 : 1; });
   auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 10; });
@@ -85,26 +93,26 @@ int main(int argc, char** argv)
   //auto store_sales = read_parquet("/home/abellina/cudf/first_1m.snappy.parquet");
 
 // ENABLE THIS
- const char* name = nullptr;
- if (argc > 1){
-   name = argv[1];
-   auto store_sales2 = read_parquet(name);
-   cudaDeviceSynchronize();
- } else {
-   auto store_sales2 = read_parquet(
-     "/home/abellina/cudf/s_1_1.snappy.parquet");
-   cudaDeviceSynchronize();
- }
+//const char* name = nullptr;
+//if (argc > 1){
+//  name = argv[1];
+//  auto store_sales2 = read_parquet(name);
+//  cudaDeviceSynchronize();
+//} else {
+//  auto store_sales2 = read_parquet(
+//    "/home/abellina/cudf/s_1_1.snappy.parquet");
+//  cudaDeviceSynchronize();
+//}
   
 
- //[[maybe_unused]] int num_rows = 128;
- //if (argc > 1) {
- //  num_rows = atoi(argv[1]);
- //}
- //simple_int_column(num_rows);
- //auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
+ [[maybe_unused]] int num_rows = 128;
+ if (argc > 1) {
+   num_rows = atoi(argv[1]);
+ }
+ simple_int_column(num_rows);
+ auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
 
-  //std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
+  std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
   std::cout << "done" << std::endl;
 
   return 0;

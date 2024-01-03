@@ -295,30 +295,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     return; 
   }
 
-  #ifdef ABDEBUG
-    printf(
-      "nodict page info: t %i \n\tpage_idx: %i \n\tcompressed_page_size: %i \n\tuncompressed_page_size: %i \n\tnum_input_values: %i \n\tchunk_row: %i "
-      "\n\tnum_rows: %i \n\tnum_nulls: %i \n\tnum_valids: %i \n\tstart_val: %i \n\tend_val: %i \n\tchunk_idx: %i \n\tsrc_col_schema: %i "
-      "\n\tencoding: %i \n\tdef_level_encoding: %i \n\trep_level_encoding: %i \n\tkernel_mask: %#08X\n",
-      t,
-      page_idx,
-      pp->compressed_page_size,
-      pp->uncompressed_page_size,
-      pp->num_input_values,
-      pp->chunk_row,
-      pp->num_rows,
-      pp->num_nulls,
-      pp->num_valids,
-      pp->start_val,
-      pp->end_val,
-      pp->chunk_idx,
-      pp->src_col_schema,
-      (int)pp->encoding,
-      (int)pp->definition_level_encoding,
-      (int)pp->repetition_level_encoding,
-      (int)pp->kernel_mask);
-  #endif
-
   // must come after the kernel mask check
   [[maybe_unused]] null_count_back_copier _{s, t};
 
@@ -583,7 +559,6 @@ void __host__ DecodePageDataFixedDict(
       <<<dim_grid, dim_block, 0, stream.value()>>>(
         pages.device_ptr(), chunks, min_row, num_rows);
   }
-  cudaDeviceSynchronize();
 }
 
 }  // namespace cudf::io::parquet::detail

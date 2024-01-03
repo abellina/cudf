@@ -194,9 +194,9 @@ fi
 if hasArg -v; then
     VERBOSE_FLAG="-v"
 fi
+CUDA_ENABLE_LINEINFO=1
 if hasArg -g; then
     BUILD_TYPE=Debug
-    CUDA_ENABLE_LINEINFO=1
 fi
 if hasArg -n; then
     INSTALL_TARGET=""

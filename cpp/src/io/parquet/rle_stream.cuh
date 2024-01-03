@@ -361,8 +361,7 @@ struct rle_stream {
 
   __device__ inline int decode_next(int t, int do_print, int count, int roll)
   {
-    int const output_count = 
-      count < 0 ? min(max_output_values, total_values - cur_values) : count;
+    int const output_count = min(count < 0 ? max_output_values : count, total_values - cur_values);
 
 //   if (do_print>0) {
 //     printf("t: %i will fill upto %i\n", t, output_count);
