@@ -22,6 +22,7 @@
 #include <cudf_test/base_fixture.hpp>
 #include <cudf_test/column_wrapper.hpp>
 #include <cudf_test/debug_utilities.hpp>
+#include <cudf_test/table_utilities.hpp>
 
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
@@ -93,26 +94,33 @@ int main(int argc, char** argv)
   //auto store_sales = read_parquet("/home/abellina/cudf/first_1m.snappy.parquet");
 
 // ENABLE THIS
-//const char* name = nullptr;
-//if (argc > 1){
-//  name = argv[1];
-//  auto store_sales2 = read_parquet(name);
-//  cudaDeviceSynchronize();
-//} else {
-//  auto store_sales2 = read_parquet(
-//    "/home/abellina/cudf/s_1_1.snappy.parquet");
-//  cudaDeviceSynchronize();
-//}
+const char* name = nullptr;
+if (argc > 1){
+  name = argv[1];
+  //setenv("USE_FIXED_OP", "0", 1);
+  auto expected = read_parquet(name);
+  cudaDeviceSynchronize();
+
+  //setenv("USE_FIXED_OP", "2", 1);
+  //auto actual = read_parquet(name);
+  cudaDeviceSynchronize();
+
+  //CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+} else {
+  auto store_sales2 = read_parquet(
+    "/home/abellina/cudf/s_1_1.snappy.parquet");
+  cudaDeviceSynchronize();
+}
   
 
- [[maybe_unused]] int num_rows = 128;
- if (argc > 1) {
-   num_rows = atoi(argv[1]);
- }
- simple_int_column(num_rows);
- auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
+ //[[maybe_unused]] int num_rows = 128;
+ //if (argc > 1) {
+ //  num_rows = atoi(argv[1]);
+ //}
+ //simple_int_column(num_rows);
+ //auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
 
-  std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
+ // std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
   std::cout << "done" << std::endl;
 
   return 0;

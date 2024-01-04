@@ -94,7 +94,15 @@ struct rle_batch {
     int level_val;
     if (!(level_run & 1)) {
       level_val = run_start[0];
-      if (level_bits > 8) { level_val |= run_start[1] << 8; }
+      if (level_bits > 8) { 
+        level_val |= run_start[1] << 8; 
+        if (level_bits > 16) {
+          level_val |= run_start[2] << 16; 
+          if (level_bits > 24) {
+            level_val |= run_start[3] << 24; 
+          }
+        }
+      }
     }
 
     // process
@@ -247,7 +255,9 @@ struct rle_stream {
     // generate runs until we either run out of warps to decode them with, or
     // we cross the output limit.
     [[maybe_unused]] uint8_t const* my_start = cur;
-    while (run_count < num_rle_stream_decode_warps && output_pos < max_count && cur < end) {
+    while (run_count < num_rle_stream_decode_warps && 
+           output_pos < max_count && 
+           cur < end) {
       auto& run = runs[rolling_index<run_buffer_size>(run_index)];
 
       // Encoding::RLE
@@ -268,20 +278,17 @@ struct rle_stream {
         //gpuDecodeDictionaryIndices does: 
         //int const run_size = max(min(32, (int)(level_run >> 1) * 8), 1);
         run.size            = run_size; //this is rows
-        int const run_size8 = (run_size + 7) >> 3;
-        run_bytes += run_size8 * level_bits;
+        //int const run_size8 = (run_size + 7) >> 3;
+        run_bytes += ((run_size * level_bits) + 7) >> 3;
         //printf("literal run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " was spill: %i level_run: %i run_size: %i run_size_8 %i run_bytes: %i \n", 
         //run_count, (uint64_t)my_start, (uint64_t)_cur, was_spill, level_run, run.size, run_size8, run_bytes);
       }
       // repeated value run
       else {
+        // take into account level_bits higher than 8 here
+        int bytecnt = (level_bits + 7) >> 3;
         run.size = (level_run >> 1);
-        run_bytes++;
-        // can this ever be > 16?  it effectively encodes nesting depth so that would require
-        // a nesting depth > 64k.
-        if (level_bits > 8) { run_bytes++; }
-        if (level_bits > 16) { run_bytes++; }
-        if (level_bits > 24) { run_bytes++; }
+        run_bytes += bytecnt;
        //printf("repeated run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " was spill: %i level_run: %i run_size: %i run_bytes: %i \n", 
        //run_count, (uint64_t)my_start, (uint64_t)_cur, was_spill, level_run, run.size, run_bytes);
       }
@@ -295,7 +302,7 @@ struct rle_stream {
       run_index++;
       run_count++;
 
-      if (dict > 0) {
+      if (dict > 1) {
         printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
                " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  "
                " level_run >> 1: %i "

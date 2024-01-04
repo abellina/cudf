@@ -559,6 +559,7 @@ void __host__ DecodePageDataFixedDict(
       <<<dim_grid, dim_block, 0, stream.value()>>>(
         pages.device_ptr(), chunks, min_row, num_rows);
   }
+  cudaStreamSynchronize(stream.value());
 }
 
 }  // namespace cudf::io::parquet::detail
