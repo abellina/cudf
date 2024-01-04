@@ -295,27 +295,25 @@ struct rle_stream {
       run_index++;
       run_count++;
 
-      //if (dict > 0) {
-      //  printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
-      //         " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  "
-      //         "is_literal: %i\n",
-      //         t,
-      //         dict,
-      //         was_spill,
-      //         run_count,
-      //         (uint64_t)my_start,
-      //         (uint64_t)_cur,
-      //         run_bytes,
-      //         run_count,
-      //         run.size,
-      //         output_pos,
-      //         level_run,
-      //         level_run & 1 ? 1 : 0);
-      //}
-      //printf("spill? %i  run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  is_literal: %i\n", 
-      //  was_spill,
-      //  run_count, (uint64_t)my_start, (uint64_t)_cur, 
-      //  run_bytes, run_count, run.size, output_pos, level_run, level_run & 1 ? 1 : 0);
+      if (dict > 0) {
+        printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
+               " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  "
+               " level_run >> 1: %i "
+               "is_literal: %i\n",
+               t,
+               dict,
+               was_spill,
+               run_count,
+               (uint64_t)my_start,
+               (uint64_t)_cur,
+               run_bytes,
+               run_count,
+               run.size,
+               output_pos,
+               level_run,
+               (int)(level_run >> 1),
+               level_run & 1 ? 1 : 0);
+      }
     }
 
     // the above loop computes a batch of runs to be processed. mark down

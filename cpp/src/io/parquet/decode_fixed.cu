@@ -407,9 +407,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  //if (page_idx != 44) {
-  //  return;
-  //}
+  if (page_idx != 44) {
+    return;
+  }
 
   // the level stream decoders
   // rolling_buf_size = 256
