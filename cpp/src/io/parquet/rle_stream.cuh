@@ -74,7 +74,7 @@ struct rle_batch {
   __device__ inline void decode(
     int t,
     uint8_t const* const end, int level_bits, int lane, int warp_id, 
-    int roll, int max_output_values, int do_print)
+    int roll, int max_output_values, int do_print, int values_processed)
   {
     int output_pos = 0;
     int remain     = size;
@@ -94,6 +94,9 @@ struct rle_batch {
     int level_val;
     if (!(level_run & 1)) {
       level_val = run_start[0];
+      //if (lane==0) {
+      //printf("warp %i rep. run_start[0] = %i\n", warp_id, run_start[0]);
+      //}
       if (level_bits > 8) { 
         level_val |= run_start[1] << 8; 
         if (level_bits > 16) {
@@ -117,14 +120,22 @@ struct rle_batch {
           uint8_t const* cur_thread = cur + (bitpos >> 3);
           bitpos &= 7;
           level_val = 0;
-          if (cur_thread < end) { level_val = cur_thread[0]; }
+          if (cur_thread < end) { 
+            level_val = cur_thread[0];
+            //if (lane == 0) { printf("warp %i lit1. level_val = %i\n", warp_id, level_val); }
+          }
           cur_thread++;
           if (level_bits > 8 - bitpos && cur_thread < end) {
             level_val |= cur_thread[0] << 8;
+            //if (lane == 0) { printf("warp %i lit2. level_val = %i\n", warp_id ,level_val); }
             cur_thread++;
-            if (level_bits > 16 - bitpos && cur_thread < end) { level_val |= cur_thread[0] << 16; }
+            if (level_bits > 16 - bitpos && cur_thread < end) { 
+              level_val |= cur_thread[0] << 16; 
+            //if (lane == 0) { printf("warp %i lit3. level_val = %i\n", warp_id, level_val); }
+            }
           }
           level_val = (level_val >> bitpos) & ((1 << level_bits) - 1);
+          //if (lane == 0) { printf("warp %i lit4. level_val = %i\n", warp_id, level_val); }
         }
 
         cur += batch_len8 * level_bits;
@@ -132,11 +143,15 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        //if (do_print >= 0) {
-        //  printf("t: %i rolling_index_d: %i dict = %i val: %i\n",
-        //    t, rolling_index_d(lane + output_pos + roll, max_output_values), do_print, level_val);
-        //}
         output[rolling_index_d(lane + output_pos + roll, max_output_values)] = level_val; 
+        //if (do_print > 0) {
+        //printf("warp: %i idx: %i literal? %i lane: %i outpos_pos: %i ix: %i  max_output_values: %i level_val: %i values_processed: %i \n",
+        //warp_id,
+        //idx,
+        //  (level_run & 1), 
+        //  lane, 
+        //  output_pos, ix, max_output_values, level_val, values_processed);
+        //}
       }
       remain -= batch_len;
       output_pos += batch_len;
@@ -271,26 +286,20 @@ struct rle_stream {
       int run_bytes       = _cur - cur;
      //printf("run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " run_bytes: %i \n", 
      //run_count, (uint64_t)my_start, (uint64_t)_cur, run_bytes);
+     int header_len = run_bytes;
 
       // literal run
       if (level_run & 1) {
-        int const run_size  = (level_run >> 1) * 8; // why times 8, is this bytes? then what is run_size8 
-        //gpuDecodeDictionaryIndices does: 
-        //int const run_size = max(min(32, (int)(level_run >> 1) * 8), 1);
-        run.size            = run_size; //this is rows
-        //int const run_size8 = (run_size + 7) >> 3;
-        run_bytes += ((run_size * level_bits) + 7) >> 3;
-        //printf("literal run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " was spill: %i level_run: %i run_size: %i run_size_8 %i run_bytes: %i \n", 
-        //run_count, (uint64_t)my_start, (uint64_t)_cur, was_spill, level_run, run.size, run_size8, run_bytes);
+        // multiples of 8
+        run.size            = (level_run >> 1) * 8; 
+        run_bytes += ((run.size * level_bits) + 7) >> 3;
       }
       // repeated value run
       else {
-        // take into account level_bits higher than 8 here
-        int bytecnt = (level_bits + 7) >> 3;
         run.size = (level_run >> 1);
-        run_bytes += bytecnt;
-       //printf("repeated run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " was spill: %i level_run: %i run_size: %i run_bytes: %i \n", 
-       //run_count, (uint64_t)my_start, (uint64_t)_cur, was_spill, level_run, run.size, run_bytes);
+        // should we assume that "run_size" is 1 here??
+        // compare to literal.
+        run_bytes += ((level_bits) + 7) >> 3;
       }
       run.output_pos = output_pos;
       run.start      = _cur;
@@ -301,26 +310,30 @@ struct rle_stream {
       output_pos += run.size;
       run_index++;
       run_count++;
+      int batch_len = run_bytes - header_len;
+      printf("t: %i is_literal: %i level_run: %i batch_len: %i RLE\n", 
+        t, level_run & 1, level_run, batch_len);
 
-      if (dict > 1) {
-        printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
-               " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  "
-               " level_run >> 1: %i "
-               "is_literal: %i\n",
-               t,
-               dict,
-               was_spill,
-               run_count,
-               (uint64_t)my_start,
-               (uint64_t)_cur,
-               run_bytes,
-               run_count,
-               run.size,
-               output_pos,
-               level_run,
-               (int)(level_run >> 1),
-               level_run & 1 ? 1 : 0);
-      }
+      //if (dict > 0) {
+     // printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
+     //        " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  "
+     //        " level_run >> 1: %i run_size (lit) %i "
+     //        "is_literal: %i\n",
+     //        t,
+     //        dict,
+     //        was_spill,
+     //        run_count,
+     //        (uint64_t)my_start,
+     //        (uint64_t)_cur,
+     //        run_bytes,
+     //        run_count,
+     //        run.size,
+     //        output_pos,
+     //        level_run,
+     //        (int)(level_run >> 1),
+     //        (int)((level_run >> 1) * 8),
+     //        level_run & 1 ? 1 : 0);
+      //}
     }
 
     // the above loop computes a batch of runs to be processed. mark down
@@ -368,10 +381,6 @@ struct rle_stream {
   {
     int const output_count = min(count < 0 ? max_output_values : count, total_values - cur_values);
 
-//   if (do_print>0) {
-//     printf("t: %i will fill upto %i\n", t, output_count);
-//   }
-
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
     if (level_bits == 0) {
@@ -402,6 +411,29 @@ struct rle_stream {
     }
     __syncthreads();
 
+     //if(warp_lane == 0) {
+     //  printf("----- num_runs: %i -----------------------\n", num_runs);
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //}
+      __syncthreads();
+
     do {
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
       if (!warp_id) {
@@ -420,7 +452,7 @@ struct rle_stream {
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
         batch.decode(t, end, level_bits, warp_lane, warp_decode_id, 
-          roll, max_output_values, do_print);
+          roll, max_output_values, do_print, values_processed);
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
@@ -432,6 +464,18 @@ struct rle_stream {
       }
       __syncthreads();
 
+     //if( t == 0) {
+     //printf("-------------------------\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //  printf("\n");
+     //}
+      __syncthreads();
+
       // if we haven't run out of space, retrieve the next batch. otherwise leave it for the next
       // call.
       if (!t && values_processed < output_count) {
@@ -441,6 +485,7 @@ struct rle_stream {
     } while (num_runs > 0 && values_processed < output_count);
 
     cur_values += values_processed;
+
 
     // valid for every thread
     return values_processed;

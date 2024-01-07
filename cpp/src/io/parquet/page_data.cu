@@ -67,7 +67,7 @@ __global__ void __launch_bounds__(decode_block_size)
     return;
   }
 
- if (page_idx != 44) {
+ if (page_idx != 12) {
    return;
  }
 

@@ -39,7 +39,7 @@ cudf::io::table_with_metadata read_parquet(std::string const& file_path)
   std::cout << "reading parquet file: " << file_path << std::endl;
   auto source_info = cudf::io::source_info(file_path);
   auto builder     = cudf::io::parquet_reader_options::builder(source_info);
-  auto options     = builder.build();
+  auto options     = builder.columns({"ss_customer_sk"}).build();
   auto res = cudf::io::read_parquet(options);
   std::cout << "table of " << res.tbl->num_rows() << " rows scanned" << std::endl;
   for (int i = 0; i < res.tbl->num_columns(); ++i) { 
@@ -97,15 +97,15 @@ int main(int argc, char** argv)
 const char* name = nullptr;
 if (argc > 1){
   name = argv[1];
-  //setenv("USE_FIXED_OP", "0", 1);
+  setenv("USE_FIXED_OP", "0", 1);
   auto expected = read_parquet(name);
   cudaDeviceSynchronize();
 
-  //setenv("USE_FIXED_OP", "2", 1);
-  //auto actual = read_parquet(name);
+  setenv("USE_FIXED_OP", "2", 1);
+  auto actual = read_parquet(name);
   cudaDeviceSynchronize();
 
-  //CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+  CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
 } else {
   auto store_sales2 = read_parquet(
     "/home/abellina/cudf/s_1_1.snappy.parquet");

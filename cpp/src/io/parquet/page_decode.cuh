@@ -492,10 +492,14 @@ __device__ void gpuDecodeStream(
   int32_t num_input_values  = s->num_input_values;
   int32_t value_count       = s->lvl_count[lvl];
   int32_t batch_coded_count = 0;
+  bool new_or_initial = value_count == 0;
 
+  int the_level_run = level_run;
   while (s->error == 0 && value_count < target_count && value_count < num_input_values) {
     int batch_len;
+    // TODO: we need to print values here to compare with rle_stream
     if (level_run <= 1) {
+      new_or_initial = true;
       // Get a new run symbol from the byte stream
       int sym_len = 0;
       if (!t) {
@@ -523,8 +527,10 @@ __device__ void gpuDecodeStream(
       sym_len   = shuffle(sym_len);
       level_val = shuffle(level_val);
       level_run = shuffle(level_run);
+      the_level_run = level_run;
       cur_def += sym_len;
     }
+    
     if (s->error != 0) { break; }
 
     batch_len = min(num_input_values - value_count, 32);
@@ -553,8 +559,16 @@ __device__ void gpuDecodeStream(
       batch_len = min(batch_len, level_run >> 1);
       level_run -= batch_len * 2;
     }
+    if (new_or_initial && t == 0) {
+      printf(
+        "t: %i is_literal: %i level_run: %i batch_len: %i\n", 
+        t, the_level_run & 1, the_level_run, batch_len);
+    }
+    new_or_initial = false;
+
     if (t < batch_len) {
       int idx                                      = value_count + t;
+      int ix = rolling_index<rolling_buf_size>(idx);
       output[rolling_index<rolling_buf_size>(idx)] = level_val;
     }
     batch_coded_count += batch_len;
