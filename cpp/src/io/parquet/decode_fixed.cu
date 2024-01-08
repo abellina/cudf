@@ -504,14 +504,13 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         page_idx, this_processed, processed, next_valid, valid );
     }
 
-    // are we decoding dictionary entries or rows??
     dict_stream.decode_next(t, 2, (next_valid - valid), valid);
     //dict_stream.decode_next(t, 2, this_processed, processed);
    __syncthreads();
 
     // decode the values themselves
-   // gpuDecodeValues(s, sb, valid, next_valid, t);
-    //__syncthreads();
+    gpuDecodeValues(s, sb, valid, next_valid, t);
+    __syncthreads();
 
     processed += this_processed;
     valid = next_valid;

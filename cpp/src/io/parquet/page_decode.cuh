@@ -244,8 +244,9 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
   int pos            = s->dict_pos;
   int str_len        = 0;
   int print_it = s->dict_run <= 0;
-
+  
   while (pos < target_pos) {
+    int last_pos = pos;
     int is_literal, batch_len;
     if (!t) {
       uint32_t run       = s->dict_run;
@@ -277,21 +278,21 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
         int batch_len_div8;
         batch_len      = max(min(32, (int)(run >> 1) * 8), 1);
         batch_len_div8 = (batch_len + 7) >> 3;
-        if (print_it) {
-          printf("t: %i is_literal: 1 level_run: %i batch_len = %i\n", 
-          t,
-          (int)run,
-          batch_len_div8 * dict_bits);
-        }
+        //if (print_it) {
+        //  printf("t: %i is_literal: 1 level_run: %i batch_len = %i\n", 
+        //  t,
+        //  (int)run,
+        //  batch_len_div8 * dict_bits);
+        //}
         run -= batch_len_div8 * 2;
         cur += batch_len_div8 * dict_bits;
       } else {
-        if (print_it) {
-          printf("t: %i is_literal: 0 level_run: %i batch_len = %i\n", 
-            t,
-            (int)run,
-            bytecnt);
-        }
+        //if (print_it) {
+        //  printf("t: %i is_literal: 0 level_run: %i batch_len = %i\n", 
+        //    t,
+        //    (int)run,
+        //    bytecnt);
+        //}
         batch_len = max(min(32, (int)(run >> 1)), 1);
         run -= batch_len * 2;
       }
@@ -333,10 +334,14 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
       if constexpr (!sizes_only) {
         //auto idx = pos + t;
         //auto level_val = dict_idx;
-        if (print_it && !t) {
-          printf("value at idx: %i is level_val: %i\n", pos + t, dict_idx);
-        }
         sb->dict_idx[rolling_index<state_buf::dict_buf_size>(pos + t)] = dict_idx;
+        if (print_it && !t) {
+          for (int idx = last_pos; idx < pos + batch_len; ++idx) {
+            printf("idx: %i, output[idx]=%i\n",
+                   idx,
+                   sb->dict_idx[rolling_index<state_buf::dict_buf_size>(idx)]);
+          }
+        }
       }
     }
 
@@ -360,6 +365,7 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
       str_len += WarpReduce(temp_storage).Sum(len);
     }
 
+    last_pos = pos;
     pos += batch_len;
   }
   return {pos, str_len};

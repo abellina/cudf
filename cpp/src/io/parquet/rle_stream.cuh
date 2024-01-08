@@ -144,10 +144,10 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        auto idx = lane + _output_pos + output_pos + roll;
-        if (do_print == 2 && lane == 0) {
-          printf("value at idx: %i is level_val: %i RLE\n", idx, level_val);
-        }
+        [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll;
+        //if (do_print == 2 && lane == 0) {
+        //  printf("value at idx: %i is level_val: %i RLE\n", idx, level_val);
+        //}
         output[rolling_index_d(lane + _output_pos + output_pos + roll, max_output_values)] = level_val; 
         
         //if (do_print > 0) {
@@ -316,11 +316,11 @@ struct rle_stream {
       output_pos += run.size;
       run_index++;
       run_count++;
-      int batch_len = run_bytes - header_len;
-      if (do_print == 2) {
-        printf("t: %i is_literal: %i level_run: %i batch_len: %i RLE\n", 
-          t, level_run & 1, level_run, batch_len);
-      }
+      [[maybe_unused]] int batch_len = run_bytes - header_len;
+      //if (do_print == 2) {
+      //  printf("t: %i is_literal: %i level_run: %i batch_len: %i RLE\n", 
+      //    t, level_run & 1, level_run, batch_len);
+      //}
 
       //if (dict > 0) {
      // printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
@@ -412,10 +412,13 @@ struct rle_stream {
     __shared__ int run_start;
     __shared__ int num_runs;
     __shared__ int values_processed;
+    int beginning_abs_idx;
+    int last_values_processed = 0;
     if (!t) {
       // carryover from the last call.
       thrust::tie(run_start, num_runs) = get_run_batch();
       values_processed                 = 0;
+      beginning_abs_idx = roll;
     }
     __syncthreads();
 
@@ -443,6 +446,7 @@ struct rle_stream {
       __syncthreads();
 
     do {
+      beginning_abs_idx += last_values_processed;
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
@@ -478,17 +482,13 @@ struct rle_stream {
         }
       }
       __syncthreads();
+      if (!t && do_print == 2) {
+        for (int idx = beginning_abs_idx; idx < beginning_abs_idx + values_processed; ++idx) {
+          printf("idx: %i, output[idx]=%i RLE\n", idx, output[rolling_index_d(idx, max_output_values)]);
+        }
+        printf("---------------------------\n");
+      }
 
-     //if( t == 0) {
-     //printf("-------------------------\n");
-     //  printf("\n");
-     //  printf("\n");
-     //  printf("\n");
-     //  printf("\n");
-     //  printf("\n");
-     //  printf("\n");
-     //  printf("\n");
-     //}
       __syncthreads();
 
       // if we haven't run out of space, retrieve the next batch. otherwise leave it for the next
@@ -497,6 +497,9 @@ struct rle_stream {
         thrust::tie(run_start, num_runs) = get_run_batch();
       }
       __syncthreads();
+
+      last_values_processed = values_processed;
+
     } while (num_runs > 0 && values_processed < output_count);
 
     cur_values += values_processed;
