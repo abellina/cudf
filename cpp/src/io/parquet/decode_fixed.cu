@@ -282,16 +282,24 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
-  if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT))) { return; }
+  if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT))) { 
+    #ifdef ABDEBUG
+    printf("returning.. not a NO_DICT page kernel_mask %i\n", pages[page_idx].kernel_mask);
+    #endif
+    return; 
+  }
 
   // must come after the kernel mask check
   [[maybe_unused]] null_count_back_copier _{s, t};
 
+  // TODO: abellina all_types_filter???
+  //if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, all_types_filter{}, true)) { return; }
   if (!setupLocalPageInfo(s, pp, chunks, min_row, num_rows, 
     mask_filter{decode_kernel_mask::FIXED_WIDTH_NO_DICT}, 
-    page_processing_stage::DECODE)) { return; }
-
-  //if (page_idx != 12) { return; }
+    page_processing_stage::DECODE)) { 
+      return; 
+  }
+  if (page_idx != 12) { return; }
 
   // the level stream decoders
   int const max_batch_size = rolling_buf_size;
@@ -326,7 +334,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
                      s->abs_lvl_end[level_type::DEFINITION],
                      rolling_buf_size,
                      def,
-                     s->page.num_input_values, 0, t);
+                     s->page.num_input_values);
   }
   __syncthreads();
 
@@ -355,10 +363,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-    //if (t == 0){
-    //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-    //    page_idx, this_processed, processed, next_valid, valid );
-    //}
+    if (t == 0){
+      printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+        page_idx, this_processed, processed, next_valid, valid );
+    }
 
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t);
@@ -398,9 +406,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  //if (page_idx != 44) {
-  //  return;
-  //}
+  if (page_idx != 12) {
+    return;
+  }
 
   // the level stream decoders
   // rolling_buf_size = 256
@@ -438,7 +446,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   level_t* def             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::DEFINITION]);
   if (nullable) {
     // col.level_bits - 1
-    
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
@@ -492,15 +499,15 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-   //if (t == 0){
-   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-   //    page_idx, this_processed, processed, next_valid, valid );
-   //}
+    if (t == 0){
+      printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+        page_idx, this_processed, processed, next_valid, valid );
+    }
 
     // are we decoding dictionary entries or rows??
-    //dict_stream.decode_next(t, 2, next_valid - valid, valid);
-  //  dict_stream.decode_next(t, 2, this_processed, processed);
-   // __syncthreads();
+    dict_stream.decode_next(t, 2, (next_valid - valid), valid);
+    //dict_stream.decode_next(t, 2, this_processed, processed);
+   __syncthreads();
 
     // decode the values themselves
    // gpuDecodeValues(s, sb, valid, next_valid, t);
@@ -543,6 +550,8 @@ void __host__ DecodePageDataFixedDict(
   int level_type_size,
   rmm::cuda_stream_view stream)
 {
+//  dim3 dim_block(decode_block_size, 1); // decode_block_size = 128 threads per block
+// 1 full warp, and 1 warp of 1 thread
   dim3 dim_block(decode_block_size, 1); // decode_block_size = 128 threads per block
   dim3 dim_grid(pages.size(), 1);       // 1 thread block per pags => # blocks
 

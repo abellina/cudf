@@ -68,6 +68,7 @@ struct rle_batch {
   uint8_t const* run_start;  // start of the run we are part of
   int run_offset;            // value offset of this batch from the start of the run
   level_t* output;
+  int _output_pos;
   int level_run;
   int size;
 
@@ -143,11 +144,11 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        auto idx = lane + output_pos + roll;
-        if (t == 0) {
+        auto idx = lane + _output_pos + output_pos + roll;
+        if (do_print == 2 && lane == 0) {
           printf("value at idx: %i is level_val: %i RLE\n", idx, level_val);
         }
-        output[rolling_index_d(lane + output_pos + roll, max_output_values)] = level_val; 
+        output[rolling_index_d(lane + _output_pos + output_pos + roll, max_output_values)] = level_val; 
         
         //if (do_print > 0) {
         //printf("warp: %i idx: %i literal? %i lane: %i outpos_pos: %i ix: %i  max_output_values: %i level_val: %i values_processed: %i \n",
@@ -173,12 +174,12 @@ struct rle_run {
   int level_run;  // level_run header value
   int remaining;
 
-  __device__ __inline__ rle_batch<level_t> next_batch(level_t* const output, int max_size)
+  __device__ __inline__ rle_batch<level_t> next_batch(level_t* const output, int output_pos, int max_size)
   {
     int const batch_len  = min(max_size, remaining);
     int const run_offset = size - remaining;
     remaining -= batch_len;
-    return rle_batch<level_t>{start, run_offset, output, level_run, batch_len};
+    return rle_batch<level_t>{start, run_offset, output, output_pos, level_run, batch_len};
   }
 };
 
@@ -265,7 +266,7 @@ struct rle_stream {
 
   // fill in up to num_rle_stream_decode_warps runs or until we reach the max_count limit.
   // this function is the critical hotspot.  please be very careful altering it.
-  __device__ inline void fill_run_batch(int max_count)
+  __device__ inline void fill_run_batch(int max_count, int do_print)
   {
     // if we spilled over, we've already got a run at the beginning
     next_batch_run_start = spill ? run_index - 1 : run_index;
@@ -316,8 +317,10 @@ struct rle_stream {
       run_index++;
       run_count++;
       int batch_len = run_bytes - header_len;
-      printf("t: %i is_literal: %i level_run: %i batch_len: %i RLE\n", 
-        t, level_run & 1, level_run, batch_len);
+      if (do_print == 2) {
+        printf("t: %i is_literal: %i level_run: %i batch_len: %i RLE\n", 
+          t, level_run & 1, level_run, batch_len);
+      }
 
       //if (dict > 0) {
      // printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
@@ -444,7 +447,7 @@ struct rle_stream {
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
         // kernel that uses an rle_stream.
-        if (warp_lane == 0) { fill_run_batch(output_count); }
+        if (warp_lane == 0) { fill_run_batch(output_count, do_print); }
       }
       // remaining warps decode the runs
       else if (warp_decode_id < num_runs) {
@@ -454,7 +457,7 @@ struct rle_stream {
         // definition levels take ~11ms - the difference is entirely due to long runs in the
         // definition levels.
         auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
-        auto batch = run.next_batch(output + run.output_pos,
+        auto batch = run.next_batch(output, run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
         batch.decode(t,
                      end,

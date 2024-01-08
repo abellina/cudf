@@ -243,6 +243,7 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
   int dict_bits      = s->dict_bits;
   int pos            = s->dict_pos;
   int str_len        = 0;
+  int print_it = s->dict_run <= 0;
 
   while (pos < target_pos) {
     int is_literal, batch_len;
@@ -252,6 +253,7 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
       [[maybe_unused]] uint8_t const* start_cur = cur;
       int bytecnt = -1;
       if (run <= 1) {
+        print_it = 1;
         run = (cur < end) ? get_vlq32(cur, end) : 0;
         if (!(run & 1)) {
           // Repeated value
@@ -275,20 +277,25 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
         int batch_len_div8;
         batch_len      = max(min(32, (int)(run >> 1) * 8), 1);
         batch_len_div8 = (batch_len + 7) >> 3;
-        //printf("literal start_cur: %" PRIu64" run >> 1: %i cur += %i\n", 
-        // (uint64_t) start_cur, 
-        // (int)(run >> 1),
-        // batch_len_div8 * dict_bits);
+        if (print_it) {
+          printf("t: %i is_literal: 1 level_run: %i batch_len = %i\n", 
+          t,
+          (int)run,
+          batch_len_div8 * dict_bits);
+        }
         run -= batch_len_div8 * 2;
         cur += batch_len_div8 * dict_bits;
       } else {
-        //printf("repeated start_cur: %" PRIu64" run >> 1: %i cur += %i\n", 
-         // (uint64_t) start_cur, 
-         // (int)(run >> 1),
-         // bytecnt);
+        if (print_it) {
+          printf("t: %i is_literal: 0 level_run: %i batch_len = %i\n", 
+            t,
+            (int)run,
+            bytecnt);
+        }
         batch_len = max(min(32, (int)(run >> 1)), 1);
         run -= batch_len * 2;
       }
+      
       s->dict_run   = run;
       s->data_start = cur;
       is_literal    = run & 1;
@@ -324,9 +331,16 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
 
       // if we're not computing sizes, store off the dictionary index
       if constexpr (!sizes_only) {
+        //auto idx = pos + t;
+        //auto level_val = dict_idx;
+        if (print_it && !t) {
+          printf("value at idx: %i is level_val: %i\n", pos + t, dict_idx);
+        }
         sb->dict_idx[rolling_index<state_buf::dict_buf_size>(pos + t)] = dict_idx;
       }
     }
+
+    print_it = 0;
 
     // if we're computing sizes, add the length(s)
     if constexpr (sizes_only) {
@@ -492,9 +506,9 @@ __device__ void gpuDecodeStream(
   int32_t num_input_values  = s->num_input_values;
   int32_t value_count       = s->lvl_count[lvl];
   int32_t batch_coded_count = 0;
-  bool new_or_initial = value_count == 0;
+  [[maybe_unused]] bool new_or_initial = value_count == 0;
 
-  int the_level_run = level_run;
+  [[maybe_unused]] int the_level_run = level_run;
   while (s->error == 0 && value_count < target_count && value_count < num_input_values) {
     int batch_len;
     // TODO: we need to print values here to compare with rle_stream
@@ -559,11 +573,11 @@ __device__ void gpuDecodeStream(
       batch_len = min(batch_len, level_run >> 1);
       level_run -= batch_len * 2;
     }
-    if (new_or_initial && t == 0) {
-      printf(
-        "t: %i is_literal: %i level_run: %i batch_len: %i\n", 
-        t, the_level_run & 1, the_level_run, batch_len);
-    }
+    //if (new_or_initial && t == 0) {
+    //  printf(
+    //    "t: %i is_literal: %i level_run: %i batch_len: %i\n", 
+    //    t, the_level_run & 1, the_level_run, batch_len);
+    //}
     new_or_initial = false;
 
     if (t < batch_len) {
