@@ -67,9 +67,9 @@ __global__ void __launch_bounds__(decode_block_size)
     return;
   }
 
- if (page_idx != 12) {
-   return;
- }
+ //if (page_idx != 12) {
+ //  return;
+ //}
 
   bool const has_repetition = s->col.max_level[level_type::REPETITION] > 0;
 

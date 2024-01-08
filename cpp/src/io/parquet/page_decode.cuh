@@ -275,17 +275,17 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
         int batch_len_div8;
         batch_len      = max(min(32, (int)(run >> 1) * 8), 1);
         batch_len_div8 = (batch_len + 7) >> 3;
-        printf("literal start_cur: %" PRIu64" run >> 1: %i cur += %i\n", 
-          (uint64_t) start_cur, 
-          (int)(run >> 1),
-          batch_len_div8 * dict_bits);
+        //printf("literal start_cur: %" PRIu64" run >> 1: %i cur += %i\n", 
+        // (uint64_t) start_cur, 
+        // (int)(run >> 1),
+        // batch_len_div8 * dict_bits);
         run -= batch_len_div8 * 2;
         cur += batch_len_div8 * dict_bits;
       } else {
-        printf("repeated start_cur: %" PRIu64" run >> 1: %i cur += %i\n", 
-          (uint64_t) start_cur, 
-          (int)(run >> 1),
-          bytecnt);
+        //printf("repeated start_cur: %" PRIu64" run >> 1: %i cur += %i\n", 
+         // (uint64_t) start_cur, 
+         // (int)(run >> 1),
+         // bytecnt);
         batch_len = max(min(32, (int)(run >> 1)), 1);
         run -= batch_len * 2;
       }
@@ -568,7 +568,9 @@ __device__ void gpuDecodeStream(
 
     if (t < batch_len) {
       int idx                                      = value_count + t;
-      int ix = rolling_index<rolling_buf_size>(idx);
+      //if (t == 0) {
+      //printf("value at idx: %i is level_val: %i\n", idx, level_val);
+      //}
       output[rolling_index<rolling_buf_size>(idx)] = level_val;
     }
     batch_coded_count += batch_len;

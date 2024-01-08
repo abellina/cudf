@@ -291,7 +291,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_NO_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  if (page_idx != 12) { return; }
+  //if (page_idx != 12) { return; }
 
   // the level stream decoders
   int const max_batch_size = rolling_buf_size;
@@ -361,8 +361,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     //}
 
     // decode the values themselves
-    //gpuDecodeValues(s, sb, valid, next_valid, t);
-    //__syncthreads();
+    gpuDecodeValues(s, sb, valid, next_valid, t);
+    __syncthreads();
 
     processed += this_processed;
     valid = next_valid;
@@ -398,9 +398,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  if (page_idx != 44) {
-    return;
-  }
+  //if (page_idx != 44) {
+  //  return;
+  //}
 
   // the level stream decoders
   // rolling_buf_size = 256
@@ -492,10 +492,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-    if (t == 0){
-      printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-        page_idx, this_processed, processed, next_valid, valid );
-    }
+   //if (t == 0){
+   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+   //    page_idx, this_processed, processed, next_valid, valid );
+   //}
 
     // are we decoding dictionary entries or rows??
     //dict_stream.decode_next(t, 2, next_valid - valid, valid);

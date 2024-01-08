@@ -143,7 +143,12 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
+        auto idx = lane + output_pos + roll;
+        if (t == 0) {
+          printf("value at idx: %i is level_val: %i RLE\n", idx, level_val);
+        }
         output[rolling_index_d(lane + output_pos + roll, max_output_values)] = level_val; 
+        
         //if (do_print > 0) {
         //printf("warp: %i idx: %i literal? %i lane: %i outpos_pos: %i ix: %i  max_output_values: %i level_val: %i values_processed: %i \n",
         //warp_id,
@@ -451,8 +456,15 @@ struct rle_stream {
         auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
         auto batch = run.next_batch(output + run.output_pos,
                                     min(run.remaining, (output_count - run.output_pos)));
-        batch.decode(t, end, level_bits, warp_lane, warp_decode_id, 
-          roll, max_output_values, do_print, values_processed);
+        batch.decode(t,
+                     end,
+                     level_bits,
+                     warp_lane,
+                     warp_decode_id,
+                     roll,
+                     max_output_values,
+                     do_print,
+                     values_processed);
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
