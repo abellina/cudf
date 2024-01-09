@@ -145,10 +145,16 @@ struct rle_batch {
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll;
-        //if (do_print == 2 && lane == 0) {
-        //  printf("value at idx: %i is level_val: %i RLE\n", idx, level_val);
+        
+        //if (do_print == 2 && t == 96) {
+        //  printf("t: %i idx: %i output[idx]=%i _output_pos=%i rolling_index=%i RLE\n", 
+        //  t,
+        //  idx, 
+        //  level_val,
+        //  _output_pos,
+        //  rolling_index_d(lane + output_pos + roll, max_output_values));
         //}
-        output[rolling_index_d(lane + _output_pos + output_pos + roll, max_output_values)] = level_val; 
+        output[rolling_index_d(lane + output_pos + _output_pos + roll, max_output_values)] = level_val; 
         
         //if (do_print > 0) {
         //printf("warp: %i idx: %i literal? %i lane: %i outpos_pos: %i ix: %i  max_output_values: %i level_val: %i values_processed: %i \n",
@@ -311,6 +317,7 @@ struct rle_stream {
       run.start      = _cur;
       run.level_run  = level_run;
       run.remaining  = run.size;
+      //printf("t=%i run_bytes=%i\n", t, run_bytes);
       cur += run_bytes;
       
       output_pos += run.size;
@@ -481,13 +488,14 @@ struct rle_stream {
           //}
         }
       }
-      __syncthreads();
-      if (!t && do_print == 2) {
-        for (int idx = beginning_abs_idx; idx < beginning_abs_idx + values_processed; ++idx) {
-          printf("idx: %i, output[idx]=%i RLE\n", idx, output[rolling_index_d(idx, max_output_values)]);
-        }
-        printf("---------------------------\n");
-      }
+     //__syncthreads();
+     //if (!t && do_print == 2) {
+     //  for (int idx = beginning_abs_idx; idx < beginning_abs_idx + values_processed; ++idx) {
+     //    printf("idx: %i, output[idx]=%i RLE\n", 
+     //      idx, output[rolling_index_d(idx, max_output_values)]);
+     //  }
+     //  printf("-------after printing output ----------------\n");
+     //}
 
       __syncthreads();
 

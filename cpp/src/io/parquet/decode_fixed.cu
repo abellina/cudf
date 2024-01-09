@@ -170,13 +170,13 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
 
 template <typename state_buf>
 __device__ inline void gpuDecodeValues(
-  page_state_s* s, state_buf* const sb, int start, int end, int t)
+  page_state_s* s, state_buf* const sb, int start, int end, int t, int dict)
 {
   constexpr int num_warps      = decode_block_size / 32;
   constexpr int max_batch_size = num_warps * 32;
 
   PageNestingDecodeInfo* nesting_info_base = s->nesting_info;
-  int const dtype                          = s->col.data_type & 7;
+  [[maybe_unused]] int const dtype                          = s->col.data_type & 7;
 
   // decode values
   int pos = start;
@@ -193,11 +193,15 @@ __device__ inline void gpuDecodeValues(
     // target_pos will always be properly bounded by num_rows, but dst_pos may be negative (values
     // before first_row) in the flat hierarchy case.
     if (src_pos < target_pos && dst_pos >= 0) {
+      //if (dict)  {
+      //  printf("src_pos=%i dst_pos=%i, pos=%i, end=%i\n", src_pos, dst_pos, pos, end);
+      //}
+
       // nesting level that is storing actual leaf values
       int leaf_level_index = s->col.max_nesting_depth - 1;
 
       uint32_t dtype_len = s->dtype_len;
-      void* dst =
+      [[maybe_unused]] void* dst =
         nesting_info_base[leaf_level_index].data_out + static_cast<size_t>(dst_pos) * dtype_len;
       if (dtype == BYTE_ARRAY) {
         if (s->col.converted_type == DECIMAL) {
@@ -369,7 +373,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     }
 
     // decode the values themselves
-    gpuDecodeValues(s, sb, valid, next_valid, t);
+    gpuDecodeValues(s, sb, valid, next_valid, t, 0);
     __syncthreads();
 
     processed += this_processed;
@@ -386,7 +390,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16) page_state_buffers_s<rolling_buf_size,  // size of nz_idx buffer
-                                                rolling_buf_size,  // unused in this kernel
+                                                rolling_buf_size,  // dictionary
                                                 1>                 // unused in this kernel
     state_buffers;
 
@@ -503,13 +507,14 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
       printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
         page_idx, this_processed, processed, next_valid, valid );
     }
+    __syncthreads();
 
     dict_stream.decode_next(t, 2, (next_valid - valid), valid);
     //dict_stream.decode_next(t, 2, this_processed, processed);
    __syncthreads();
 
     // decode the values themselves
-    gpuDecodeValues(s, sb, valid, next_valid, t);
+    gpuDecodeValues(s, sb, valid, next_valid, t, 1);
     __syncthreads();
 
     processed += this_processed;

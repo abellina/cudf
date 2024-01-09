@@ -243,10 +243,10 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
   int dict_bits      = s->dict_bits;
   int pos            = s->dict_pos;
   int str_len        = 0;
-  int print_it = s->dict_run <= 0;
+  [[maybe_unused]] int print_it = s->dict_run <= 0;
   
   while (pos < target_pos) {
-    int last_pos = pos;
+    [[maybe_unused]] int last_pos = pos;
     int is_literal, batch_len;
     if (!t) {
       uint32_t run       = s->dict_run;
@@ -335,13 +335,13 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
         //auto idx = pos + t;
         //auto level_val = dict_idx;
         sb->dict_idx[rolling_index<state_buf::dict_buf_size>(pos + t)] = dict_idx;
-        if (print_it && !t) {
-          for (int idx = last_pos; idx < pos + batch_len; ++idx) {
-            printf("idx: %i, output[idx]=%i\n",
-                   idx,
-                   sb->dict_idx[rolling_index<state_buf::dict_buf_size>(idx)]);
-          }
-        }
+        // here: abellina if (print_it && !t) {
+        //  for (int idx = last_pos; idx < pos + batch_len; ++idx) {
+        //    printf("idx: %i, output[idx]=%i\n",
+        //           idx,
+        //           sb->dict_idx[rolling_index<state_buf::dict_buf_size>(idx)]);
+        //  }
+        //}
       }
     }
 
