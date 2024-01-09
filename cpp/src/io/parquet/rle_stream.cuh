@@ -146,24 +146,25 @@ struct rle_batch {
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll;
         
-        //if (do_print == 2 && t == 96) {
-        //  printf("t: %i idx: %i output[idx]=%i _output_pos=%i rolling_index=%i RLE\n", 
-        //  t,
-        //  idx, 
-        //  level_val,
-        //  _output_pos,
-        //  rolling_index_d(lane + output_pos + roll, max_output_values));
-        //}
-        output[rolling_index_d(lane + output_pos + _output_pos + roll, max_output_values)] = level_val; 
-        
-        //if (do_print > 0) {
-        //printf("warp: %i idx: %i literal? %i lane: %i outpos_pos: %i ix: %i  max_output_values: %i level_val: %i values_processed: %i \n",
-        //warp_id,
-        //idx,
-        //  (level_run & 1), 
-        //  lane, 
-        //  output_pos, ix, max_output_values, level_val, values_processed);
-        //}
+        if (do_print == 2 && idx <= 1024) {
+          printf("idx: %i output[idx]=%i RLE\n", 
+          idx, 
+          level_val);
+        }
+        output[rolling_index_d(lane + output_pos + _output_pos + roll, max_output_values)] = level_val;
+
+        if (do_print == 2 && idx <= 1024) {
+          printf(
+            "warp: %i idx: %i literal? %i lane: %i outpos_pos: %i level_val: %i values_processed: "
+            "%i \n",
+            warp_id,
+            idx,
+            (level_run & 1),
+            lane,
+            output_pos,
+            level_val,
+            values_processed);
+        }
       }
       remain -= batch_len;
       output_pos += batch_len;
@@ -370,6 +371,7 @@ struct rle_stream {
       // a spill has occurred in the current run. spill the extra values over into the beginning of
       // the next run.
       if (spill_count > 0) {
+        printf("spilling spill_count: %i\n", spill_count);
         auto& spill_run      = runs[rolling_index<run_buffer_size>(run_index)];
         spill_run            = src;
         spill_run.output_pos = 0;
@@ -482,10 +484,6 @@ struct rle_stream {
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
-          //if (do_print > 0) { 
-          //  printf("t: %i num_runs %i batch.size %i values_processed %i dict? %i\n", 
-          //    t, num_runs, batch.size, values_processed, do_print);
-          //}
         }
       }
      //__syncthreads();
