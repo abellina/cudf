@@ -303,7 +303,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     page_processing_stage::DECODE)) { 
       return; 
   }
-  //if (page_idx != 12) { return; }
+  if (page_idx != 12) { return; }
 
   // the level stream decoders
   int const max_batch_size = rolling_buf_size;
@@ -410,9 +410,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  //if (page_idx != 12) {
-  //  return;
-  //}
+  if (page_idx != 12) {
+    return;
+  }
 
   // the level stream decoders
   // rolling_buf_size = 256
