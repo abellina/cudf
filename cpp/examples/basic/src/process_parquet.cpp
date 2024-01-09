@@ -98,14 +98,14 @@ int main(int argc, char** argv)
 const char* name = nullptr;
 name = argv[1];
 std::string col_names[] = {
-  "ss_sold_time_sk", 
+ //"ss_sold_time_sk", 
  //"ss_item_sk", 
  //"ss_customer_sk", 
  //"ss_cdemo_sk", 
  //"ss_hdemo_sk", 
  //"ss_addr_sk", 
  //"ss_store_sk", 
- //"ss_promo_sk", 
+ "ss_promo_sk", 
  //"ss_ticket_number", 
  //"ss_quantity", 
  //"ss_wholesale_cost", 
