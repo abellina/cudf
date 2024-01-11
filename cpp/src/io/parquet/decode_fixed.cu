@@ -303,7 +303,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     page_processing_stage::DECODE)) { 
       return; 
   }
-  if (page_idx != 12) { return; }
+  //if (page_idx != 12) { return; }
 
   // the level stream decoders
   int const max_batch_size = rolling_buf_size;
@@ -367,10 +367,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-    if (t == 0){
-      printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-        page_idx, this_processed, processed, next_valid, valid );
-    }
+   //if (t == 0){
+   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+   //    page_idx, this_processed, processed, next_valid, valid );
+   //}
 
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t, 0);
@@ -410,9 +410,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  if (page_idx != 12) {
-    return;
-  }
+  //if (page_idx != 12) {
+  //  return;
+  //}
 
   // the level stream decoders
   // rolling_buf_size = 256
@@ -471,7 +471,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
                    rolling_buf_size, // 256
                    sb->dict_idx, // 256 x uint32_t
                    s->page.num_input_values,
-                   2, 
+                   0, 
                    t); 
   __syncthreads();
 
@@ -503,14 +503,13 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-    if (t == 0){
-      printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-        page_idx, this_processed, processed, next_valid, valid );
-    }
+   //if (t == 0){
+   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+   //    page_idx, this_processed, processed, next_valid, valid );
+   //}
     __syncthreads();
 
-    dict_stream.decode_next(t, 2, (next_valid - valid), valid);
-    //dict_stream.decode_next(t, 2, this_processed, processed);
+    dict_stream.decode_next(t, 0, (next_valid - valid), valid);
    __syncthreads();
 
     // decode the values themselves
