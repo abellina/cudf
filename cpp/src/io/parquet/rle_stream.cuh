@@ -292,9 +292,22 @@ struct rle_stream {
     // generate runs until we either run out of warps to decode them with, or
     // we cross the output limit.
     [[maybe_unused]] uint8_t const* my_start = cur;
+    if (do_print == 2) {
+      printf("run_count: %i, num_rle_stream_decode_warps: %i, output_pos %i max_count %i, cur < end %i\n",
+        run_count, 
+        num_rle_stream_decode_warps, 
+        output_pos, 
+        max_count, 
+        cur < end ? 1 : 0);
+    }
+
+    bool was_spill_and_didnt_process = was_spill;
+
     while (run_count < num_rle_stream_decode_warps && 
            output_pos < max_count && 
            cur < end) {
+        
+      was_spill_and_didnt_process = false;
       auto& run = runs[rolling_index<run_buffer_size>(run_index)];
 
       // Encoding::RLE
@@ -335,30 +348,9 @@ struct rle_stream {
       run_count++;
       [[maybe_unused]] int batch_len = run_bytes - header_len;
       if (do_print == 2) {
-        printf("t: %i is_literal: %i level_run: %i batch_len: %i RLE\n", 
-          t, level_run & 1, level_run, batch_len);
+        printf("t: %i is_literal: %i level_run: %i batch_len: %i run.remaining: %i RLE\n", 
+          t, level_run & 1, level_run, batch_len, run.remaining);
       }
-
-      //if (dict > 0) {
-     // printf("t: %i dict: %i spill? %i run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64
-     //        " run_bytes end: %i run_count: %i run.size %i output_pos: %i level_run: %i  "
-     //        " level_run >> 1: %i run_size (lit) %i "
-     //        "is_literal: %i\n",
-     //        t,
-     //        dict,
-     //        was_spill,
-     //        run_count,
-     //        (uint64_t)my_start,
-     //        (uint64_t)_cur,
-     //        run_bytes,
-     //        run_count,
-     //        run.size,
-     //        output_pos,
-     //        level_run,
-     //        (int)(level_run >> 1),
-     //        (int)((level_run >> 1) * 8),
-     //        level_run & 1 ? 1 : 0);
-      //}
     }
 
     // the above loop computes a batch of runs to be processed. mark down
@@ -372,7 +364,7 @@ struct rle_stream {
     // prepare for the next run:
 
     // if we've reached the value output limit on the last run
-    if (output_pos >= max_count) {
+    if (!was_spill_and_didnt_process && output_pos >= max_count) {
       // first, see if we've spilled over
       auto const& src       = runs[rolling_index<run_buffer_size>(run_index - 1)];
       int const spill_count = output_pos - max_count;
@@ -380,11 +372,19 @@ struct rle_stream {
       // a spill has occurred in the current run. spill the extra values over into the beginning of
       // the next run.
       if (spill_count > 0) {
-        printf("spilling spill_count: %i run_index: %i src_run_index: %i\n", spill_count, run_index, run_index - 1);
         auto& spill_run      = runs[rolling_index<run_buffer_size>(run_index)];
         spill_run            = src;
         spill_run.output_pos = 0;
+        int prior_remaining = spill_run.remaining;
         spill_run.remaining  = spill_count;
+
+        if (do_print == 2) {
+        printf("spilling spill_count: %i run_index: %i src_run_index: %i prior_remaining: %i\n", 
+          spill_count, 
+          rolling_index<run_buffer_size>(run_index), 
+          rolling_index<run_buffer_size>(run_index-1), 
+          prior_remaining);
+        }
 
         run_count = 1;
         run_index++;
@@ -449,7 +449,9 @@ struct rle_stream {
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
         // kernel that uses an rle_stream.
-        if (warp_lane == 0) { fill_run_batch(output_count, do_print); }
+        if (warp_lane == 0) { 
+          fill_run_batch(output_count, do_print); 
+        }
       }
       // remaining warps decode the runs
       else if (warp_decode_id < num_runs) {
@@ -458,15 +460,16 @@ struct rle_stream {
         // repetition levels for one of the list benchmarks decodes in ~3ms total, while the
         // definition levels take ~11ms - the difference is entirely due to long runs in the
         // definition levels.
-        auto& run  = runs[rolling_index<run_buffer_size>(run_start + warp_decode_id)];
+        int run_index = run_start + warp_decode_id;
+        auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
         int remain_prio = run.remaining;
         auto batch = run.next_batch(output, output_count);
                                     
         if (!warp_lane && do_print == 2) { 
-          printf("warp: %i decoding batch at run_index: %i this_remaining: %i remaining: %i\n", 
-            warp_lane, run_start + warp_decode_id, remain_prio, run.remaining); 
+          printf("warp_lane: %i decoding batch at run_index: %i this_remaining: %i remaining: %i\n", 
+            warp_lane, run_index, remain_prio, run.remaining); 
         }
-        batch.decode(run_start + warp_decode_id, 
+        batch.decode(run_index,
                      t,
                      end,
                      level_bits,
@@ -479,6 +482,9 @@ struct rle_stream {
         // last warp updates total values processed
         if (warp_lane == 0 && warp_decode_id == num_runs - 1) {
           values_processed = run.output_pos + batch.size;
+          if (do_print == 2) {
+            printf("values_processed is: %i\n", values_processed);
+          }
         }
       }
      //__syncthreads();
