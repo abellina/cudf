@@ -15,6 +15,7 @@
  */
 
 #include "page_data.cuh"
+#include <stdlib.h>
 
 namespace cudf::io::parquet::detail {
 
@@ -43,7 +44,7 @@ __global__ void __launch_bounds__(decode_block_size)
                     device_span<ColumnChunkDesc const> chunks,
                     size_t min_row,
                     size_t num_rows,
-                    kernel_error::pointer error_code)
+                    kernel_error::pointer error_code, int page_idx_filter)
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16)
@@ -67,9 +68,9 @@ __global__ void __launch_bounds__(decode_block_size)
     return;
   }
 
- //if (page_idx != 12) {
- //  return;
- //}
+  if (page_idx_filter > 0 && page_idx != page_idx_filter) {
+    return;
+  }
 
   bool const has_repetition = s->col.max_level[level_type::REPETITION] > 0;
 
@@ -256,12 +257,19 @@ void __host__ DecodePageData(cudf::detail::hostdevice_vector<PageInfo>& pages,
   dim3 dim_block(decode_block_size, 1);
   dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
 
+  char * page_idx_env = getenv("PAGE_IDX");
+  int page_idx_filter = -1;
+
+  if (page_idx_env != nullptr) {
+    page_idx_filter = atoi(page_idx_env);
+  }
+
   if (level_type_size == 1) {
     gpuDecodePageData<rolling_buf_size, uint8_t><<<dim_grid, dim_block, 0, stream.value()>>>(
-      pages.device_ptr(), chunks, min_row, num_rows, error_code);
+      pages.device_ptr(), chunks, min_row, num_rows, error_code, page_idx_filter);
   } else {
     gpuDecodePageData<rolling_buf_size, uint16_t><<<dim_grid, dim_block, 0, stream.value()>>>(
-      pages.device_ptr(), chunks, min_row, num_rows, error_code);
+      pages.device_ptr(), chunks, min_row, num_rows, error_code, page_idx_filter);
   }
 }
 

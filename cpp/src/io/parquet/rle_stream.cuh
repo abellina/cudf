@@ -147,7 +147,7 @@ struct rle_batch {
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll;
         
-        if (do_print == 2 && idx <= 1024) {
+        if (do_print == 2) {
           printf("run_index: %i run_start: %" PRIu64 " literal? %i level_bits: %i idx: %i output[idx]=%i remain: %i batch_len: %i RLE\n", 
           run_index,
           (uint64_t)run_start,
@@ -159,19 +159,6 @@ struct rle_batch {
           batch_len);
         }
         output[rolling_index_d(lane + output_pos + _output_pos + roll, max_output_values)] = level_val;
-
-        //if (do_print == 2 && idx <= 1024) {
-        //  printf(
-        //    "warp: %i idx: %i literal? %i lane: %i outpos_pos: %i level_val: %i values_processed: "
-        //    "%i \n",
-        //    warp_id,
-        //    idx,
-        //    (level_run & 1),
-        //    lane,
-        //    output_pos,
-        //    level_val,
-        //    values_processed);
-        //}
       }
       remain -= batch_len;
       output_pos += batch_len;
