@@ -147,7 +147,7 @@ struct rle_batch {
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll;
         
-        if (do_print == 2) {
+        if (do_print == 2 && idx >= 240000 && idx <= 250000) {
           printf("run_index: %i run_start: %" PRIu64 " literal? %i level_bits: %i idx: %i output[idx]=%i remain: %i batch_len: %i RLE\n", 
           run_index,
           (uint64_t)run_start,
@@ -331,13 +331,13 @@ struct rle_stream {
       cur += run_bytes;
       
       output_pos += run.size;
-      run_index++;
-      run_count++;
       [[maybe_unused]] int batch_len = run_bytes - header_len;
       if (do_print == 2) {
-        printf("t: %i is_literal: %i level_run: %i batch_len: %i run.remaining: %i RLE\n", 
-          t, level_run & 1, level_run, batch_len, run.remaining);
+        printf("t: %i run_index: %i is_literal: %i level_run: %i batch_len: %i run.remaining: %i RLE\n", 
+          t, run_index, level_run & 1, level_run, batch_len, run.remaining);
       }
+      run_index++;
+      run_count++;
     }
 
     // the above loop computes a batch of runs to be processed. mark down

@@ -305,7 +305,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
       return; 
   }
 
-  if (page_idx_filter > 0 && page_idx != page_idx_filter) {
+  if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
     return;
   }
 
@@ -415,7 +415,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  if (page_idx_filter > 0 && page_idx != page_idx_filter) {
+  if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
     return;
   }
 

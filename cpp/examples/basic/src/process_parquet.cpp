@@ -130,7 +130,6 @@ for (std::string col : col_names) {
   setenv("USE_FIXED_OP", "2", 1);
   auto actual = read_parquet(name, col);
   cudaDeviceSynchronize();
-
   CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
 }
 
