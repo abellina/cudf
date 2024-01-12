@@ -147,7 +147,7 @@ struct rle_batch {
       if (lane < batch_len && (lane + output_pos) >= 0) { 
         [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll;
         
-        if (do_print == 2 && idx >= 240000 && idx <= 250000) {
+        if (do_print == 2) {
           printf("run_index: %i run_start: %" PRIu64 " literal? %i level_bits: %i idx: %i output[idx]=%i remain: %i batch_len: %i RLE\n", 
           run_index,
           (uint64_t)run_start,
@@ -288,7 +288,7 @@ struct rle_stream {
         cur < end ? 1 : 0);
     }
 
-    bool was_spill_and_didnt_process = was_spill;
+    [[maybe_unused]] bool was_spill_and_didnt_process = was_spill;
 
     while (run_count < num_rle_stream_decode_warps && 
            output_pos < max_count && 
@@ -351,7 +351,7 @@ struct rle_stream {
     // prepare for the next run:
 
     // if we've reached the value output limit on the last run
-    if (!was_spill_and_didnt_process && output_pos >= max_count) {
+    if (/*!was_spill_and_didnt_process && */output_pos >= max_count) {
       // first, see if we've spilled over
       auto const& src       = runs[rolling_index<run_buffer_size>(run_index - 1)];
       int const spill_count = output_pos - max_count;
