@@ -194,6 +194,7 @@ struct rle_stream {
   // in an overlapped manner. so if we had 16 total warps:
   // - warp 0 would be filling in batches of runs to be processed
   // - warps 1-15 would be decoding the previous batch of runs generated
+  // == 3 if decode_threads is 128, default.
   static constexpr int num_rle_stream_decode_warps =
     (num_rle_stream_decode_threads / cudf::detail::warp_size) - 1;
 
@@ -267,48 +268,31 @@ struct rle_stream {
     return {next_batch_run_start, next_batch_run_count};
   }
 
-  // fill in up to num_rle_stream_decode_warps runs or until we reach the max_count limit.
-  // this function is the critical hotspot.  please be very careful altering it.
-  __device__ inline void fill_run_batch(int max_count, int do_print)
+  __device__ inline void fill_run_batch(int do_print)
   {
-    // if we spilled over, we've already got a run at the beginning
-    next_batch_run_start = spill ? run_index - 1 : run_index;
-    [[maybe_unused]] int was_spill = spill? 1:0;
-    spill                = false;
+    next_batch_run_start = run_index;
 
-    // generate runs until we either run out of warps to decode them with, or
-    // we cross the output limit.
+    // generate runs until we either run out of warps to decode them with
     [[maybe_unused]] uint8_t const* my_start = cur;
-    if (do_print == 2) {
-      printf("run_count: %i, num_rle_stream_decode_warps: %i, output_pos %i max_count %i, cur < end %i\n",
-        run_count, 
-        num_rle_stream_decode_warps, 
-        output_pos, 
-        max_count, 
-        cur < end ? 1 : 0);
+    if (do_print == 1) {
+      printf("at fill_run_batch with run_count: %i\n", run_count);
     }
 
-    [[maybe_unused]] bool was_spill_and_didnt_process = was_spill;
+    if (do_print == 1 && runs[0].remaining == 0) {
+      printf("resetting run_count no remaining on runs[0]\n");
+      run_count = 0;
+    }
 
-    while (run_count < num_rle_stream_decode_warps && 
-           output_pos < max_count && 
-           cur < end) {
-        
-      was_spill_and_didnt_process = false;
+    while (run_count < num_rle_stream_decode_warps*2 && cur < end) {
       auto& run = runs[rolling_index<run_buffer_size>(run_index)];
 
       // Encoding::RLE
 
       // bytes for the varint header
       uint8_t const* _cur = cur;
-      //printf("run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 "\n", run_count, 
-      //(uint64_t)my_start, (uint64_t)_cur);
       int const level_run = get_vlq32(_cur, end);
       // run_bytes includes the header size
       int run_bytes       = _cur - cur;
-     //printf("run_count: %i my_start was %" PRIu64 " _cur is %" PRIu64 " run_bytes: %i \n", 
-     //run_count, (uint64_t)my_start, (uint64_t)_cur, run_bytes);
-     int header_len = run_bytes;
 
       // literal run
       if (level_run & 1) {
@@ -319,81 +303,30 @@ struct rle_stream {
       // repeated value run
       else {
         run.size = (level_run >> 1);
-        // should we assume that "run_size" is 1 here??
-        // compare to literal.
         run_bytes += ((level_bits) + 7) >> 3;
       }
       run.output_pos = output_pos;
       run.start      = _cur;
       run.level_run  = level_run;
       run.remaining  = run.size;
-      //printf("t=%i run_bytes=%i\n", t, run_bytes);
       cur += run_bytes;
       
       output_pos += run.size;
-      [[maybe_unused]] int batch_len = run_bytes - header_len;
-      if (do_print == 2) {
-        printf("t: %i run_index: %i is_literal: %i level_run: %i batch_len: %i run.remaining: %i RLE\n", 
-          t, run_index, level_run & 1, level_run, batch_len, run.remaining);
+      if (do_print == 1) {
+        printf("t: %i run_index: %i is_literal: %i level_run: %i run.remaining: %i RLE\n", 
+          t, run_index, level_run & 1, level_run, run.remaining);
       }
       run_index++;
       run_count++;
     }
 
-    // the above loop computes a batch of runs to be processed. mark down
-    // the number of runs because the code after this point resets run_count
-    // for the next batch. each batch is returned via get_next_batch().
-
-    //TODO: abellina run_count looks to be wrong for dictionary pages
     next_batch_run_count = run_count;
-
-    // -------------------------------------
-    // prepare for the next run:
-
-    // if we've reached the value output limit on the last run
-    if (/*!was_spill_and_didnt_process && */output_pos >= max_count) {
-      // first, see if we've spilled over
-      auto const& src       = runs[rolling_index<run_buffer_size>(run_index - 1)];
-      int const spill_count = output_pos - max_count;
-
-      // a spill has occurred in the current run. spill the extra values over into the beginning of
-      // the next run.
-      if (spill_count > 0) {
-        auto& spill_run      = runs[rolling_index<run_buffer_size>(run_index)];
-        spill_run            = src;
-        spill_run.output_pos = 0;
-        int prior_remaining = spill_run.remaining;
-        spill_run.remaining  = spill_count;
-
-        if (do_print == 2) {
-        printf("spilling spill_count: %i run_index: %i src_run_index: %i prior_remaining: %i\n", 
-          spill_count, 
-          rolling_index<run_buffer_size>(run_index), 
-          rolling_index<run_buffer_size>(run_index-1), 
-          prior_remaining);
-        }
-
-        run_count = 1;
-        run_index++;
-        output_pos = spill_run.remaining;
-        spill      = true;
-      }
-      // no actual spill needed. just reset the output pos
-      else {
-        output_pos = 0;
-        run_count  = 0;
-      }
-    }
-    // didn't cross the limit, so reset the run count
-    else {
-      run_count = 0;
-    }
   }
 
   __device__ inline int decode_next(int t, int do_print, int count, int roll)
   {
     int const output_count = min(count < 0 ? max_output_values : count, total_values - cur_values);
-    if (t ==0 && do_print == 2) {
+    if (t ==0 && do_print == 1) {
       printf("output_count: %i count: %i roll: %i\n", output_count, count, roll);
     }
 
@@ -420,24 +353,20 @@ struct rle_stream {
     __shared__ int run_start;
     __shared__ int num_runs;
     __shared__ int values_processed;
-    int beginning_abs_idx;
-    int last_values_processed = 0;
     if (!t) {
       // carryover from the last call.
       thrust::tie(run_start, num_runs) = get_run_batch();
       values_processed                 = 0;
-      beginning_abs_idx = roll;
     }
     __syncthreads();
 
     do {
-      beginning_abs_idx += last_values_processed;
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
         // kernel that uses an rle_stream.
         if (warp_lane == 0) { 
-          fill_run_batch(output_count, do_print); 
+          fill_run_batch(do_print); 
         }
       }
       // remaining warps decode the runs
@@ -452,9 +381,9 @@ struct rle_stream {
         int remain_prio = run.remaining;
         auto batch = run.next_batch(output, output_count);
                                     
-        if (!warp_lane && do_print == 2) { 
-          printf("warp_lane: %i decoding batch at run_index: %i this_remaining: %i remaining: %i\n", 
-            warp_lane, run_index, remain_prio, run.remaining); 
+        if (!warp_lane && do_print == 1) { 
+          printf("warp_id: %i decoding batch at run_index: %i this_remaining: %i remaining: %i\n", 
+            warp_id, run_index, remain_prio, run.remaining); 
         }
         batch.decode(run_index,
                      t,
@@ -474,15 +403,6 @@ struct rle_stream {
           }
         }
       }
-     //__syncthreads();
-     //if (!t && do_print == 2) {
-     //  for (int idx = beginning_abs_idx; idx < beginning_abs_idx + values_processed; ++idx) {
-     //    printf("idx: %i, output[idx]=%i RLE\n", 
-     //      idx, output[rolling_index_d(idx, max_output_values)]);
-     //  }
-     //  printf("-------after printing output ----------------\n");
-     //}
-
       __syncthreads();
 
       // if we haven't run out of space, retrieve the next batch. otherwise leave it for the next
@@ -492,12 +412,9 @@ struct rle_stream {
       }
       __syncthreads();
 
-      last_values_processed = values_processed;
-
     } while (num_runs > 0 && values_processed < output_count);
 
     cur_values += values_processed;
-
 
     // valid for every thread
     return values_processed;

@@ -356,7 +356,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     // only need to process definition levels if this is a nullable column
     int this_processed;
     if (nullable) {
-      this_processed = def_decoder.decode_next(t, 0);
+      this_processed = def_decoder.decode_next(t, 1);
       __syncthreads();
 
       next_valid = gpuUpdateValidityOffsetsAndRowIndicesFlat<true, level_t>(
@@ -377,7 +377,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
    //}
 
     // decode the values themselves
-    gpuDecodeValues(s, sb, valid, next_valid, t, 0);
+    gpuDecodeValues(s, sb, valid, next_valid, t, 2);
     __syncthreads();
 
     processed += this_processed;
