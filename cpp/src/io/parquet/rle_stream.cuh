@@ -391,13 +391,9 @@ struct rle_stream {
           int const batch_len  = min(max_size, run.remaining);
           int const run_offset = run.size - run.remaining;
           auto batch = run.next_batch(output, output_count, values_processed, cur_values);
-          // TODO: abellina if the runs are not consumed, the decode index needs to stay with the smallest
-          // not-consumed run.
-          // we need to continue to schedule warps for those not-consumed runs
-          // preventing also the fill warp to stomp on things.
           if (!warp_lane && do_print == 1) { 
             printf("run_start: %i warp_id: %i num_runs: %i decoding batch at run_index: %i run.output_pos: %i "
-                  "this_remaining: %i cur_values: %i output_count: %i remaining: %i output_diff: %i batch_len %i "
+                  "this_remaining: %i cur_values: %i buf_run_output_pos: %i output_count: %i remaining: %i output_diff: %i batch_len %i "
                   "max_runs_to_fill: %i fill_index: %i \n", 
                   run_start,
               warp_id, 
@@ -406,6 +402,7 @@ struct rle_stream {
               run.output_pos, 
               remain_prio, 
               cur_values,
+              run.output_pos - cur_values,
               output_count, 
               run.remaining, 
               output_diff, 
@@ -429,9 +426,6 @@ struct rle_stream {
           //// last warp updates total values processed
           //if (warp_lane == 0 && warp_id == (max_runs_to_fill - fill_index)) {
           //  values_processed = run.output_pos + batch.size;
-          if (warp_lane == 0 && do_print == 1) {
-              printf("adding: %i to values_processed\n", remain_prio - run.remaining);
-          }
           //}
         }
       }
@@ -442,7 +436,10 @@ struct rle_stream {
       int first_time = 1;
       for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
         if (warp_id == 0 && warp_lane == 0 && do_print == 1) {
-          printf("runs[%i] remaining: %i\n", i, runs[i].remaining);
+          printf("runs[%i] remaining: %i output_pos: %i\n", 
+          i, 
+          runs[i].remaining, 
+          rolling_index<256>(runs[i].output_pos));
         }
       }
 
