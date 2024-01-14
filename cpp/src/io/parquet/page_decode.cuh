@@ -335,13 +335,14 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
         //auto idx = pos + t;
         //auto level_val = dict_idx;
         sb->dict_idx[rolling_index<state_buf::dict_buf_size>(pos + t)] = dict_idx;
-        for (int idx = last_pos; idx < pos + batch_len; ++idx) {
-          if (!t) {
-          printf("idx: %i, output[idx]=%i\n",
-                  idx,
-                  sb->dict_idx[rolling_index<state_buf::dict_buf_size>(idx)]);
-          }
-        }
+        // TODO: abellina, re-enable this
+        //for (int idx = last_pos; idx < pos + batch_len; ++idx) {
+        //  if (!t) {
+        //  printf("idx: %i, output[idx]=%i\n",
+        //          idx,
+        //          sb->dict_idx[rolling_index<state_buf::dict_buf_size>(idx)]);
+        //  }
+        //}
       }
     }
 
