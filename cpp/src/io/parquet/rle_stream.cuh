@@ -283,9 +283,9 @@ struct rle_stream {
   {
     // generate runs until we either run out of warps to decode them with
     [[maybe_unused]] uint8_t const* my_start = cur;
-    if (do_print == 1) {
-      printf("at fill_run_batch with run_index: %i run_count: %i\n", run_index, run_count);
-    }
+    //if (do_print == 1) {
+    //  printf("at fill_run_batch with run_index: %i run_count: %i\n", run_index, run_count);
+    //}
 
     while (fill_index < max_runs_to_fill && cur < end) {
       auto& run = runs[fill_index];
@@ -316,10 +316,11 @@ struct rle_stream {
       cur += run_bytes;
       
       output_pos += run.size;
-      if (do_print == 1) {
-        printf("t: %i run_index: %i fill_index: %i is_literal: %i level_run: %i run.remaining: %i RLE\n", 
-          t, run_index, fill_index, level_run & 1, level_run, run.remaining);
-      }
+      // TODO: abellina fill_run_batch print
+      //if (do_print == 1) {
+      //  printf("t: %i run_index: %i fill_index: %i is_literal: %i level_run: %i run.remaining: %i RLE\n", 
+      //    t, run_index, fill_index, level_run & 1, level_run, run.remaining);
+      //}
       run_index++;
       run_count++;
       fill_index++;
@@ -391,6 +392,8 @@ struct rle_stream {
           int const batch_len  = min(max_size, run.remaining);
           int const run_offset = run.size - run.remaining;
           auto batch = run.next_batch(output, output_count, values_processed, cur_values);
+          // TODO: if remaining is > 0, we need to make sure we account for that next iteration..
+          // does run.output_pos need to be changed?
           if (!warp_lane && do_print == 1) { 
             printf("run_start: %i warp_id: %i num_runs: %i decoding batch at run_index: %i run.output_pos: %i "
                   "this_remaining: %i cur_values: %i buf_run_output_pos: %i output_count: %i remaining: %i output_diff: %i batch_len %i "
@@ -436,10 +439,11 @@ struct rle_stream {
       int first_time = 1;
       for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
         if (warp_id == 0 && warp_lane == 0 && do_print == 1) {
-          printf("runs[%i] remaining: %i output_pos: %i\n", 
+          printf("runs[%i] remaining: %i output_pos: %i output_pos_end: %i\n", 
           i, 
           runs[i].remaining, 
-          rolling_index<256>(runs[i].output_pos));
+          rolling_index<256>(runs[i].output_pos),
+          rolling_index<256>(runs[i].output_pos + runs[i].remaining));
         }
       }
 
