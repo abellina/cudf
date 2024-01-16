@@ -34,14 +34,16 @@
 #include <vector>
 #include <iostream>
 
-cudf::io::table_with_metadata read_parquet(std::string const& file_path, std::string const& col_name)
+cudf::io::table_with_metadata read_parquet(
+  std::string const& file_path, 
+  std::string const& col_name)
 {
   std::cout << "reading parquet file: " << file_path << " column: " << col_name << std::endl;
   auto source_info = cudf::io::source_info(file_path);
   auto builder     = cudf::io::parquet_reader_options::builder(source_info);
   //auto options     = builder.build();
   auto options     = builder.columns({col_name}).build();
-  auto res = cudf::io::read_parquet(options);
+  //auto res = cudf::io::read_parquet(options);
   std::cout << "table of " << res.tbl->num_rows() << " rows scanned" << std::endl;
   for (int i = 0; i < res.tbl->num_columns(); ++i) { 
     std::cout << "Col " << i 
@@ -95,17 +97,17 @@ int main(int argc, char** argv)
   //auto store_sales = read_parquet("/home/abellina/cudf/first_1m.snappy.parquet");
 
 // ENABLE THIS
-const char* name = nullptr;
+[[maybe_unused]]const char* name = nullptr;
 name = argv[1];
 std::string col_names[] = {
-//"ss_sold_time_sk", 
+"ss_sold_time_sk", 
 //"ss_item_sk", 
 //"ss_customer_sk", 
 //"ss_cdemo_sk", 
 //"ss_hdemo_sk", 
 //"ss_addr_sk", 
 // "ss_store_sk", 
- "ss_promo_sk", 
+// "ss_promo_sk", 
 //"ss_ticket_number", 
 //"ss_quantity", 
 //"ss_wholesale_cost", 
@@ -138,11 +140,11 @@ for (std::string col : col_names) {
  //if (argc > 1) {
  //  num_rows = atoi(argv[1]);
  //}
- //simple_int_column(num_rows);
- //auto simple = read_parquet("/home/abellina/table_with_dict.parquet");
+ ////simple_int_column(10000);
+ //auto simple = read_parquet("/home/abellina/table_with_dict.parquet", "dummy");
 
  // std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
-  std::cout << "done" << std::endl;
+ // std::cout << "done" << std::endl;
 
   return 0;
 }

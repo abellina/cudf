@@ -342,7 +342,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
                      s->abs_lvl_end[level_type::DEFINITION],
                      rolling_buf_size,
                      def,
-                     s->page.num_input_values);
+                     s->page.num_input_values,
+                     1, t);
   }
   __syncthreads();
 
@@ -371,10 +372,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-   //if (t == 0){
-   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-   //    page_idx, this_processed, processed, next_valid, valid );
-   //}
+   if (t == 0){
+     printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+       page_idx, this_processed, processed, next_valid, valid );
+   }
 
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t, 2);
@@ -508,14 +509,14 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-   //if (t == 0){
-   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-   //    page_idx, this_processed, processed, next_valid, valid );
-   //}
+   if (t == 0){
+     printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+       page_idx, this_processed, processed, next_valid, valid );
+   }
     __syncthreads();
 
-    //dict_stream.decode_next(t, 2, (next_valid - valid), valid);
-    //__syncthreads();
+    dict_stream.decode_next(t, 2, (next_valid - valid), valid);
+    __syncthreads();
 
     // decode the values themselves
    gpuDecodeValues(s, sb, valid, next_valid, t, 1);
@@ -576,6 +577,7 @@ void __host__ DecodePageDataFixedDict(
   if (page_idx_env != nullptr) {
     page_idx_filter = atoi(page_idx_env);
   }
+
 
   if (level_type_size == 1) {
     gpuDecodePageDataFixedDict<uint8_t>
