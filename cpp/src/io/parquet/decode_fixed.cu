@@ -308,6 +308,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
     return;
   }
+  //if (t == 0) {
+  //  printf("fixed decoding page %i\n", page_idx);
+  //}
 
   // the level stream decoders
   int const max_batch_size = rolling_buf_size;
@@ -372,10 +375,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-   if (t == 0){
-     printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-       page_idx, this_processed, processed, next_valid, valid );
-   }
+   //if (t == 0){
+   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+   //    page_idx, this_processed, processed, next_valid, valid );
+   //}
 
     // decode the values themselves
     gpuDecodeValues(s, sb, valid, next_valid, t, 2);
@@ -419,6 +422,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
     return;
   }
+  //if (t == 0) {
+  //  printf("dict decoding page %i\n", page_idx);
+  //}
 
   // the level stream decoders
   // rolling_buf_size = 256
@@ -509,11 +515,11 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
         processed + this_processed, s, sb, nullptr, t, page_idx);
     }
     __syncthreads();
-   if (t == 0){
-     printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-       page_idx, this_processed, processed, next_valid, valid );
-   }
-    __syncthreads();
+   //if (t == 0){
+   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
+   //    page_idx, this_processed, processed, next_valid, valid );
+   //}
+   // __syncthreads();
 
     dict_stream.decode_next(t, 2, (next_valid - valid), valid);
     __syncthreads();

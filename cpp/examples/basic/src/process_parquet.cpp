@@ -43,7 +43,7 @@ cudf::io::table_with_metadata read_parquet(
   auto builder     = cudf::io::parquet_reader_options::builder(source_info);
   //auto options     = builder.build();
   auto options     = builder.columns({col_name}).build();
-  //auto res = cudf::io::read_parquet(options);
+  auto res = cudf::io::read_parquet(options);
   std::cout << "table of " << res.tbl->num_rows() << " rows scanned" << std::endl;
   for (int i = 0; i < res.tbl->num_columns(); ++i) { 
     std::cout << "Col " << i 
@@ -101,27 +101,27 @@ int main(int argc, char** argv)
 name = argv[1];
 std::string col_names[] = {
 "ss_sold_time_sk", 
-//"ss_item_sk", 
-//"ss_customer_sk", 
-//"ss_cdemo_sk", 
-//"ss_hdemo_sk", 
-//"ss_addr_sk", 
-// "ss_store_sk", 
-// "ss_promo_sk", 
-//"ss_ticket_number", 
-//"ss_quantity", 
-//"ss_wholesale_cost", 
-//"ss_list_price", 
-//"ss_sales_price", 
-//"ss_ext_discount_amt", 
-//"ss_ext_sales_price", 
-//"ss_ext_wholesale_cost", 
-//"ss_ext_list_price", 
-//"ss_ext_tax", 
-//"ss_coupon_amt", 
-//"ss_net_paid", 
-//"ss_net_paid_inc_tax", 
-//"ss_net_profit"
+"ss_item_sk", 
+"ss_customer_sk", 
+"ss_cdemo_sk", 
+"ss_hdemo_sk", 
+"ss_addr_sk", 
+"ss_store_sk", 
+"ss_promo_sk", 
+"ss_ticket_number", 
+"ss_quantity", 
+"ss_wholesale_cost", 
+"ss_list_price", 
+"ss_sales_price", 
+"ss_ext_discount_amt", 
+"ss_ext_sales_price", 
+"ss_ext_wholesale_cost", 
+"ss_ext_list_price", 
+"ss_ext_tax", 
+"ss_coupon_amt", 
+"ss_net_paid", 
+"ss_net_paid_inc_tax", 
+"ss_net_profit"
 };
 
 for (std::string col : col_names) {
@@ -133,6 +133,7 @@ for (std::string col : col_names) {
   auto actual = read_parquet(name, col);
   cudaDeviceSynchronize();
   CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+  std::cout << "done" << std::endl;
 }
 
 
