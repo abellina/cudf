@@ -146,7 +146,7 @@ struct rle_batch {
 
       // store level_val
       if (lane < batch_len && (lane + output_pos) >= 0) { 
-        [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll;
+        [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll + run_offset;
         
         // TODO: abellina bring back if you want to print output
         if (do_print == 1) {
@@ -403,7 +403,7 @@ struct rle_stream {
           // does run.output_pos need to be changed?
           if (!warp_lane && do_print == 1) { 
             printf("run_start: %i warp_id: %i num_runs: %i decoding batch at run_index: %i run.output_pos: %i "
-                  "this_remaining: %i cur_values: %i buf_run_output_pos: %i output_count: %i remaining: %i output_diff: %i batch_len %i "
+                  "this_remaining: %i cur_values: %i buf_run_output_pos: %i output_count: %i run.remaining: %i run.size: %i batch.offset: %i output_diff: %i batch_len %i "
                   "max_runs_to_fill: %i fill_index: %i \n", 
                   run_start,
               warp_id, 
@@ -415,12 +415,14 @@ struct rle_stream {
               run.output_pos - cur_values,
               output_count, 
               run.remaining, 
+              run.size,
+              batch.run_offset,
               output_diff, 
               batch_len, 
               max_runs_to_fill, 
               fill_index); 
           }
-          [[maybe_unused]] int batch_processed = batch.decode(run_index,
+          int batch_processed = batch.decode(run_index,
                       t,
                       end,
                       level_bits,
@@ -430,6 +432,9 @@ struct rle_stream {
                       max_output_values,
                       do_print,
                       values_processed);
+          if (!warp_lane && do_print == 1) { 
+            printf("decode run_index: %i processed %i\n", run_index, batch_processed);
+          }
           if (warp_lane == 0) {
             atomicAdd(&values_processed, remain_prio - run.remaining);
           }
