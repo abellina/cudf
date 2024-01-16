@@ -589,9 +589,7 @@ __device__ void gpuDecodeStream(
 
     if (t < batch_len) {
       int idx                                      = value_count + t;
-      //if (t == 0) {
-      //printf("value at idx: %i is level_val: %i\n", idx, level_val);
-      //}
+      printf("value at idx: %i is level_val: %i\n", idx, level_val);
       output[rolling_index<rolling_buf_size>(idx)] = level_val;
     }
     batch_coded_count += batch_len;

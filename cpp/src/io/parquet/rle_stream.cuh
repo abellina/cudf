@@ -72,7 +72,7 @@ struct rle_batch {
   int level_run;
   int size;
 
-  __device__ inline void decode(
+  __device__ inline int decode(
     int run_index,
     int t,
     uint8_t const* const end, int level_bits, int lane, int warp_id, 
@@ -80,6 +80,7 @@ struct rle_batch {
   {
     int output_pos = 0;
     int remain     = size;
+    int processed = 0;
 
     // for bitpacked/literal runs, total size is always a multiple of 8. so we need to take care if
     // we are not starting/ending exactly on a run boundary
@@ -148,7 +149,7 @@ struct rle_batch {
         [[maybe_unused]] auto idx = lane + _output_pos + output_pos + roll;
         
         // TODO: abellina bring back if you want to print output
-        if (do_print == -1) {
+        if (do_print == 1) {
           printf("run_index: %i run_start: %" PRIu64 " literal? %i level_bits: %i idx: %i output[idx]=%i remain: %i batch_len: %i RLE\n", 
           run_index,
           (uint64_t)run_start,
@@ -163,7 +164,9 @@ struct rle_batch {
       }
       remain -= batch_len;
       output_pos += batch_len;
+      processed += batch_len;
     }
+    return processed;
   }
 };
 
@@ -230,6 +233,8 @@ struct rle_stream {
 
   int max_runs_to_fill;
   int fill_index;
+  int fill_warp_db_half;
+  int decode_warps_db_half;
 
   __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {}
 
@@ -263,6 +268,8 @@ struct rle_stream {
     t = _t;
     max_runs_to_fill = num_rle_stream_decode_warps;
     fill_index = 0;
+    fill_warp_db_half = 0;
+    decode_warps_db_half = 0;
   }
 
   __device__ void init(int _level_bits,
@@ -317,10 +324,10 @@ struct rle_stream {
       
       output_pos += run.size;
       // TODO: abellina fill_run_batch print
-      //if (do_print == 1) {
-      //  printf("t: %i run_index: %i fill_index: %i is_literal: %i level_run: %i run.remaining: %i RLE\n", 
-      //    t, run_index, fill_index, level_run & 1, level_run, run.remaining);
-      //}
+      if (do_print == 1) {
+        printf("t: %i run_index: %i fill_index: %i is_literal: %i level_run: %i run.remaining: %i RLE\n", 
+          t, run_index, fill_index, level_run & 1, level_run, run.remaining);
+      }
       run_index++;
       run_count++;
       fill_index++;
@@ -371,12 +378,12 @@ struct rle_stream {
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
         // kernel that uses an rle_stream.
-        if (warp_lane == 0) { 
+        if (warp_lane == 0 && fill_index >= 0) { 
           fill_run_batch(do_print); 
         }
       }
       // remaining warps decode the runs
-      else if (warp_decode_id < num_runs) {
+      else if (warp_decode_id < num_runs && next_batch_run_start >= 0) {
         // each warp handles 1 run, regardless of size.
         // TODO: having each warp handle exactly 32 values would be ideal. as an example, the
         // repetition levels for one of the list benchmarks decodes in ~3ms total, while the
@@ -413,7 +420,7 @@ struct rle_stream {
               max_runs_to_fill, 
               fill_index); 
           }
-          batch.decode(run_index,
+          [[maybe_unused]] int batch_processed = batch.decode(run_index,
                       t,
                       end,
                       level_bits,
@@ -434,39 +441,59 @@ struct rle_stream {
       }
       __syncthreads();
 
-      fill_index = 0;
-      max_runs_to_fill = 0;
-      int first_time = 1;
       for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
         if (warp_id == 0 && warp_lane == 0 && do_print == 1) {
           printf("runs[%i] remaining: %i output_pos: %i output_pos_end: %i\n", 
           i, 
           runs[i].remaining, 
-          rolling_index<256>(runs[i].output_pos),
-          rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+          runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
+          runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
         }
       }
 
-      for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-        if (runs[i].remaining == 0) {
-          if (first_time) {
-            first_time = 0;
-            fill_index = i;
-          }
-          max_runs_to_fill = i + 1;
-        } else {
-          if (!first_time) {
-            break;
-          }
-        }
+      if (runs[0].remaining == 0 && 
+          runs[1].remaining == 0 && 
+          runs[2].remaining == 0) {
+        fill_warp_db_half = 0;
+        max_runs_to_fill = 3;
+      } else if (runs[3].remaining == 0 && 
+                 runs[4].remaining == 0 && 
+                 runs[5].remaining == 0) {
+        fill_warp_db_half = 1;
+        max_runs_to_fill = 6;
+      } else {
+        fill_warp_db_half = -1;
+        max_runs_to_fill = -1;
       }
 
-      for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-        int ri = rolling_index<run_buffer_size>(i + next_batch_run_start);
-        if (runs[ri].remaining != 0) {
-          next_batch_run_start = ri;
-          break;
-        }
+      if (decode_warps_db_half == 0) {
+        if (
+          runs[0].remaining == 0 &&
+          runs[1].remaining == 0 && 
+          runs[2].remaining == 0) {
+            decode_warps_db_half = 1;
+        } // else stay in first half
+      } else {
+        if (
+          runs[3].remaining == 0 &&
+          runs[4].remaining == 0 && 
+          runs[5].remaining == 0) {
+            decode_warps_db_half = 0;
+        } // else stay in second half
+      }
+
+      fill_index = -1;
+      if (fill_warp_db_half == 0) {
+        fill_index = 0;
+      } else if (fill_warp_db_half == 1) {
+        fill_index = 3;
+      }
+
+      next_batch_run_start = -1;
+      if (decode_warps_db_half == 0) {
+        next_batch_run_start = 0;
+      } else if (decode_warps_db_half == 1) {
+        next_batch_run_start = 3;
       }
 
       if (warp_id == 0 && warp_lane == 0 && do_print == 1) {

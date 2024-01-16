@@ -514,12 +514,12 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
    //}
     __syncthreads();
 
-   // dict_stream.decode_next(t, 2, (next_valid - valid), valid);
-   //__syncthreads();
+    //dict_stream.decode_next(t, 2, (next_valid - valid), valid);
+    //__syncthreads();
 
     // decode the values themselves
-   // gpuDecodeValues(s, sb, valid, next_valid, t, 1);
-   // __syncthreads();
+   gpuDecodeValues(s, sb, valid, next_valid, t, 1);
+   __syncthreads();
 
     processed += this_processed;
     valid = next_valid;
