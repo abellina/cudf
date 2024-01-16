@@ -324,10 +324,10 @@ struct rle_stream {
       
       output_pos += run.size;
       // TODO: abellina fill_run_batch print
-      if (do_print == 1) {
-        printf("t: %i run_index: %i fill_index: %i is_literal: %i level_run: %i run.remaining: %i RLE\n", 
-          t, run_index, fill_index, level_run & 1, level_run, run.remaining);
-      }
+      //if (do_print == 1) {
+      //  printf("t: %i run_index: %i fill_index: %i is_literal: %i level_run: %i run.remaining: %i RLE\n", 
+      //    t, run_index, fill_index, level_run & 1, level_run, run.remaining);
+      //}
       run_index++;
       run_count++;
       fill_index++;
@@ -401,28 +401,28 @@ struct rle_stream {
           auto batch = run.next_batch(output, output_count, values_processed, cur_values);
           // TODO: if remaining is > 0, we need to make sure we account for that next iteration..
           // does run.output_pos need to be changed?
-          if (!warp_lane && do_print == 1) { 
-            printf("run_start: %i warp_id: %i num_runs: %i decoding batch at run_index: %i run.output_pos: %i "
-                  "this_remaining: %i cur_values: %i buf_run_output_pos: %i output_count: %i run.remaining: %i run.size: %i batch.offset: %i output_diff: %i batch_len %i "
-                  "max_runs_to_fill: %i fill_index: %i \n", 
-                  run_start,
-              warp_id, 
-              num_runs, 
-              run_index, 
-              run.output_pos, 
-              remain_prio, 
-              cur_values,
-              run.output_pos - cur_values,
-              output_count, 
-              run.remaining, 
-              run.size,
-              batch.run_offset,
-              output_diff, 
-              batch_len, 
-              max_runs_to_fill, 
-              fill_index); 
-          }
-          int batch_processed = batch.decode(run_index,
+          //if (!warp_lane && do_print == 1) { 
+          //  printf("run_start: %i warp_id: %i num_runs: %i decoding batch at run_index: %i run.output_pos: %i "
+          //        "this_remaining: %i cur_values: %i buf_run_output_pos: %i output_count: %i run.remaining: %i run.size: %i batch.offset: %i output_diff: %i batch_len %i "
+          //        "max_runs_to_fill: %i fill_index: %i \n", 
+          //        run_start,
+          //    warp_id, 
+          //    num_runs, 
+          //    run_index, 
+          //    run.output_pos, 
+          //    remain_prio, 
+          //    cur_values,
+          //    run.output_pos - cur_values,
+          //    output_count, 
+          //    run.remaining, 
+          //    run.size,
+          //    batch.run_offset,
+          //    output_diff, 
+          //    batch_len, 
+          //    max_runs_to_fill, 
+          //    fill_index); 
+          //}
+          [[maybe_unused]] int batch_processed = batch.decode(run_index,
                       t,
                       end,
                       level_bits,
@@ -432,9 +432,9 @@ struct rle_stream {
                       max_output_values,
                       do_print,
                       values_processed);
-          if (!warp_lane && do_print == 1) { 
-            printf("decode run_index: %i processed %i\n", run_index, batch_processed);
-          }
+          //if (!warp_lane && do_print == 1) { 
+          //  printf("decode run_index: %i processed %i\n", run_index, batch_processed);
+          //}
           if (warp_lane == 0) {
             atomicAdd(&values_processed, remain_prio - run.remaining);
           }
@@ -446,15 +446,15 @@ struct rle_stream {
       }
       __syncthreads();
 
-      for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-        if (warp_id == 0 && warp_lane == 0 && do_print == 1) {
-          printf("runs[%i] remaining: %i output_pos: %i output_pos_end: %i\n", 
-          i, 
-          runs[i].remaining, 
-          runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
-          runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
-        }
-      }
+      //for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+      //  if (warp_id == 0 && warp_lane == 0 && do_print == 1) {
+      //    printf("runs[%i] remaining: %i output_pos: %i output_pos_end: %i\n", 
+      //    i, 
+      //    runs[i].remaining, 
+      //    runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
+      //    runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+      //  }
+      //}
 
       if (runs[0].remaining == 0 && 
           runs[1].remaining == 0 && 
@@ -501,10 +501,10 @@ struct rle_stream {
         next_batch_run_start = 3;
       }
 
-      if (warp_id == 0 && warp_lane == 0 && do_print == 1) {
-        printf("after values_processed: %i fill/decode max_runs_to_fill should become: %i fill_index: %i next_batch_run_start: %i\n", 
-          values_processed, max_runs_to_fill, fill_index, next_batch_run_start);
-      }
+      //if (warp_id == 0 && warp_lane == 0 && do_print == 1) {
+      //  printf("after values_processed: %i fill/decode max_runs_to_fill should become: %i fill_index: %i next_batch_run_start: %i\n", 
+      //    values_processed, max_runs_to_fill, fill_index, next_batch_run_start);
+      //}
 
       // if we haven't run out of space, retrieve the next batch. otherwise leave it for the next
       // call.
