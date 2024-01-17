@@ -155,6 +155,7 @@ __device__ decode_kernel_mask kernel_mask_for_page(PageInfo const& page,
   //return decode_kernel_mask::FIXED_WIDTH_DICT;
   // TODO: abellina
   if (use_fixed_op != 0 && 
+      !is_string_col(chunk) && 
       chunk.max_nesting_depth == 1 &&
       (chunk.data_type & 7) != BYTE_ARRAY && 
       (chunk.data_type & 7) != BOOLEAN) {

@@ -38,11 +38,11 @@ cudf::io::table_with_metadata read_parquet(
   std::string const& file_path, 
   std::string const& col_name)
 {
-  std::cout << "reading parquet file: " << file_path << " column: " << "ALL" << std::endl;
+  std::cout << "reading parquet file: " << file_path << " column: " << col_name << std::endl;
   auto source_info = cudf::io::source_info(file_path);
   auto builder     = cudf::io::parquet_reader_options::builder(source_info);
-  auto options     = builder.build();
-  //auto options     = builder.columns({col_name}).build();
+  //auto options     = builder.build();
+  auto options     = builder.columns({col_name}).build();
   auto res = cudf::io::read_parquet(options);
   std::cout << "table of " << res.tbl->num_rows() << " rows scanned" << std::endl;
   for (int i = 0; i < res.tbl->num_columns(); ++i) { 
@@ -124,26 +124,58 @@ std::string col_names[] = {
 "ss_net_profit"
 };
 
- //for (std::string col : col_names) {
+std::string store_col_names[] = {
+ "s_store_sk", //: integer (nullable = true)
+ "s_store_id", //: string (nullable = true)
+ "s_rec_start_date", //: date (nullable = true)
+ "s_rec_end_date", //: date (nullable = true)
+ "s_closed_date_sk", //: integer (nullable = true)
+ "s_store_name", //: string (nullable = true)
+ "s_number_employees", //: integer (nullable = true)
+ "s_floor_space", //: integer (nullable = true)
+ "s_hours", //: string (nullable = true)
+ "s_manager", //: string (nullable = true)
+ "s_market_id", //: integer (nullable = true)
+ "s_geography_class", //: string (nullable = true)
+ "s_market_desc", //: string (nullable = true)
+ "s_market_manager", //: string (nullable = true)
+ "s_division_id", //: integer (nullable = true)
+ "s_division_name", //: string (nullable = true)
+ "s_company_id", //: integer (nullable = true)
+ "s_company_name", //: string (nullable = true)
+ "s_street_number", //: string (nullable = true)
+ "s_street_name", //: string (nullable = true)
+ "s_street_type", //: string (nullable = true)
+ "s_suite_number", //: string (nullable = true)
+ "s_city", //: string (nullable = true)
+ "s_county", //: string (nullable = true)
+ "s_state", //: string (nullable = true)
+ "s_zip", //: string (nullable = true)
+ "s_country", //: string (nullable = true)
+ "s_gmt_offset", //: decimal(5,2) (nullable = true)
+ "s_tax_precentage" //: decimal(5,2) (nullable = true)
+};
+
+ for (std::string col : store_col_names) {
+   setenv("USE_FIXED_OP", "0", 1);
+   auto expected = read_parquet(name, col);
+   cudaDeviceSynchronize();
+
+   setenv("USE_FIXED_OP", "2", 1);
+   auto actual = read_parquet(name, col);
+   cudaDeviceSynchronize();
+   CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+   std::cout << "done" << std::endl;
+ }
  //  setenv("USE_FIXED_OP", "0", 1);
- //  auto expected = read_parquet(name, col);
+ //  auto expected = read_parquet(name, "ALL");
  //  cudaDeviceSynchronize();
 
  //  setenv("USE_FIXED_OP", "2", 1);
- //  auto actual = read_parquet(name, col);
+ //  auto actual = read_parquet(name, "ALL");
  //  cudaDeviceSynchronize();
  //  CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
  //  std::cout << "done" << std::endl;
- //}
-    setenv("USE_FIXED_OP", "0", 1);
-    auto expected = read_parquet(name, "ALL");
-    cudaDeviceSynchronize();
-
-    setenv("USE_FIXED_OP", "2", 1);
-    auto actual = read_parquet(name, "ALL");
-    cudaDeviceSynchronize();
-    CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
-    std::cout << "done" << std::endl;
 
 
  //[[maybe_unused]] int num_rows = 128;

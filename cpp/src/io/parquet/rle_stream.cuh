@@ -161,14 +161,14 @@ struct rle_batch {
        //  batch_len);
        //}
        //if (do_print == 2) {
-       //  printf("lane=%i _output_pos=%i output_pos=%i roll=%i run_offset=%i new[%i]=%i\n", 
-       //  lane,
-       //  _output_pos,
-       //  output_pos,
-       //  roll,
-       //  run_offset,
-       //  idx, 
-       //  level_val);
+        // printf("lane=%i _output_pos=%i output_pos=%i roll=%i run_offset=%i new[%i]=%i\n", 
+        // lane,
+        // _output_pos,
+        // output_pos,
+        // roll,
+        // run_offset,
+        // idx, 
+        // level_val);
        //}
         output[rolling_index_d(idx, max_output_values)] = level_val;
       }
@@ -246,7 +246,7 @@ struct rle_stream {
   int decode_warps_db_half;
 
   __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {
-    for (int i = 0; i <6; ++i) {
+    for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
       runs[i].remaining = 0;
     }
   }
@@ -455,42 +455,51 @@ struct rle_stream {
       __syncthreads();
 
       //for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-      //  if (warp_id == 0 && warp_lane == 0 && do_print == 2) {
+      //  if (warp_id == 0 && warp_lane == 0) {
       //    printf("runs[%i] remaining: %i output_pos: %i output_pos_end: %i\n", 
-      //    i, 
-      //    runs[i].remaining, 
-      //    runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
-      //    runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+      //      i, 
+      //      runs[i].remaining, 
+      //      runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
+      //      runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
       //  }
       //}
 
-      if (runs[0].remaining == 0 && 
-          runs[1].remaining == 0 && 
-          runs[2].remaining == 0) {
+      bool first_half_empty = true;
+      for (int i = 0; i < num_rle_stream_decode_warps; ++i) {
+        first_half_empty = first_half_empty && runs[i].remaining == 0;
+      }
+
+      if (first_half_empty) {
         fill_warp_db_half = 0;
-        max_runs_to_fill = 3;
-      } else if (runs[3].remaining == 0 && 
-                 runs[4].remaining == 0 && 
-                 runs[5].remaining == 0) {
-        fill_warp_db_half = 1;
-        max_runs_to_fill = 6;
+        max_runs_to_fill = num_rle_stream_decode_warps;
       } else {
-        fill_warp_db_half = -1;
-        max_runs_to_fill = -1;
+        bool second_half_empty = true;
+        for (int i = num_rle_stream_decode_warps; i < num_rle_stream_decode_warps*2; ++i) {
+          second_half_empty = second_half_empty && runs[i].remaining == 0;
+        }
+        if (second_half_empty) {
+          fill_warp_db_half = 1;
+          max_runs_to_fill = num_rle_stream_decode_warps * 2;
+        } else {
+          fill_warp_db_half = -1;
+          max_runs_to_fill = -1;
+        }
       }
 
       if (decode_warps_db_half == 0) {
-        if (
-          runs[0].remaining == 0 &&
-          runs[1].remaining == 0 && 
-          runs[2].remaining == 0) {
+        bool first_half_empty_decode = true;
+        for (int i = 0; i < num_rle_stream_decode_warps; ++i) {
+          first_half_empty_decode = first_half_empty_decode && runs[i].remaining == 0;
+        }
+        if (first_half_empty_decode) {
             decode_warps_db_half = 1;
         } // else stay in first half
       } else {
-        if (
-          runs[3].remaining == 0 &&
-          runs[4].remaining == 0 && 
-          runs[5].remaining == 0) {
+        bool second_half_empty_decode = true;
+        for (int i = num_rle_stream_decode_warps; i < num_rle_stream_decode_warps*2; ++i) {
+          second_half_empty_decode = second_half_empty_decode && runs[i].remaining == 0;
+        }
+        if (second_half_empty_decode) {
             decode_warps_db_half = 0;
         } // else stay in second half
       }
@@ -499,20 +508,20 @@ struct rle_stream {
       if (fill_warp_db_half == 0) {
         fill_index = 0;
       } else if (fill_warp_db_half == 1) {
-        fill_index = 3;
+        fill_index = num_rle_stream_decode_warps;
       }
 
       next_batch_run_start = -1;
       if (decode_warps_db_half == 0) {
         next_batch_run_start = 0;
       } else if (decode_warps_db_half == 1) {
-        next_batch_run_start = 3;
+        next_batch_run_start = num_rle_stream_decode_warps;
       }
 
-      //if (warp_id == 0 && warp_lane == 0 && do_print == 1) {
-      //  printf("after values_processed: %i fill/decode max_runs_to_fill should become: %i fill_index: %i next_batch_run_start: %i\n", 
-      //    values_processed, max_runs_to_fill, fill_index, next_batch_run_start);
-      //}
+     //if (warp_id == 0 && warp_lane == 0) {
+     //  printf("after values_processed: %i fill/decode max_runs_to_fill should become: %i fill_index: %i next_batch_run_start: %i\n", 
+     //    values_processed, max_runs_to_fill, fill_index, next_batch_run_start);
+     //}
 
       // if we haven't run out of space, retrieve the next batch. otherwise leave it for the next
       // call.
