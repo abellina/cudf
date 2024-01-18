@@ -18,8 +18,8 @@ package ai.rapids.cudf;
 /**
  * A device memory resource that will track some basic statistics about the memory usage.
  */
-public class RmmTrackingResourceAdaptor<C extends RmmDeviceMemoryResource>
-    extends RmmWrappingDeviceMemoryResource<C> {
+public class RmmTrackingResourceAdaptor<C extends RmmMemoryResource>
+    extends RmmWrappingMemoryResource<C> {
   private long handle = 0;
 
   /**

@@ -18,8 +18,8 @@ package ai.rapids.cudf;
 /**
  * A device memory resource that will limit the maximum amount allocated.
  */
-public class RmmLimitingResourceAdaptor<C extends RmmDeviceMemoryResource>
-    extends RmmWrappingDeviceMemoryResource<C> {
+public class RmmLimitingResourceAdaptor<C extends RmmMemoryResource>
+    extends RmmWrappingMemoryResource<C> {
   private final long limit;
   private final long alignment;
   private long handle = 0;

@@ -136,7 +136,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
    */
   public static HostMemoryBuffer allocate(long bytes, boolean preferPinned) {
     if (preferPinned) {
-      HostMemoryBuffer pinnedBuffer = PinnedMemoryPool.tryAllocate(bytes);
+      HostMemoryBuffer pinnedBuffer = PinnedMemoryPoolNew.tryAllocate(bytes);
       if (pinnedBuffer != null) {
         return pinnedBuffer;
       }

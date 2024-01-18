@@ -19,7 +19,7 @@ package ai.rapids.cudf;
  * A device memory resource that uses `cudaHostAlloc` and `cudaFreeHost` for allocation and
  * deallocation.
  */
-public class RmmPinnedHostMemoryResource implements RmmDeviceMemoryResource {
+public class RmmPinnedHostMemoryResource implements RmmMemoryResource {
   private long handle = 0;
 
   public RmmPinnedHostMemoryResource() {

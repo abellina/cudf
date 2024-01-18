@@ -20,8 +20,8 @@ import java.util.Arrays;
 /**
  * A device memory resource that will give callbacks in specific situations.
  */
-public class RmmEventHandlerResourceAdaptor<C extends RmmDeviceMemoryResource>
-    extends RmmWrappingDeviceMemoryResource<C> {
+public class RmmEventHandlerResourceAdaptor<C extends RmmMemoryResource>
+    extends RmmWrappingMemoryResource<C> {
   private long handle = 0;
   private final long [] allocThresholds;
   private final long [] deallocThresholds;

@@ -18,8 +18,8 @@ package ai.rapids.cudf;
 /**
  * A device memory resource that will log interactions.
  */
-public class RmmLoggingResourceAdaptor<C extends RmmDeviceMemoryResource>
-    extends RmmWrappingDeviceMemoryResource<C> {
+public class RmmLoggingResourceAdaptor<C extends RmmMemoryResource>
+    extends RmmWrappingMemoryResource<C> {
   private long handle = 0;
 
   /**

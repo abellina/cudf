@@ -179,6 +179,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
    * @param poolSize size of the pool to initialize.
    */
   public static synchronized void initialize(long poolSize) {
+    throw new IllegalStateException("old pool");
     initialize(poolSize, -1);
   }
 
@@ -189,6 +190,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
    * @param gpuId    gpu id to set to get memory pool from, -1 means to use default
    */
   public static synchronized void initialize(long poolSize, int gpuId) {
+    throw new IllegalStateException("old pool");
     if (isInitialized()) {
       throw new IllegalStateException("Can only initialize the pool once.");
     }
@@ -212,6 +214,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
    * Shut down the pool of memory. If there are outstanding allocations this may fail.
    */
   public static synchronized void shutdown() {
+    throw new IllegalStateException("old pool");
     PinnedMemoryPool pool = getSingleton();
     if (pool != null) {
       pool.close();
@@ -227,6 +230,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
    * @return newly created buffer or null if insufficient pinned memory
    */
   public static HostMemoryBuffer tryAllocate(long bytes) {
+    throw new IllegalStateException("old pool");
     HostMemoryBuffer result = null;
     PinnedMemoryPool pool = getSingleton();
     if (pool != null) {
@@ -242,6 +246,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
    * @return newly created reservation or null if insufficient pinned memory to cover it.
    */
   public static HostMemoryReservation tryReserve(long bytes) {
+    throw new IllegalStateException("old pool");
     HostMemoryReservation result = null;
     PinnedMemoryPool pool = getSingleton();
     if (pool != null) {
@@ -258,6 +263,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
    * @return newly created buffer
    */
   public static HostMemoryBuffer allocate(long bytes, HostMemoryAllocator hostMemoryAllocator) {
+    throw new IllegalStateException("old pool");
     HostMemoryBuffer result = tryAllocate(bytes);
     if (result == null) {
       result = hostMemoryAllocator.allocate(bytes, false);
@@ -273,6 +279,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
    * @return newly created buffer
    */
   public static HostMemoryBuffer allocate(long bytes) {
+    throw new IllegalStateException("old pool");
     return allocate(bytes, DefaultHostMemoryAllocator.get());
   }
 
@@ -301,6 +308,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
   }
 
   private PinnedMemoryPool(long poolSize, int gpuId) {
+    throw new IllegalStateException("old pool");
     if (gpuId > -1) {
       // set the gpu device to use
       Cuda.setDevice(gpuId);
@@ -329,6 +337,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
   }
 
   private synchronized MemorySection tryGetInternal(long bytes, String what) {
+    throw new IllegalStateException("old pool");
     if (freeHeap.isEmpty()) {
       log.debug("No free pinned memory left");
       return null;

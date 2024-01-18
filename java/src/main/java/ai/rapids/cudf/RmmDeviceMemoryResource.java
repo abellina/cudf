@@ -20,12 +20,5 @@ package ai.rapids.cudf;
  * a user will just subclass. This is intended to be a wrapper around a C++ class that RMM will
  * use directly.
  */
-public interface RmmDeviceMemoryResource extends AutoCloseable {
-  /**
-   * Returns a pointer to the underlying C++ class that implements rmm::mr::device_memory_resource
-   */
-  long getHandle();
-
-  // Remove the exception...
-  void close();
+public interface RmmDeviceMemoryResource extends RmmMemoryResource {
 }

@@ -2402,7 +2402,7 @@ public final class Table implements AutoCloseable {
    * @return An instance of `ChunkedPack` that the caller must use to finish the operation.
    */
   public ChunkedPack makeChunkedPack(
-      long bounceBufferSize, RmmDeviceMemoryResource tempMemoryResource) {
+      long bounceBufferSize, RmmMemoryResource tempMemoryResource) {
     long tempMemoryResourceHandle = tempMemoryResource.getHandle();
     return new ChunkedPack(
       makeChunkedPack(nativeHandle, bounceBufferSize, tempMemoryResourceHandle));

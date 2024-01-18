@@ -22,8 +22,8 @@ import java.util.concurrent.TimeUnit;
  * This is the binding class for rmm lib.
  */
 public class Rmm {
-  private static volatile RmmTrackingResourceAdaptor<RmmDeviceMemoryResource> tracker = null;
-  private static volatile RmmDeviceMemoryResource deviceResource = null;
+  private static volatile RmmTrackingResourceAdaptor<RmmMemoryResource> tracker = null;
+  private static volatile RmmMemoryResource deviceResource = null;
   private static volatile boolean initialized = false;
   private static volatile long poolSize = -1;
   private static volatile boolean poolingEnabled = false;
@@ -84,7 +84,7 @@ public class Rmm {
    * not return the correct value if the resource was not set using the java APIs. It will
    * return a null if the resource was never set through the java APIs.
    */
-  public static synchronized RmmDeviceMemoryResource getCurrentDeviceResource() {
+  public static synchronized RmmMemoryResource getCurrentDeviceResource() {
     return deviceResource;
   }
 
@@ -92,7 +92,7 @@ public class Rmm {
    * Get the currently set RmmTrackingResourceAdaptor that is set. This might return null if
    * RMM has nto been initialized.
    */
-  public static synchronized RmmTrackingResourceAdaptor<RmmDeviceMemoryResource> getTracker() {
+  public static synchronized RmmTrackingResourceAdaptor<RmmMemoryResource> getTracker() {
     return tracker;
   }
 
@@ -124,13 +124,13 @@ public class Rmm {
    *                         never happen, but just to be careful.
    * @param forceChange if true then the expectedResource check is not done.
    */
-  public static synchronized RmmDeviceMemoryResource setCurrentDeviceResource(
-      RmmDeviceMemoryResource newResource,
-      RmmDeviceMemoryResource expectedResource,
+  public static synchronized RmmMemoryResource setCurrentDeviceResource(
+      RmmMemoryResource newResource,
+      RmmMemoryResource expectedResource,
       boolean forceChange) {
     boolean shouldInit = false;
     boolean shouldDeinit = false;
-    RmmDeviceMemoryResource newResourceToSet = newResource;
+    RmmMemoryResource newResourceToSet = newResource;
     if (newResourceToSet == null) {
       // We always want it to be set to something or else it can cause problems...
       newResourceToSet = new RmmCudaMemoryResource();
@@ -141,7 +141,7 @@ public class Rmm {
       shouldInit = true;
     }
 
-    RmmDeviceMemoryResource oldResource = deviceResource;
+    RmmMemoryResource oldResource = deviceResource;
     if (!forceChange && expectedResource != null && deviceResource != null) {
       long expectedOldHandle = expectedResource.getHandle();
       long oldHandle = deviceResource.getHandle();
@@ -156,7 +156,7 @@ public class Rmm {
     setGlobalValsFromResource(newResourceToSet);
     if (newResource != null && tracker == null) {
       // No tracker was set, but we need one
-      tracker = new RmmTrackingResourceAdaptor<>(newResourceToSet, 256);
+      tracker = new RmmTrackingResourceAdaptor<RmmMemoryResource>(newResourceToSet, 256);
       newResourceToSet = tracker;
     }
     long newHandle = newResourceToSet.getHandle();
@@ -175,9 +175,9 @@ public class Rmm {
     return oldResource;
   }
 
-  private static void setGlobalValsFromResource(RmmDeviceMemoryResource resource) {
+  private static void setGlobalValsFromResource(RmmMemoryResource resource) {
     if (resource instanceof RmmTrackingResourceAdaptor) {
-      Rmm.tracker = (RmmTrackingResourceAdaptor<RmmDeviceMemoryResource>) resource;
+      Rmm.tracker = (RmmTrackingResourceAdaptor<RmmMemoryResource>) resource;
     } else if (resource instanceof RmmPoolMemoryResource) {
       Rmm.poolSize = Math.max(((RmmPoolMemoryResource)resource).getMaxSize(), Rmm.poolSize);
       Rmm.poolingEnabled = true;
@@ -190,8 +190,8 @@ public class Rmm {
     }
 
     // Recurse as needed
-    if (resource instanceof RmmWrappingDeviceMemoryResource) {
-      setGlobalValsFromResource(((RmmWrappingDeviceMemoryResource<RmmDeviceMemoryResource>)resource).getWrapped());
+    if (resource instanceof RmmWrappingMemoryResource) {
+      setGlobalValsFromResource(((RmmWrappingMemoryResource<RmmMemoryResource>)resource).getWrapped());
     }
   }
 
@@ -228,7 +228,7 @@ public class Rmm {
           "CUDA Unified Memory is not supported in CUDA_ASYNC allocation mode");
     }
 
-    RmmDeviceMemoryResource resource = null;
+    RmmMemoryResource resource = null;
     boolean succeeded = false;
     try {
       if (isPool) {
@@ -391,7 +391,7 @@ public class Rmm {
       // This is just to be safe it should always be true if this is initialized.
       throw new RmmException("A tracker must be set for the event handler to work");
     }
-    RmmEventHandlerResourceAdaptor<RmmDeviceMemoryResource> newResource =
+    RmmEventHandlerResourceAdaptor<RmmMemoryResource> newResource =
         new RmmEventHandlerResourceAdaptor<>(deviceResource, tracker, handler, enableDebug);
     boolean success = false;
     try {
@@ -508,8 +508,11 @@ public class Rmm {
 
   private static native long allocInternal(long size, long stream) throws RmmException;
 
+  public static native long allocHostInternal(long size, long resource, long stream) throws RmmException;
 
   static native void free(long ptr, long length, long stream) throws RmmException;
+
+  public static native void freeHost(long ptr, long size, long resource, long stream) throws RmmException;
 
   /**
    * Delete an rmm::device_buffer.
@@ -543,10 +546,15 @@ public class Rmm {
 
   static native void releasePinnedHostMemoryResource(long handle);
 
-  static native long newPoolMemoryResource(long childHandle,
+  static native long newPoolMemoryResourceDevice(long childHandle,
       long initSize, long maxSize) throws RmmException;
 
-  static native void releasePoolMemoryResource(long handle);
+  static native long newPoolMemoryResourceHost(long childHandle,
+      long initSize, long maxSize) throws RmmException;
+
+  static native void releasePoolMemoryResourceDevice(long handle);
+
+  static native void releasePoolMemoryResourceHost(long handle);
 
   static native long newArenaMemoryResource(long childHandle,
       long size, boolean dumpOnOOM) throws RmmException;

@@ -45,54 +45,14 @@ public final class PinnedMemoryPoolNew implements AutoCloseable {
   private static Future<PinnedMemoryPoolNew> initFuture = null;
 
   private final long totalPoolSize;
-  private long availableBytes;
-  private long handle;
+  private RmmPoolMemoryResource<RmmPinnedHostMemoryResource> rmmPool;
   
-  private static class MemorySection {
-    private long baseAddress;
-    private long size;
-
-    MemorySection(long baseAddress, long size) {
-      this.baseAddress = baseAddress;
-      this.size = size;
-    }
-
-    boolean canCombine(MemorySection other) {
-      boolean ret = (other.baseAddress + other.size) == baseAddress ||
-          (baseAddress + size) == other.baseAddress;
-      log.trace("CAN {} COMBINE WITH {} ? {}", this, other, ret);
-      return ret;
-    }
-
-    void combineWith(MemorySection other) {
-      assert canCombine(other);
-      log.trace("COMBINING {} AND {}", this, other);
-      this.baseAddress = Math.min(baseAddress, other.baseAddress);
-      this.size = other.size + this.size;
-      log.trace("COMBINED TO {}\n", this);
-    }
-
-    MemorySection splitOff(long newSize) {
-      assert this.size > newSize;
-      MemorySection ret = new MemorySection(baseAddress, newSize);
-      this.baseAddress += newSize;
-      this.size -= newSize;
-      return ret;
-    }
-
-    @Override
-    public String toString() {
-      return "PINNED: " + size + " bytes (0x" + Long.toHexString(baseAddress)
-          + " to 0x" + Long.toHexString(baseAddress + size) + ")";
-    }
-  }
-
   private static final class PinnedHostBufferCleanerNew extends MemoryBuffer.MemoryBufferCleaner {
-    private MemorySection section;
     private final long origLength;
+    private long ptr;
 
-    PinnedHostBufferCleanerNew(MemorySection section, long length) {
-      this.section = section;
+    PinnedHostBufferCleanerNew(long ptr, long length) {
+      this.ptr = ptr;
       origLength = length;
     }
 
@@ -100,15 +60,14 @@ public final class PinnedMemoryPoolNew implements AutoCloseable {
     protected synchronized boolean cleanImpl(boolean logErrorIfNotClean) {
       boolean neededCleanup = false;
       long origAddress = 0;
-      if (section != null) {
-        origAddress = section.baseAddress;
+      if (ptr != -1) {
         try {
-          PinnedMemoryPoolNew.freeInternal(section);
+          PinnedMemoryPoolNew.freeInternal(ptr, origLength);
         } finally {
           // Always mark the resource as freed even if an exception is thrown.
           // We cannot know how far it progressed before the exception, and
           // therefore it is unsafe to retry.
-          section = null;
+          ptr = -1;
         }
         neededCleanup = true;
       }
@@ -121,7 +80,7 @@ public final class PinnedMemoryPoolNew implements AutoCloseable {
 
     @Override
     public boolean isClean() {
-      return section == null;
+      return ptr == -1;
     }
   }
 
@@ -145,8 +104,8 @@ public final class PinnedMemoryPoolNew implements AutoCloseable {
     return singleton_;
   }
 
-  private static void freeInternal(MemorySection section) {
-    Objects.requireNonNull(getSingleton()).free(section);
+  private static void freeInternal(long ptr, long size) {
+    Objects.requireNonNull(getSingleton()).free(ptr, size);
   }
 
   /**
@@ -238,19 +197,6 @@ public final class PinnedMemoryPoolNew implements AutoCloseable {
   }
 
   /**
-   * Get the number of bytes free in the pinned memory pool.
-   *
-   * @return amount of free memory in bytes or 0 if the pool is not initialized
-   */
-  public static long getAvailableBytes() {
-    PinnedMemoryPoolNew pool = getSingleton();
-    if (pool != null) {
-      return pool.getAvailableBytesInternal();
-    }
-    return 0;
-  }
-
-  /**
    * Get the number of bytes that the pinned memory pool was allocated with.
    */
   public static long getTotalPoolSizeBytes() {
@@ -268,154 +214,33 @@ public final class PinnedMemoryPoolNew implements AutoCloseable {
       Cuda.freeZero();
     }
     this.totalPoolSize = poolSize;
-    RmmDeviceMemoryResource resource =
+    this.rmmPool =
         new RmmPoolMemoryResource<>(new RmmPinnedHostMemoryResource(), poolSize, poolSize);
-    this.handle = resource.getHandle()
-    this.availableBytes = poolSize;
   }
 
   @Override
   public void close() {
-    assert numAllocatedSections == 0 : "Leaked " + numAllocatedSections + " pinned allocations";
-    Cuda.freePinned(pinnedPoolBase);
+    this.rmmPool.close();
   }
 
-  /**
-   * Pads a length of bytes to the alignment the CPU wants in the worst case. This helps to
-   * calculate the size needed for a reservation if there are multiple buffers.
-   * @param bytes the size in bytes
-   * @return the new padded size in bytes.
-   */
-  public static long padToCpuAlignment(long bytes) {
-    return  ((bytes + ALIGNMENT - 1) / ALIGNMENT) * ALIGNMENT;
-  }
-
-  private synchronized MemorySection tryGetInternal(long bytes, String what) {
-    if (freeHeap.isEmpty()) {
-      log.debug("No free pinned memory left");
-      return null;
+  public void free(long ptr, long size) {
+    try(NvtxRange x = new NvtxRange("pinned_free", NvtxColor.YELLOW)) {
+      Rmm.freeHost(ptr, size, this.rmmPool.getHandle(), Cuda.DEFAULT_STREAM.getStream());
     }
-    // Align the allocation
-    long alignedBytes = padToCpuAlignment(bytes);
-    Optional<MemorySection> firstFit = freeHeap.stream()
-            .filter(section -> section.size >= alignedBytes)
-            .findFirst();
-    if (!firstFit.isPresent()) {
-      if (log.isDebugEnabled()) {
-        MemorySection largest = freeHeap.stream()
-                .max(new SortedBySize())
-                .orElse(new MemorySection(0, 0));
-        log.debug("Insufficient pinned memory. {} needed, {} found", alignedBytes, largest.size);
-      }
-      return null;
-    }
-    MemorySection first = firstFit.get();
-    log.debug("{} {}/{} bytes pinned from {} FREE COUNT {} OUTSTANDING COUNT {}",
-            what, bytes, alignedBytes, first, freeHeap.size(), numAllocatedSections);
-    freeHeap.remove(first);
-    MemorySection allocated;
-    if (first.size == alignedBytes) {
-      allocated = first;
-    } else {
-      allocated = first.splitOff(alignedBytes);
-      freeHeap.add(first);
-    }
-    numAllocatedSections++;
-    availableBytes -= allocated.size;
-    log.debug("{} {} free {} outstanding {}", what, allocated, freeHeap, numAllocatedSections);
-    return allocated;
   }
 
   private synchronized HostMemoryBuffer tryAllocateInternal(long bytes) {
-    MemorySection allocated = tryGetInternal(bytes, "allocate");
-    if (allocated == null) {
-      return null;
+    long allocated = Rmm.allocHostInternal(bytes, this.rmmPool.getHandle(), Cuda.DEFAULT_STREAM.getStream());
+    if (allocated == -1) {
+      try(NvtxRange x = new NvtxRange("pinned_failed", NvtxColor.RED)) {
+        return null;
+      }
     } else {
-      return new HostMemoryBuffer(allocated.baseAddress, bytes,
-              new PinnedHostBufferCleanerNew(allocated, bytes));
-    }
-  }
-
-  private class PinnedReservation implements HostMemoryReservation {
-    private MemorySection section = null;
-
-    public PinnedReservation(MemorySection section) {
-      this.section = section;
-    }
-
-    @Override
-    public synchronized HostMemoryBuffer allocate(long bytes, boolean preferPinned) {
-      return this.allocate(bytes);
-    }
-
-    @Override
-    public synchronized HostMemoryBuffer allocate(long bytes) {
-      if (section == null || section.size < bytes) {
-        throw new OutOfMemoryError("Reservation didn't have enough space " + bytes + " / " +
-                (section == null ? 0 : section.size));
-      }
-      long alignedSize = padToCpuAlignment(bytes);
-      MemorySection allocated;
-      if (section.size >= bytes && section.size <= alignedSize) {
-        allocated = section;
-        section = null;
-        // No need for reserveAllocInternal because the original section is already tracked
-      } else {
-        allocated = section.splitOff(alignedSize);
-        PinnedMemoryPoolNew.reserveAllocInternal(allocated);
-      }
-      return new HostMemoryBuffer(allocated.baseAddress, bytes,
-              new PinnedHostBufferCleanerNew(allocated, bytes));
-    }
-
-    @Override
-    public synchronized void close() throws Exception {
-      if (section != null) {
-        try {
-          PinnedMemoryPoolNew.freeInternal(section);
-        } finally {
-          // Always mark the resource as freed even if an exception is thrown.
-          // We cannot know how far it progressed before the exception, and
-          // therefore it is unsafe to retry.
-          section = null;
-        }
+      try(NvtxRange x = new NvtxRange("pinned_success", NvtxColor.GREEN)) {
+        return new HostMemoryBuffer(allocated, bytes,
+                new PinnedHostBufferCleanerNew(allocated, bytes));
       }
     }
-  }
-
-  private HostMemoryReservation tryReserveInternal(long bytes) {
-    MemorySection allocated = tryGetInternal(bytes, "allocate");
-    if (allocated == null) {
-      return null;
-    } else {
-      return new PinnedReservation(allocated);
-    }
-  }
-
-  private synchronized void free(MemorySection section) {
-    log.debug("Freeing {} with {} outstanding {}", section, freeHeap, numAllocatedSections);
-    availableBytes += section.size;
-    Iterator<MemorySection> it = freeHeap.iterator();
-    while(it.hasNext()) {
-      MemorySection current = it.next();
-      if (section.canCombine(current)) {
-        it.remove();
-        section.combineWith(current);
-      }
-    }
-    freeHeap.add(section);
-    numAllocatedSections--;
-    log.debug("After freeing {} outstanding {}", freeHeap, numAllocatedSections);
-  }
-
-  private synchronized void reserveAllocHappened(MemorySection section) {
-    if (section != null && section.size > 0) {
-      numAllocatedSections++;
-    }
-  }
-
-  private synchronized long getAvailableBytesInternal() {
-    return this.availableBytes;
   }
 
   private long getTotalPoolSizeInternal() {
