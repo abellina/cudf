@@ -1008,6 +1008,29 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_columnViewsFromPacked(JNI
   CATCH_STD(env, nullptr);
 }
 
+JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_concatenatePacked(JNIEnv *env, jclass,
+                                                                         jobjectArray j_buffer_objects,
+                                                                         jlongArray j_data_addresses) {
+  // The GPU data address can be null when the table is empty, so it is not null-checked here.
+  try {
+    cudf::jni::auto_set_device(env);
+    int num_buffers = env->GetArrayLength(j_buffer_objects);
+    cudf::jni::native_jlongArray data_addresses(env, j_data_addresses);
+
+    std::vector<cudf::table_view> tables;
+    for (int i = 0; i < num_buffers; i++) {
+      jobject buffer_obj = env->GetObjectArrayElement(j_buffer_objects, i);
+      void const *metadata_address = env->GetDirectBufferAddress(buffer_obj);
+      jlong j_data_address = data_addresses[i];
+      JNI_NULL_CHECK(env, metadata_address, "metadata buffer address is null", nullptr);
+      tables.push_back(cudf::unpack(static_cast<uint8_t const *>(metadata_address),
+                       reinterpret_cast<uint8_t const *>(j_data_address)));
+    }
+    return convert_table_for_return(env, cudf::concatenate(tables));
+  }
+  CATCH_STD(env, nullptr);
+}
+
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_sortOrder(JNIEnv *env, jclass,
                                                             jlong j_input_table,
                                                             jlongArray j_sort_keys_columns,
