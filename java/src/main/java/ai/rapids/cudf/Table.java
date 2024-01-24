@@ -774,6 +774,8 @@ public final class Table implements AutoCloseable {
 
   private static native long[] columnViewsFromPacked(ByteBuffer metadata, long dataAddress);
 
+  public static native long[] concatenatePacked(ByteBuffer[] metadata, long[] dataAddresses);
+
   private static native ContigSplitGroupByResult contiguousSplitGroups(long inputTable,
                                                                 int[] keyIndices,
                                                                 boolean ignoreNullKeys,
@@ -1942,6 +1944,35 @@ public final class Table implements AutoCloseable {
       assert tables[i].getNumberOfColumns() == numColumns : "all tables must have the same schema";
     }
     return new Table(concatenate(tableHandles));
+  }
+
+  public static Table concatenatePacked(ByteBuffer[] metadata, DeviceMemoryBuffer[] data) {
+    // Ensure the metadata buffer is direct so it can be passed to JNI
+    ByteBuffer[] directBuffers = new ByteBuffer[metadata.length];
+    for (int i = 0; i < metadata.length; i++) {
+      if (!metadata[i].isDirect()) {
+        directBuffers[i]= ByteBuffer.allocateDirect(metadata[i].remaining());
+        directBuffers[i].put(metadata[i]);
+        directBuffers[i].flip();
+      } else {
+        directBuffers[i] = metadata[i];
+      }
+    }
+
+    if (metadata.length < 2) {
+      throw new IllegalArgumentException("concatenate requires 2 or more tables");
+    }
+
+    if (metadata.length != data.length) {
+      throw new IllegalArgumentException("metadata/data arrays length not matching");
+    }
+
+    long[] dataAddressess = new long[data.length];
+    for (int i = 0; i < data.length; i++) {
+      dataAddressess[i] = data[i].address;
+    }
+
+    return new Table(concatenatePacked(directBuffers, dataAddressess));
   }
 
   /**
@@ -3663,34 +3694,40 @@ public final class Table implements AutoCloseable {
       directBuffer.flip();
     }
 
-    long[] columnViewAddresses = columnViewsFromPacked(directBuffer, data.getAddress());
-    ColumnVector[] columns = new ColumnVector[columnViewAddresses.length];
-    Table result = null;
-    try {
-      for (int i = 0; i < columns.length; i++) {
-        long columnViewAddress = columnViewAddresses[i];
-        // setting address to zero, so we don't clean it in case of an exception as it
-        // will be cleaned up by the ColumnView  constructor
-        columnViewAddresses[i] = 0;
-        columns[i] = ColumnVector.fromViewWithContiguousAllocation(columnViewAddress, data);
-      }
-      result = new Table(columns);
-    } catch (Throwable t) {
+    long[] columnViewAddresses;
+
+    try(NvtxRange r = new NvtxRange("columnViewsFromPacked", NvtxColor.YELLOW)) {
+      columnViewAddresses = columnViewsFromPacked(directBuffer, data.getAddress());
+    }
+
+    try(NvtxRange r = new NvtxRange("fromViewWithContiguousAllocation", NvtxColor.ORANGE)) {
+      ColumnVector[] columns = new ColumnVector[columnViewAddresses.length];
+      Table result = null;
       try {
-        ColumnView.cleanupColumnViews(columnViewAddresses, columns, t);
-      } catch (Throwable s){
-        t.addSuppressed(s);
-      } finally {
-        throw t;
+        for (int i = 0; i < columns.length; i++) {
+          long columnViewAddress = columnViewAddresses[i];
+          // setting address to zero, so we don't clean it in case of an exception as it
+          // will be cleaned up by the ColumnView  constructor
+          columnViewAddresses[i] = 0;
+          columns[i] = ColumnVector.fromViewWithContiguousAllocation(columnViewAddress, data);
+        }
+        result = new Table(columns);
+      } catch (Throwable t) {
+        try {
+          ColumnView.cleanupColumnViews(columnViewAddresses, columns, t);
+        } catch (Throwable s){
+          t.addSuppressed(s);
+        } finally {
+          throw t;
+        }
       }
-    }
 
-    // close columns to leave the resulting table responsible for freeing underlying columns
-    for (ColumnVector column : columns) {
-      column.close();
+      // close columns to leave the resulting table responsible for freeing underlying columns
+      for (ColumnVector column : columns) {
+        column.close();
+      }
+      return result;
     }
-
-    return result;
   }
 
 
