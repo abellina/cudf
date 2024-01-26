@@ -616,4 +616,11 @@ public class Cuda {
    * @note this is very expensive and should almost never be used
    */
   public static native void deviceSynchronize();
+
+  public static native void multiCopy(
+    long[] srcAddresses, 
+    long[] dstAddresses, 
+    long[] buffSizes, 
+    int numBuffs, 
+    long stream); 
 }
