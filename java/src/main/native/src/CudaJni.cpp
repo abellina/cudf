@@ -15,6 +15,7 @@
  */
 
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/copy.hpp>
 #include <rmm/device_buffer.hpp>
 
 #ifdef CUDF_JNI_ENABLE_PROFILING
@@ -411,4 +412,27 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_deviceSynchronize(JNIEnv *env, j
   CATCH_STD(env, );
 }
 
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_multiCopy(JNIEnv *env, jclass clazz,
+  jlongArray j_src_addresses,
+  jlongArray j_dst_addresses,
+  jlongArray j_buff_sizes,
+  jint num_buffs,
+  jlong j_stream) {
+    try {
+      cudf::jni::auto_set_device(env);
+      
+      cudf::jni::native_jlongArray h_src_addresses(env, j_src_addresses);
+      cudf::jni::native_jlongArray h_dst_addresses(env, j_dst_addresses);
+      cudf::jni::native_jlongArray h_buff_sizes(env, j_buff_sizes);
+
+      cudf::detail::batch_memcpy(
+        reinterpret_cast<uint64_t*>(h_src_addresses.data()), 
+        reinterpret_cast<uint64_t*>(h_dst_addresses.data()),
+        reinterpret_cast<uint64_t*>(h_buff_sizes.data()),
+        num_buffs,
+        rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(j_stream)),
+        rmm::mr::get_current_device_resource());
+    }
+    CATCH_STD(env, );
+  }
 } // extern "C"

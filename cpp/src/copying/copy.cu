@@ -406,6 +406,71 @@ std::unique_ptr<column> copy_if_else(scalar const& lhs,
     lhs, rhs, !lhs.is_valid(stream), !rhs.is_valid(stream), boolean_mask, stream, mr);
 }
 
+struct get_ptr_func {
+  __host__ __device__ uint64_t * operator()(uint32_t index) {
+    return &d_items[index];
+  }
+  uint64_t * d_items;
+};
+
+struct get_item_size_func {
+  __host__ __device__ uint64_t operator()(uint32_t index) {
+    return d_sizes[index];
+  }
+  uint64_t * d_sizes;
+};
+
+void batch_memcpy(
+  uint64_t* src_addresses, 
+  uint64_t* dst_addresses,
+  uint64_t* buff_sizes,
+  int num_buffs,
+  rmm::cuda_stream_view stream,
+  rmm::mr::device_memory_resource* mr) {
+    void* d_temp_storage = nullptr;
+    size_t temp_storage_bytes = 0;
+    auto d_src_addresses = reinterpret_cast<uint64_t*>(mr->allocate(num_buffs * sizeof(uint64_t), stream));
+    auto d_dst_addresses = reinterpret_cast<uint64_t*>(mr->allocate(num_buffs * sizeof(uint64_t), stream));
+    auto d_buff_sizes = reinterpret_cast<uint64_t*>(mr->allocate(num_buffs * sizeof(uint64_t), stream));
+
+    cudaMemcpyAsync(
+      d_src_addresses, src_addresses, num_buffs * sizeof(uint64_t), cudaMemcpyDefault, stream.value());
+    cudaMemcpyAsync(
+      d_dst_addresses, dst_addresses, num_buffs * sizeof(uint64_t), cudaMemcpyDefault, stream.value());
+    cudaMemcpyAsync(
+      d_buff_sizes, buff_sizes, num_buffs * sizeof(uint64_t), cudaMemcpyDefault, stream.value());
+
+    auto count_it = thrust::make_counting_iterator(0);
+    auto src_ptrs_in = 
+      thrust::make_transform_iterator(count_it, get_ptr_func{d_src_addresses});
+    auto dst_ptrs_in = 
+      thrust::make_transform_iterator(count_it, get_ptr_func{d_dst_addresses});
+    auto buff_sizes_in = 
+      thrust::make_transform_iterator(count_it, get_item_size_func{buff_sizes});
+
+    cub::DeviceCopy::Batched(
+      d_temp_storage, 
+      temp_storage_bytes,
+      src_ptrs_in,
+      dst_ptrs_in,
+      buff_sizes_in,
+      num_buffs);
+
+    d_temp_storage = mr->allocate(temp_storage_bytes, stream);
+
+    cub::DeviceCopy::Batched(
+      d_temp_storage, 
+      temp_storage_bytes,
+      src_ptrs_in,
+      dst_ptrs_in,
+      buff_sizes_in,
+      num_buffs);
+
+    mr->deallocate(d_temp_storage, temp_storage_bytes, stream.value());
+    mr->deallocate(d_src_addresses, num_buffs * sizeof(uint64_t), stream.value());
+    mr->deallocate(d_dst_addresses, num_buffs * sizeof(uint64_t), stream.value());
+    mr->deallocate(d_buff_sizes, num_buffs * sizeof(uint64_t), stream.value());
+  }
 };  // namespace detail
 
 std::unique_ptr<column> copy_if_else(column_view const& lhs,
@@ -446,6 +511,17 @@ std::unique_ptr<column> copy_if_else(scalar const& lhs,
 {
   CUDF_FUNC_RANGE();
   return detail::copy_if_else(lhs, rhs, boolean_mask, stream, mr);
+}
+
+void batch_memcpy(
+    uint64_t* src_addresses, 
+    uint64_t* dst_addresses,
+    uint64_t* buff_sizes,
+    int num_buffs,
+    rmm::cuda_stream_view stream,
+    rmm::mr::device_memory_resource* mr) {
+  CUDF_FUNC_RANGE();
+  return detail::batch_memcpy(src_addresses, dst_addresses, buff_sizes, num_buffs, stream, mr);
 }
 
 }  // namespace cudf
