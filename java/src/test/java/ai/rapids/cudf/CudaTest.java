@@ -52,4 +52,17 @@ public class CudaTest {
     }
   }
 
+  @Test
+  public void testMultiCopy() {
+    try (DeviceMemoryBuffer s = DeviceMemoryBuffer.allocate(1024);
+         DeviceMemoryBuffer d1 = DeviceMemoryBuffer.allocate(512);
+         DeviceMemoryBuffer d2 = DeviceMemoryBuffer.allocate(512)) {
+      long[] srcAddresses = new long[] { s.getAddress(), s.getAddress() + 512L };
+      long[] dstAddresses = new long[] { d1.getAddress(), d2.getAddress() };
+      long[] buffSizes = new long[] { 512L, 512L };
+      Cuda.multiCopy(srcAddresses, dstAddresses, buffSizes, 1, Cuda.DEFAULT_STREAM.getStream());
+      Cuda.DEFAULT_STREAM.sync();
+    }
+  }
+
 }

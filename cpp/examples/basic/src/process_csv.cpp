@@ -18,6 +18,7 @@
 #include <cudf/groupby.hpp>
 #include <cudf/io/csv.hpp>
 #include <cudf/table/table.hpp>
+#include <cudf/detail/copy.hpp>
 
 #include <rmm/cuda_device.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
@@ -92,14 +93,15 @@ int main(int argc, char** argv)
   // memory resource.
   rmm::mr::set_current_device_resource(&mr);
 
-  // Read data
-  auto stock_table_with_metadata = read_csv("4stock_5day.csv");
+  uint64_t * src  = reinterpret_cast<uint64_t*>(mr.allocate(1024, 0));
+  uint64_t * dst1 = reinterpret_cast<uint64_t*>(mr.allocate(512, 0));
+  uint64_t * dst2 = reinterpret_cast<uint64_t*>(mr.allocate(512, 0));
+  uint64_t* src_addresses[] = {src, src + 512};
+  uint64_t* dst_addresses[] = {dst1, dst2};
+  uint64_t buff_sizes[] = {512, 512};
+  cudf::detail::batch_memcpy(src_adddresses, dst_addresses, buff_sizes, cuda::get_default_stream(), &mr);
+  cudf::get_default_stream().sync();
 
-  // Process
-  auto result = average_closing_price(*stock_table_with_metadata.tbl);
-
-  // Write out result
-  write_csv(*result, "4stock_5day_avg_close.csv");
 
   return 0;
 }
