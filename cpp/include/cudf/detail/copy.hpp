@@ -279,13 +279,12 @@ std::unique_ptr<column> purge_nonempty_nulls(column_view const& input,
                                              rmm::mr::device_memory_resource* mr);
 
 
+}  // namespace detail
 void batch_memcpy(
-    uint64_t* src_addresses, 
-    uint64_t* dst_addresses,
+    uint64_t** src_addresses, 
+    uint64_t** dst_addresses,
     uint64_t* buff_sizes,
     int num_buffs,
     rmm::cuda_stream_view stream,
     rmm::mr::device_memory_resource* mr);
-
-}  // namespace detail
 }  // namespace cudf
