@@ -80,28 +80,42 @@ int main(int argc, char** argv)
 {
   // Construct a CUDA memory resource using RAPIDS Memory Manager (RMM)
   // This is the default memory resource for libcudf for allocating device memory.
-  rmm::mr::cuda_memory_resource cuda_mr{};
+  rmm::mr::cuda_memory_resource mr{};
   // Construct a memory pool using the CUDA memory resource
   // Using a memory pool for device memory allocations is important for good performance in libcudf.
   // The pool defaults to allocating half of the available GPU memory.
-  rmm::mr::pool_memory_resource mr{&cuda_mr, rmm::percent_of_free_device_memory(50)};
+  //rmm::mr::pool_memory_resource mr{&cuda_mr, rmm::percent_of_free_device_memory(50)};
 
   // Set the pool resource to be used by default for all device memory allocations
   // Note: It is the user's responsibility to ensure the `mr` object stays alive for the duration of
   // it being set as the default
   // Also, call this before the first libcudf API call to ensure all data is allocated by the same
   // memory resource.
-  rmm::mr::set_current_device_resource(&mr);
+  //rmm::mr::set_current_device_resource(&mr);
 
-  uint64_t * src  = reinterpret_cast<uint64_t*>(mr.allocate(1024, 0));
-  uint64_t * dst1 = reinterpret_cast<uint64_t*>(mr.allocate(512, 0));
-  uint64_t * dst2 = reinterpret_cast<uint64_t*>(mr.allocate(512, 0));
-  uint64_t* src_addresses[] = {src, src + 512};
+  //uint64_t h_src[204800];
+  //for (int i = 0; i < 204800; ++i) {
+  //  h_src[i] = i;
+  //}
+  std::size_t num_elements = 20480000;
+  std::size_t len = num_elements*sizeof(uint64_t);
+  std::size_t len_half = len/2;
+  std::cout << "total=" << len << " halfs=" << len_half << std::endl;
+  uint64_t * src  = reinterpret_cast<uint64_t*>(mr.allocate(len));
+  //cudaMemcpyAsync(src, h_src, len, cudaMemcpyDefault, cudf::get_default_stream().value());
+  uint64_t * dst1 = reinterpret_cast<uint64_t*>(mr.allocate(len_half));
+  uint64_t* dst2 =  reinterpret_cast<uint64_t*>(mr.allocate(len_half));
+  uint64_t* src_addresses[] = {src, src + len_half/sizeof(uint64_t)};
   uint64_t* dst_addresses[] = {dst1, dst2};
-  uint64_t buff_sizes[] = {512, 512};
-  cudf::detail::batch_memcpy(src_adddresses, dst_addresses, buff_sizes, cuda::get_default_stream(), &mr);
-  cudf::get_default_stream().sync();
+  uint64_t buff_sizes[] = {len_half, len_half};
 
+  cudf::batch_memcpy(src_addresses, dst_addresses, buff_sizes, 2, cudf::get_default_stream(), &mr);
+  
+
+ //uint64_t h_dst2[102400];
+ //cudaMemcpyAsync(h_dst2, dst2, len_half, cudaMemcpyDefault, cudf::get_default_stream().value());
+ //cudf::get_default_stream().synchronize();
+ //std::cout << h_dst2[0] << " " << h_dst2[102399] << std::endl;
 
   return 0;
 }
