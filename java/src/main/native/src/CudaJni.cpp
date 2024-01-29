@@ -425,9 +425,9 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_multiCopy(JNIEnv *env, jclass cl
       cudf::jni::native_jlongArray h_dst_addresses(env, j_dst_addresses);
       cudf::jni::native_jlongArray h_buff_sizes(env, j_buff_sizes);
 
-      cudf::detail::batch_memcpy(
-        reinterpret_cast<uint64_t*>(h_src_addresses.data()), 
-        reinterpret_cast<uint64_t*>(h_dst_addresses.data()),
+      cudf::batch_memcpy(
+        reinterpret_cast<uint64_t**>(h_src_addresses.data()), 
+        reinterpret_cast<uint64_t**>(h_dst_addresses.data()),
         reinterpret_cast<uint64_t*>(h_buff_sizes.data()),
         num_buffs,
         rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(j_stream)),
