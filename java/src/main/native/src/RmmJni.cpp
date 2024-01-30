@@ -412,6 +412,22 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocInternal(JNIEnv *env, jclas
   CATCH_STD(env, 0)
 }
 
+JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Rmm_allocInternalBatch(JNIEnv *env, jclass clazz, 
+    jlongArray size, jlong stream) {
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::jni::native_jlongArray sizes(env, size);
+    rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource();
+    auto c_stream = rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(stream));
+    cudf::jni::native_jlongArray ret(env, sizes.size());
+    for (int i = 0; i < sizes.size(); ++i) {
+      ret[i] = reinterpret_cast<jlong>(mr->allocate(sizes[i], c_stream));
+    }
+    return ret.get_jArray();
+  }
+  CATCH_STD(env, NULL)
+}
+
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_free(JNIEnv *env, jclass clazz, jlong ptr,
                                                     jlong size, jlong stream) {
   try {
