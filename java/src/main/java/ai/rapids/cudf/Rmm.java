@@ -495,6 +495,10 @@ public class Rmm {
     return alloc(size, null);
   }
 
+  public static DeviceMemoryBuffer[] alloc(long[] size) {
+    return alloc(size, null);
+  }
+
   /**
    * Allocate device memory and return a pointer to device memory.
    * @param size   The size in bytes of the allocated memory region
@@ -506,7 +510,18 @@ public class Rmm {
     return new DeviceMemoryBuffer(allocInternal(size, s), size, stream);
   }
 
+  public static DeviceMemoryBuffer[] alloc(long[] size, Cuda.Stream stream) {
+    long s = stream == null ? 0 : stream.getStream();
+    long[] ptrs = allocInternalBatch(size, s);
+    DeviceMemoryBuffer[] buffers = new DeviceMemoryBuffer[ptrs.length];
+    for (int i = 0; i < ptrs.length; i++) {
+      buffers[i] = new DeviceMemoryBuffer(ptrs[i], size[i], stream);
+    }
+    return buffers;
+  }
+
   private static native long allocInternal(long size, long stream) throws RmmException;
+  private static native long[] allocInternalBatch(long[] size, long stream) throws RmmException;
 
 
   static native void free(long ptr, long length, long stream) throws RmmException;
