@@ -126,14 +126,28 @@ class receive_block {
 public: 
     uint64_t size() { 
     }
+
+    void* user_data() {
+    }
 };
 
 struct buffer_receive_result {
     // packed_tables_with_metas
     // spillable??
+
 };
 
 class buffer_receive_state {
+private:
+    struct copy_action {
+        uint64_t* dst_base;
+        uint64_t src_offset;
+        uint64_t dst_offset;
+        uint64_t copy_size;
+        bool complete;
+        void* user_data;
+    };
+
 public:
     buffer_receive_state(
         bounce_buffer const & bb, 
@@ -167,17 +181,90 @@ public:
         }
     }
 
-    buffer_receive_result consume() {
+    std::vector<buffer_receive_result> consume() {
         advance();
+
+        // TODO: maybe this is in java?
+        // TODO: shuffle_thread_working_on_tasks(tasks)
+
+        std::vector<copy_action> copy_actions;
         for (const block_range<receive_block>& br : m_current_blocks) {
-            // shuffle_thread_working_on_tasks(tasks)
             uint64_t full_size = br.block.size();
             if (full_size == br.range_size()) {
                 // add copy action for a full buffer
+                copy_actions.emplace_back {
+                    allocate(full_size, stream),
+                    bounce_buffer_byte_offset,
+                    0,
+                    full_size,
+                    true,
+                    br.block.user_data()};
             } else {
                 // copy actions for a partial buffer
+                if (working_on_offset != 0) {
+                    copy_actions.emplace_back {
+                        working_on_buffer, 
+                        bounce_buffer_byte_offset,
+                        working_on_offset,
+                        br.range_size(),
+                        working_on_offset + br.range_size() == full_size,
+                        br.block.user_data()};
+
+                    working_on_offset += br.range_size();
+                    if (working_on_offset == full_size) {
+                        working_on_offset = 0;
+                    }
+                } else {
+                    working_on_buffer = allocate(full_size, stream);
+                    copy_actions.emplace_back {
+                        working_on_buffer, 
+                        bounce_buffer_byte_offset,
+                        working_on_offset,
+                        br.range_size(),
+                        working_on_offset + br.range_size() == full_size,
+                        br.block.user_data()};
+                    working_on_offset += br.range_size();
+                }
+            }
+            bounce_buffer_byte_offset += br.range_size();
+            if (bounce_buffer_byte_offset >= m_bb.size()) {
+                bounce_buffer_byte_offset = 0;
             }
         }
+
+        std::vector<uint64_t*> src_addresses;
+        std::vector<uint64_t*> dst_addresses;
+        std::vector<uint64_t> buffer_sizes;
+        for (const copy_action& ca : copy_actions) {
+            src_addresses.push_back(m_bb.address + ca.src_offset);
+            dst_addresses.push_back(ca.dst_base + ca.dst_offset);
+            buffer_sizes.push_back(ca.copy_size);
+        }
+        cudf::batch_memcpy(
+            src_addresses.data(),
+            dst_addresses.data(),
+            dst_addresses.data(),
+            src_addresses.size(),
+            stream,
+            mr);
+
+        std::vector<buffer_receive_result> result;
+        for (const copy_action& ca : copy_actions) {
+            if (ca.complete) { 
+                result.emplace_back {ca.dst_base, ca.user_data};
+            }
+        }
+        if (working_on_offset == 0) {
+            working_on_buffer = nullptr;
+        }
+
+        stream.synchronize();
+
+        // TODO maybe these two are in java
+        // TODO: rmmspark stop working on tasks
+        // TODO: tofinalize needs to be called at some point
+
+        return result;
     }
 
 private:
