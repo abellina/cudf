@@ -420,8 +420,10 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Rmm_allocInternalBatch(JNIEnv *
     rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource();
     auto c_stream = rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(stream));
     cudf::jni::native_jlongArray ret(env, sizes.size());
+    auto ptr_data = ret.data();
+    auto sizes_data = sizes.data();
     for (int i = 0; i < sizes.size(); ++i) {
-      ret[i] = reinterpret_cast<jlong>(mr->allocate(sizes[i], c_stream));
+      ptr_data[i] = reinterpret_cast<jlong>(mr->allocate(sizes_data[i], c_stream));
     }
     return ret.get_jArray();
   }
