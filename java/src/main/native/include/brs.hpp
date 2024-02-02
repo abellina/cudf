@@ -1,25 +1,33 @@
 #pragma once
 
 #include <vector>
+#include <rmm/cuda_stream_view.hpp>
 #include "jni_utils.hpp"
-
-/**
- * block_t must conform to the block_with_size trait
-
-    class block_with_size {
-        virtual uint64_t size() const;
-    };
-*/
 
 template <typename block_t> 
 struct block_range {
   block_t block;
-  uint64_t range_start;
-  uint64_t range_end;
+  int64_t range_start;
+  int64_t range_end;
 
-  uint64_t range_size() { return range_end - range_start; }
+  uint64_t range_size() const { return range_end - range_start; }
 
-  bool is_complete() { return range_end == block.size(); }
+  bool is_complete() const { return range_end == static_cast<int64_t>(block.size); }
+};
+
+template <typename block_t>
+struct blocks_for_window {
+    blocks_for_window(
+        int last_block_, 
+        std::vector<block_range<block_t>> const& block_ranges_,
+        bool has_more_blocks_) {
+        last_block = last_block_;
+        block_ranges = block_ranges_;
+        has_more_blocks = has_more_blocks_;
+    }
+    int last_block;
+    std::vector<block_range<block_t>> block_ranges;
+    bool has_more_blocks;
 };
 
 template <typename block_t>
@@ -28,7 +36,7 @@ private:
     struct block_with_offset { 
         block_t block;
         uint64_t start_offset;
-        uint54_t end_offset;
+        uint64_t end_offset;
     };
 
     struct block_window {
@@ -37,6 +45,10 @@ private:
               size(_size),
               end(_start + _size)
         {}
+
+        block_window move() const {
+            return block_window { start + size, size };
+        }
         uint64_t start;
         uint64_t size;
         uint64_t end;
@@ -48,7 +60,7 @@ public:
         std::size_t window_size)
         : m_blocks(blocks),
           m_window_size(window_size),
-          m_window{0, window_size},
+          m_window(0, window_size),
           m_done(false),
           m_last_seen_block(0)
     {
@@ -58,17 +70,18 @@ public:
             uint64_t start_offset = last_offset;
             uint64_t end_offset = start_offset + it->size;
             last_offset = end_offset;
-            m_blocks_with_offsets.emplace_back{*it, start_offset, end_offset};
+            m_blocks_with_offsets.push_back(block_with_offset{
+                *it, start_offset, end_offset});
             it++;
         }
     }
 
-    blocks_for_window get_blocks_for_window(
+    blocks_for_window<block_t> get_blocks_for_window(
         const block_window& window, 
         int starting_block) {
         std::vector<block_range<block_t>> block_ranges_in_window;
         bool do_continue = true;
-        int this_block = starting_block;
+        std::size_t this_block = starting_block;
         int last_block = -1;
         while (do_continue && this_block < m_blocks_with_offsets.size()) {
             auto& b = m_blocks_with_offsets[this_block];
@@ -81,16 +94,21 @@ public:
                 if (window.end >= b.end_offset) {
                     range_end = b.end_offset - b.start_offset;
                 }
-                block_ranges_in_window.emplace_back {b.block, range_start, range_end};
+                block_ranges_in_window.push_back(
+                    block_range<block_t>{
+                        b.block, range_start, range_end
+                    });
                 last_block = this_block;
             } else {
                 do_continue = b.end_offset <= window.start;
             }
             this_block++;
         }
-        int last_block = block_ranges_in_window.last;
-        return {last_block, block_ranges_in_window, 
-                    !do_continue || !last_block.is_complete};
+        auto last = block_ranges_in_window[block_ranges_in_window.size()-1];
+        return blocks_for_window<block_t> (
+            last_block,
+            block_ranges_in_window, 
+            !do_continue || !last.is_complete());
     }
 
     std::vector<block_range<block_t>> next() {
@@ -117,24 +135,20 @@ private:
     int m_last_seen_block;
 };
 
-class bounce_buffer {
+struct bounce_buffer {
     uint64_t* address;
     uint64_t size;
 };
 
-class receive_block {
-public: 
-    uint64_t size() { 
-    }
-
-    void* user_data() {
-    }
+struct receive_block {
+    uint64_t size;
+    int id;
 };
 
 struct buffer_receive_result {
-    // packed_tables_with_metas
-    // spillable??
-
+    int block_id;
+    uint64_t * packed_buffer;
+    uint64_t size;
 };
 
 class buffer_receive_state {
@@ -145,17 +159,24 @@ private:
         uint64_t dst_offset;
         uint64_t copy_size;
         bool complete;
-        void* user_data;
+        int id;
+        uint64_t size;
     };
 
 public:
     buffer_receive_state(
         bounce_buffer const & bb, 
         std::vector<receive_block> const& blocks, 
-        cudf::cuda_stream_view stream)
-        : m_bb(bb), m_blocks(blocks), m_stream(stream), m_iterated(false)
+        rmm::cuda_stream_view stream,
+        rmm::mr::device_memory_resource* mr)
+        : m_bb(bb), 
+          m_stream(stream),
+          m_mr(mr),
+          m_window_iter(blocks, bb.size),
+          m_bounce_buffer_byte_offset(0),
+          m_working_on_offset(0)
     {
-        m_window_iter = windowed_block_iterator<receive_block>(blocks, bb.size);
+        m_iterated = false;
         m_has_more_blocks = m_window_iter.has_next();
     }
 
@@ -189,46 +210,50 @@ public:
 
         std::vector<copy_action> copy_actions;
         for (const block_range<receive_block>& br : m_current_blocks) {
-            uint64_t full_size = br.block.size();
+            uint64_t full_size = br.block.size;
             if (full_size == br.range_size()) {
                 // add copy action for a full buffer
-                copy_actions.emplace_back {
-                    allocate(full_size, stream),
-                    bounce_buffer_byte_offset,
+                copy_actions.push_back(copy_action {
+                    reinterpret_cast<uint64_t*>(m_mr->allocate(full_size, m_stream)),
+                    m_bounce_buffer_byte_offset,
                     0,
                     full_size,
                     true,
-                    br.block.user_data()};
+                    br.block.id,
+                    br.block.size});
             } else {
                 // copy actions for a partial buffer
-                if (working_on_offset != 0) {
-                    copy_actions.emplace_back {
-                        working_on_buffer, 
-                        bounce_buffer_byte_offset,
-                        working_on_offset,
+                if (m_working_on_offset != 0) {
+                    copy_actions.push_back(copy_action {
+                        m_working_on_buffer, 
+                        m_bounce_buffer_byte_offset,
+                        m_working_on_offset,
                         br.range_size(),
-                        working_on_offset + br.range_size() == full_size,
-                        br.block.user_data()};
+                        m_working_on_offset + br.range_size() == full_size,
+                        br.block.id,
+                        br.block.size});
 
-                    working_on_offset += br.range_size();
-                    if (working_on_offset == full_size) {
-                        working_on_offset = 0;
+                    m_working_on_offset += br.range_size();
+                    if (m_working_on_offset == full_size) {
+                        m_working_on_offset = 0;
                     }
                 } else {
-                    working_on_buffer = allocate(full_size, stream);
-                    copy_actions.emplace_back {
-                        working_on_buffer, 
-                        bounce_buffer_byte_offset,
-                        working_on_offset,
+                    m_working_on_buffer = reinterpret_cast<uint64_t*>(
+                        m_mr->allocate(full_size, m_stream));
+                    copy_actions.push_back(copy_action{
+                        m_working_on_buffer, 
+                        m_bounce_buffer_byte_offset,
+                        m_working_on_offset,
                         br.range_size(),
-                        working_on_offset + br.range_size() == full_size,
-                        br.block.user_data()};
-                    working_on_offset += br.range_size();
+                        m_working_on_offset + br.range_size() == full_size,
+                        br.block.id,
+                        br.block.size});
+                    m_working_on_offset += br.range_size();
                 }
             }
-            bounce_buffer_byte_offset += br.range_size();
-            if (bounce_buffer_byte_offset >= m_bb.size()) {
-                bounce_buffer_byte_offset = 0;
+            m_bounce_buffer_byte_offset += br.range_size();
+            if (m_bounce_buffer_byte_offset >= m_bb.size) {
+                m_bounce_buffer_byte_offset = 0;
             }
         }
 
@@ -243,22 +268,24 @@ public:
         cudf::batch_memcpy(
             src_addresses.data(),
             dst_addresses.data(),
-            dst_addresses.data(),
+            buffer_sizes.data(),
             src_addresses.size(),
-            stream,
-            mr);
+            m_stream,
+            m_mr);
 
         std::vector<buffer_receive_result> result;
         for (const copy_action& ca : copy_actions) {
             if (ca.complete) { 
-                result.emplace_back {ca.dst_base, ca.user_data};
+                result.push_back(buffer_receive_result{
+                    ca.id, ca.dst_base, ca.size
+                });
             }
         }
-        if (working_on_offset == 0) {
-            working_on_buffer = nullptr;
+        if (m_working_on_offset == 0) {
+            m_working_on_buffer = nullptr;
         }
 
-        stream.synchronize();
+        m_stream.synchronize();
 
         // TODO maybe these two are in java
         // TODO: rmmspark stop working on tasks
@@ -269,10 +296,14 @@ public:
 
 private:
     bounce_buffer m_bb;
-    cudf::cuda_stream_view m_stream;
+    rmm::cuda_stream_view m_stream;
+    rmm::mr::device_memory_resource* m_mr;
     windowed_block_iterator<receive_block> m_window_iter;
     std::vector<block_range<receive_block>> m_next_blocks;
     std::vector<block_range<receive_block>> m_current_blocks;
     bool m_iterated;
     bool m_has_more_blocks;
+    uint64_t m_bounce_buffer_byte_offset;
+    uint64_t m_working_on_offset;
+    uint64_t* m_working_on_buffer;
 };

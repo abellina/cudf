@@ -23,6 +23,7 @@
 #endif
 
 #include "jni_utils.hpp"
+#include "brs.hpp"
 
 namespace {
 
