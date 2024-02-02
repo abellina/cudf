@@ -441,32 +441,40 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_createBufferReceiveState(JNIEnv
   jlong bb_address,
   jlong bb_size,
   jlongArray j_block_sizes,
-  jlongArray j_block_ids,
+  jintArray j_block_ids,
   jlong j_stream) {
     try {
       cudf::jni::native_jlongArray block_sizes(env, j_block_sizes);
-      cudf::jni::native_jlongArray block_ids(env, j_block_ids);
+      cudf::jni::native_jintArray block_ids(env, j_block_ids);
       std::vector<receive_block> rbs;
       for (int i = 0; i < block_sizes.size(); ++i) {
         rbs.push_back(receive_block{
-          block_sizes[i], block_ids[i]
+          static_cast<uint64_t>(block_sizes[i]), 
+          block_ids[i]
         });
       }
       
-      return new buffer_receive_state(
-        bounce_buffer(bb_address, bb_size),
+      auto brs = new buffer_receive_state(
+        bounce_buffer{
+          reinterpret_cast<uint64_t*>(bb_address), 
+          static_cast<uint64_t>(bb_size)
+        },
         rbs,
         rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(j_stream)),
         rmm::mr::get_current_device_resource());
+
+      return reinterpret_cast<jlong>(brs);
     }
-    CATCH_STD(env, );
+    CATCH_STD(env, 0);
   }
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_bufferReceiveStateConsume(JNIEnv *env, jclass clazz,
   jlong brs) {
+    auto results = reinterpret_cast<buffer_receive_state*>(brs)->consume();
+    return -1; // TODO
 }
 
-JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_bufferReceiveStateDelete(JNIEnv *env, jclass clazz,
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_bufferReceiveStateDelete(JNIEnv *env, jclass clazz,
   jlong brs) {
     delete reinterpret_cast<buffer_receive_state*>(brs);
   }
