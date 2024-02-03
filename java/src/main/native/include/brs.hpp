@@ -203,7 +203,9 @@ public:
     }
 
     std::vector<buffer_receive_result> consume() {
+        std::cout << "before advance" << std::endl;
         advance();
+        std::cout << "after advance" << std::endl;
 
         // TODO: maybe this is in java?
         // TODO: shuffle_thread_working_on_tasks(tasks)
@@ -257,6 +259,7 @@ public:
             }
         }
 
+        std::cout << "copy actions " << copy_actions.size() << std::endl;
         std::vector<uint64_t*> src_addresses;
         std::vector<uint64_t*> dst_addresses;
         std::vector<uint64_t> buffer_sizes;
@@ -265,6 +268,7 @@ public:
             dst_addresses.push_back(ca.dst_base + ca.dst_offset);
             buffer_sizes.push_back(ca.copy_size);
         }
+        std::cout << "batch memcpy: " << src_addresses.size() << std::endl;
         cudf::batch_memcpy(
             src_addresses.data(),
             dst_addresses.data(),
@@ -273,6 +277,7 @@ public:
             m_stream,
             m_mr);
 
+        std::cout << "results" << std::endl;
         std::vector<buffer_receive_result> result;
         for (const copy_action& ca : copy_actions) {
             if (ca.complete) { 

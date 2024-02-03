@@ -623,4 +623,17 @@ public class Cuda {
     long[] buffSizes, 
     int numBuffs, 
     long stream); 
+
+  public static native long createBufferReceiveState(
+    long bbAddress,
+    long bbSize,
+    long[] blockSizes,
+    int[] blockIds,
+    long stream);
+
+  public static native BufferReceiveResult[] bufferReceiveStateConsume(
+    long bufferReceiveState);
+
+  public static native void bufferReceiveStateDelete(
+    long bufferReceiveState);
 }
