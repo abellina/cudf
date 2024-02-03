@@ -471,22 +471,17 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_createBufferReceiveState(JNIEnv
 JNIEXPORT jobjectArray JNICALL Java_ai_rapids_cudf_Cuda_bufferReceiveStateConsume(JNIEnv *env, jclass clazz,
   jlong brs) {
     auto results = reinterpret_cast<buffer_receive_state*>(brs)->consume();
-    std::cout << "done consuming" << std::endl;
     jclass clz = env->FindClass("ai/rapids/cudf/BufferReceiveResult");
-    std::cout << "got clz" << clz << std::endl;
     jobjectArray arr = env->NewObjectArray(results.size(), clz, nullptr);
     jmethodID cid = env->GetMethodID(clz, "<init>", "(IJJ)V");
-    std::cout << "got cid " << cid << std::endl;
     for (std::size_t i = 0; i < results.size(); ++i) {
       std::cout << "creating result " << results[i].size << " " << results[i].packed_buffer << " " << results[i].block_id << std::endl;
       auto obj = env->NewObject(clz, cid, 
           (jint)(results[i].block_id), 
           (jlong)(results[i].packed_buffer), 
           (jlong)(results[i].size));
-      std::cout << "adding result " << results[i].size << std::endl;
       env->SetObjectArrayElement(arr, i, obj);
     }
-    std::cout << "returning " << std::endl;
     return arr;
 }
 
