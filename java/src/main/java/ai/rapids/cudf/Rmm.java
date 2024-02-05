@@ -524,7 +524,7 @@ public class Rmm {
   private static native long[] allocInternalBatch(long[] size, long stream) throws RmmException;
 
 
-  static native void free(long ptr, long length, long stream) throws RmmException;
+  public static native void free(long ptr, long length, long stream) throws RmmException;
 
   /**
    * Delete an rmm::device_buffer.

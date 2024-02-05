@@ -1946,6 +1946,30 @@ public final class Table implements AutoCloseable {
     return new Table(concatenate(tableHandles));
   }
 
+  public static Table concatenatePackedRaw(ByteBuffer[] metadata, long[] dataAddresses) {
+    // Ensure the metadata buffer is direct so it can be passed to JNI
+    ByteBuffer[] directBuffers = new ByteBuffer[metadata.length];
+    for (int i = 0; i < metadata.length; i++) {
+      if (!metadata[i].isDirect()) {
+        directBuffers[i]= ByteBuffer.allocateDirect(metadata[i].remaining());
+        directBuffers[i].put(metadata[i]);
+        directBuffers[i].flip();
+      } else {
+        directBuffers[i] = metadata[i];
+      }
+    }
+
+    if (metadata.length < 2) {
+      throw new IllegalArgumentException("concatenate requires 2 or more tables");
+    }
+
+    if (metadata.length != dataAddresses.length) {
+      throw new IllegalArgumentException("metadata/data arrays length not matching");
+    }
+
+    return new Table(concatenatePacked(directBuffers, dataAddresses));
+  }
+
   public static Table concatenatePacked(ByteBuffer[] metadata, DeviceMemoryBuffer[] data) {
     // Ensure the metadata buffer is direct so it can be passed to JNI
     ByteBuffer[] directBuffers = new ByteBuffer[metadata.length];

@@ -154,7 +154,7 @@ struct buffer_receive_result {
 class buffer_receive_state {
 private:
     struct copy_action {
-        uint64_t* dst_base;
+        uint64_t dst_base;
         uint64_t src_offset;
         uint64_t dst_offset;
         uint64_t copy_size;
@@ -182,6 +182,8 @@ public:
 
     bool has_more_blocks() { return m_has_more_blocks; } 
 
+    bool has_next() { return m_has_more_blocks || m_current_blocks.size() > 0; }
+
     void advance() {
         if (!m_has_more_blocks) {
             throw std::runtime_error("buffer_receive_state is done yet it received a call to next()");
@@ -202,10 +204,26 @@ public:
         }
     }
 
+    void check_bounds(const char * kind, 
+        uint64_t addr, uint64_t size, uint64_t copy_offset, uint64_t copy_size) {
+        std::cout <<  "checking: " << kind << " addr " << addr << " size " << size 
+                  << " copy_offset: " << copy_offset << " copy_size " << copy_size << 
+                  " addr + size " << addr + size << 
+                  " copy_offset + copy_size " << copy_offset + copy_size << std::endl;
+                  
+
+        if (copy_offset  < addr) {
+            std::cout << kind << " copy_offset " << copy_offset << " is before " << addr << std::endl;
+        }
+        if (copy_offset + copy_size > addr + size) {
+            std::cout << kind << "copy_offset " << copy_offset 
+                      << " + size " << copy_size 
+                      << " is after " << addr <<  "  " << size << std::endl;
+        }
+    }
+
     std::vector<buffer_receive_result> consume() {
-        std::cout << "before advance" << std::endl;
         advance();
-        std::cout << "after advance" << std::endl;
 
         // TODO: maybe this is in java?
         // TODO: shuffle_thread_working_on_tasks(tasks)
@@ -216,7 +234,7 @@ public:
             if (full_size == br.range_size()) {
                 // add copy action for a full buffer
                 copy_actions.push_back(copy_action {
-                    reinterpret_cast<uint64_t*>(m_mr->allocate(full_size, m_stream)),
+                    (uint64_t)m_mr->allocate(full_size, m_stream),
                     m_bounce_buffer_byte_offset,
                     0,
                     full_size,
@@ -227,7 +245,7 @@ public:
                 // copy actions for a partial buffer
                 if (m_working_on_offset != 0) {
                     copy_actions.push_back(copy_action {
-                        m_working_on_buffer, 
+                        (uint64_t)m_working_on_buffer, 
                         m_bounce_buffer_byte_offset,
                         m_working_on_offset,
                         br.range_size(),
@@ -243,7 +261,7 @@ public:
                     m_working_on_buffer = reinterpret_cast<uint64_t*>(
                         m_mr->allocate(full_size, m_stream));
                     copy_actions.push_back(copy_action{
-                        m_working_on_buffer, 
+                        (uint64_t)m_working_on_buffer, 
                         m_bounce_buffer_byte_offset,
                         m_working_on_offset,
                         br.range_size(),
@@ -259,16 +277,28 @@ public:
             }
         }
 
-        std::cout << "copy actions " << copy_actions.size() << std::endl;
         std::vector<uint64_t*> src_addresses;
         std::vector<uint64_t*> dst_addresses;
         std::vector<uint64_t> buffer_sizes;
+        
         for (const copy_action& ca : copy_actions) {
-            src_addresses.push_back(m_bb.address + ca.src_offset);
-            dst_addresses.push_back(ca.dst_base + ca.dst_offset);
+            auto src_addr = m_bb.address + ca.src_offset;
+            auto dst_addr = ca.dst_base + ca.dst_offset;
+           // check_bounds("src", 
+           //     (uint64_t)m_bb.address, 
+           //     m_bb.size, 
+           //     (uint64_t)src_addr, 
+           //     ca.copy_size);
+           // check_bounds("dst", 
+           //     ca.dst_base, 
+           //     ca.size, 
+           //     dst_addr, 
+           //     ca.copy_size);
+
+            src_addresses.push_back(src_addr);
+            dst_addresses.push_back((uint64_t*)dst_addr);
             buffer_sizes.push_back(ca.copy_size);
         }
-        std::cout << "batch memcpy: " << src_addresses.size() << std::endl;
         cudf::batch_memcpy(
             src_addresses.data(),
             dst_addresses.data(),
@@ -277,12 +307,11 @@ public:
             m_stream,
             m_mr);
 
-        std::cout << "results" << std::endl;
         std::vector<buffer_receive_result> result;
         for (const copy_action& ca : copy_actions) {
             if (ca.complete) { 
                 result.push_back(buffer_receive_result{
-                    ca.id, ca.dst_base, ca.size
+                    ca.id, (uint64_t*)ca.dst_base, ca.size
                 });
             }
         }
@@ -295,6 +324,8 @@ public:
         // TODO maybe these two are in java
         // TODO: rmmspark stop working on tasks
         // TODO: tofinalize needs to be called at some point
+
+        m_current_blocks.clear();
 
         return result;
     }

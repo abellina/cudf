@@ -475,7 +475,6 @@ JNIEXPORT jobjectArray JNICALL Java_ai_rapids_cudf_Cuda_bufferReceiveStateConsum
     jobjectArray arr = env->NewObjectArray(results.size(), clz, nullptr);
     jmethodID cid = env->GetMethodID(clz, "<init>", "(IJJ)V");
     for (std::size_t i = 0; i < results.size(); ++i) {
-      std::cout << "creating result " << results[i].size << " " << results[i].packed_buffer << " " << results[i].block_id << std::endl;
       auto obj = env->NewObject(clz, cid, 
           (jint)(results[i].block_id), 
           (jlong)(results[i].packed_buffer), 
@@ -489,4 +488,10 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_bufferReceiveStateDelete(JNIEnv 
   jlong brs) {
     delete reinterpret_cast<buffer_receive_state*>(brs);
   }
+
+JNIEXPORT jboolean JNICALL Java_ai_rapids_cudf_Cuda_bufferReceiveStateHasNext(JNIEnv *env, jclass clazz,
+  jlong brs) {
+    return (jboolean) reinterpret_cast<buffer_receive_state*>(brs)->has_next();
+  }
+
 } // extern "C"

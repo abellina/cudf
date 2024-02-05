@@ -636,4 +636,7 @@ public class Cuda {
 
   public static native void bufferReceiveStateDelete(
     long bufferReceiveState);
+
+  public static native boolean bufferReceiveStateHasNext(
+    long bufferReceiveState);
 }
