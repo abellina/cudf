@@ -378,10 +378,6 @@ static __device__ void gpuOutputGeneric(
   if (len & 3) {
     // Generic slow path
     for (unsigned int i = 0; i < len; i++) {
-      if (dst8 == nullptr) {
-      printf("dict dst8 address %" PRIu64 " dict address %" PRIu64 " dict_base %" PRIu64 " dict_size %i dst8[%i] len %i offset %i\n", 
-        dst8, dict, s->dict_base, s->dict_size, i, len, dict_pos + i);
-      }
       dst8[i] = (dict_pos + i < dict_size) ? dict[dict_pos + i] : 0;
     }
   } else {
