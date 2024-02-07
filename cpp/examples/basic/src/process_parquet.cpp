@@ -43,7 +43,12 @@ cudf::io::table_with_metadata read_parquet(
   auto source_info = cudf::io::source_info(file_path);
   auto builder     = cudf::io::parquet_reader_options::builder(source_info);
   //auto options     = builder.build();
-  auto options     = builder.columns({col_name}).build();
+  cudf::io::parquet_reader_options options;
+  if (col_name == "ALL") {
+    options = builder.build();
+  } else {
+    options = builder.columns({col_name}).build();
+  }
   auto res = cudf::io::read_parquet(options);
   std::cout << "table of " << res.tbl->num_rows() << " rows scanned" << std::endl;
   for (int i = 0; i < res.tbl->num_columns(); ++i) { 
@@ -157,26 +162,26 @@ std::string store_col_names[] = {
  "s_tax_precentage" //: decimal(5,2) (nullable = true)
 };
 
- for (std::string col : col_names) {
+ //for (std::string col : col_names) {
+ //setenv("USE_FIXED_OP", "0", 1);
+ //auto expected = read_parquet(name, col);
+ //cudaDeviceSynchronize();
+
+ //setenv("USE_FIXED_OP", "2", 1);
+ //auto actual = read_parquet(name, col);
+ //cudaDeviceSynchronize();
+ //CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+ //std::cout << "done" << std::endl;
+ //}
    setenv("USE_FIXED_OP", "0", 1);
-   auto expected = read_parquet(name, col);
+   auto expected = read_parquet(name, "ALL");
    cudaDeviceSynchronize();
 
    setenv("USE_FIXED_OP", "2", 1);
-   auto actual = read_parquet(name, col);
+   auto actual = read_parquet(name, "ALL");
    cudaDeviceSynchronize();
    CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
    std::cout << "done" << std::endl;
- }
- //  setenv("USE_FIXED_OP", "0", 1);
- //  auto expected = read_parquet(name, "ALL");
- //  cudaDeviceSynchronize();
-
- //  setenv("USE_FIXED_OP", "2", 1);
- //  auto actual = read_parquet(name, "ALL");
- //  cudaDeviceSynchronize();
- //  CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
- //  std::cout << "done" << std::endl;
 
 
  //[[maybe_unused]] int num_rows = 128;
