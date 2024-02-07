@@ -164,11 +164,6 @@ __global__ void __launch_bounds__(decode_block_size)
         int leaf_level_index = s->col.max_nesting_depth - 1;
 
         uint32_t dtype_len = s->dtype_len;
-        // TODO: abellina why is data_out 0
-        if (t == 0) {
-        printf("t %i leaf_level_index %i nesting_info_base[leaf_level_index].data_out %" PRIu64 "\n",
-          t, leaf_level_index, nesting_info_base[leaf_level_index].data_out);
-        }
         void* dst =
           nesting_info_base[leaf_level_index].data_out + static_cast<size_t>(dst_pos) * dtype_len;
         if (dtype == BYTE_ARRAY) {

@@ -51,8 +51,7 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
                                                                 page_state_s* s,
                                                                 state_buf* sb,
                                                                 level_t const* const def,
-                                                                int t,
-                                                                int page_idx)
+                                                                int t)
 {
   constexpr int num_warps      = decode_block_size / 32;
   constexpr int max_batch_size = num_warps * 32;
@@ -273,7 +272,8 @@ __device__ inline void gpuDecodeValues(
  */
 template <typename level_t>
 __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
-  PageInfo* pages, device_span<ColumnChunkDesc const> chunks, size_t min_row, size_t num_rows, int page_idx_filter)
+  PageInfo* pages, device_span<ColumnChunkDesc const> chunks, size_t min_row, size_t num_rows
+  /*, int page_idx_filter*/)
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16) page_state_buffers_s<rolling_buf_size,  // size of nz_idx buffer
@@ -288,9 +288,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   PageInfo* pp          = &pages[page_idx];
 
   if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT))) { 
-    #ifdef ABDEBUG
-    printf("returning.. not a NO_DICT page kernel_mask %i\n", pages[page_idx].kernel_mask);
-    #endif
     return; 
   }
 
@@ -305,17 +302,16 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
       return; 
   }
 
-  if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
-    return;
-  }
+  //if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
+  //  return;
+  //}
   //if (t == 0) {
   //  printf("fixed decoding page %i\n", page_idx);
   //}
 
   // the level stream decoders
-  int const max_batch_size = rolling_buf_size;
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
-  rle_stream<level_t, decode_block_size> def_decoder{def_runs};
+  rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
   bool const has_repetition = false;
   bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
@@ -343,36 +339,34 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
-                     rolling_buf_size,
                      def,
-                     s->page.num_input_values,
-                     1, t);
+                     s->page.num_input_values);
   }
   __syncthreads();
 
   // the core loop. decode batches of level stream data using rle_stream objects
   // and pass the results to gpuUpdatePageSizes
   int processed = 0;
-  [[maybe_unused]] int valid     = 0;
+  int valid     = 0;
   while (processed < s->page.num_input_values) {
     int next_valid;
 
     // only need to process definition levels if this is a nullable column
     int this_processed;
     if (nullable) {
-      this_processed = def_decoder.decode_next(t, 1);
+      this_processed = def_decoder.decode_next(t);
       __syncthreads();
 
       next_valid = gpuUpdateValidityOffsetsAndRowIndicesFlat<true, level_t>(
-        processed + this_processed, s, sb, def, t, page_idx);
+        processed + this_processed, s, sb, def, t);
     }
     // if we wanted to split off the skip_rows/num_rows case into a separate kernel, we could skip
     // this function call entirely since all it will ever generate is a mapping of (i -> i) for
     // nz_idx.  gpuDecodeValues would be the only work that happens.
     else {
-      this_processed = min(max_batch_size, s->page.num_input_values - processed);
+      this_processed = min(rolling_buf_size, s->page.num_input_values - processed);
       next_valid     = gpuUpdateValidityOffsetsAndRowIndicesFlat<false, level_t>(
-        processed + this_processed, s, sb, nullptr, t, page_idx);
+        processed + this_processed, s, sb, nullptr, t);
     }
     __syncthreads();
    //if (t == 0){
@@ -394,8 +388,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   PageInfo* pages, 
   device_span<ColumnChunkDesc const> chunks, 
   size_t min_row, 
-  size_t num_rows,
-  int page_idx_filter)
+  size_t num_rows
+  /*, int page_idx_filter*/)
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16) page_state_buffers_s<rolling_buf_size,  // size of nz_idx buffer
@@ -419,9 +413,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
-    return;
-  }
+  //if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
+  //  return;
+  //}
   //if (t == 0) {
   //  printf("dict decoding page %i\n", page_idx);
   //}
@@ -429,13 +423,11 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // the level stream decoders
   // rolling_buf_size = 256
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
-  rle_stream<level_t, decode_block_size> def_decoder{def_runs};
+  rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
   // should the size be 1/2 (128?)
-  int const max_batch_size = rolling_buf_size;
-  // max_batch_size = 256
   __shared__ rle_run<uint32_t> dict_runs[rle_run_buffer_size]; // should be array of 6
-  rle_stream<uint32_t, decode_block_size> dict_stream{dict_runs};
+  rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
 
   // has_repetition == nullable????
   bool const has_repetition = false;
@@ -465,11 +457,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     def_decoder.init(s->col.level_bits[level_type::DEFINITION],
                      s->abs_lvl_start[level_type::DEFINITION],
                      s->abs_lvl_end[level_type::DEFINITION],
-                     rolling_buf_size, // 256
                      def,              // 2048 sized
-                     s->page.num_input_values,
-                     1,
-                     t);
+                     s->page.num_input_values);
   }
   __syncthreads();
   
@@ -480,18 +469,14 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
                    // TODO: abellina what is dict_pos
                    s->data_start, // end - start goes up to 302 when it is bad, 253 when it is good.
                    s->data_end,
-                   rolling_buf_size, // 256
                    sb->dict_idx, // 256 x uint32_t
-                   s->page.num_input_values,
-                   2, 
-                   t); 
+                   s->page.num_input_values); 
   __syncthreads();
 
   // the core loop. decode batches of level stream data using rle_stream objects
   // and pass the results to gpuUpdatePageSizes
   int processed = 0;
   [[maybe_unused]] int valid     = 0;
-  [[maybe_unused]] int iter = 0;
   while (processed < s->page.num_input_values) {
     int next_valid;
 
@@ -499,20 +484,20 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     int this_processed;
     if (nullable) {
       //-1 don't cap it
-      this_processed = def_decoder.decode_next(t, 1);
+      this_processed = def_decoder.decode_next(t);
       __syncthreads();
 
       // count of valid items in this batch
       next_valid = gpuUpdateValidityOffsetsAndRowIndicesFlat<true, level_t>(
-        processed + this_processed, s, sb, def, t, page_idx);
+        processed + this_processed, s, sb, def, t);
     }
     // if we wanted to split off the skip_rows/num_rows case into a separate kernel, we could skip
     // this function call entirely since all it will ever generate is a mapping of (i -> i) for
     // nz_idx.  gpuDecodeValues would be the only work that happens.
     else {
-      this_processed = min(max_batch_size, s->page.num_input_values - processed);
+      this_processed = min(rolling_buf_size, s->page.num_input_values - processed);
       next_valid     = gpuUpdateValidityOffsetsAndRowIndicesFlat<false, level_t>(
-        processed + this_processed, s, sb, nullptr, t, page_idx);
+        processed + this_processed, s, sb, nullptr, t);
     }
     __syncthreads();
    //if (t == 0){
@@ -521,7 +506,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
    //}
    // __syncthreads();
 
-    dict_stream.decode_next(t, 2, (next_valid - valid), valid);
+    dict_stream.decode_next(t, (next_valid - valid), valid);
     __syncthreads();
 
     // decode the values themselves
@@ -547,20 +532,20 @@ void __host__ DecodePageDataFixed(cudf::detail::hostdevice_vector<PageInfo>& pag
   dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
 
 
-  char * page_idx_env = getenv("PAGE_IDX");
-  int page_idx_filter = -1;
+  //char * page_idx_env = getenv("PAGE_IDX");
+  //int page_idx_filter = -1;
 
-  if (page_idx_env != nullptr) {
-    page_idx_filter = atoi(page_idx_env);
-  }
+  //if (page_idx_env != nullptr) {
+  //  page_idx_filter = atoi(page_idx_env);
+  //}
   if (level_type_size == 1) {
     gpuDecodePageDataFixed<uint8_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(
-        pages.device_ptr(), chunks, min_row, num_rows, page_idx_filter);
+        pages.device_ptr(), chunks, min_row, num_rows); //, page_idx_filter);
   } else {
     gpuDecodePageDataFixed<uint16_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(
-        pages.device_ptr(), chunks, min_row, num_rows, page_idx_filter);
+        pages.device_ptr(), chunks, min_row, num_rows); //, page_idx_filter);
   }
 }
 
@@ -577,22 +562,22 @@ void __host__ DecodePageDataFixedDict(
   dim3 dim_block(decode_block_size, 1); // decode_block_size = 128 threads per block
   dim3 dim_grid(pages.size(), 1);       // 1 thread block per pags => # blocks
 
-  char * page_idx_env = getenv("PAGE_IDX");
-  int page_idx_filter = -1;
+  //char * page_idx_env = getenv("PAGE_IDX");
+  //int page_idx_filter = -1;
 
-  if (page_idx_env != nullptr) {
-    page_idx_filter = atoi(page_idx_env);
-  }
+  //if (page_idx_env != nullptr) {
+  //  page_idx_filter = atoi(page_idx_env);
+  //}
 
 
   if (level_type_size == 1) {
     gpuDecodePageDataFixedDict<uint8_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(
-        pages.device_ptr(), chunks, min_row, num_rows, page_idx_filter);
+        pages.device_ptr(), chunks, min_row, num_rows); //, page_idx_filter);
   } else {
     gpuDecodePageDataFixedDict<uint16_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(
-        pages.device_ptr(), chunks, min_row, num_rows, page_idx_filter);
+        pages.device_ptr(), chunks, min_row, num_rows); //, page_idx_filter);
   }
   cudaStreamSynchronize(stream.value());
 }
