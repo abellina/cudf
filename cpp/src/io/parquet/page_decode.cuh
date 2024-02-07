@@ -588,7 +588,6 @@ __device__ void gpuDecodeStream(
 
     if (t < batch_len) {
       int idx                                      = value_count + t;
-      //printf("old[%i]=%i\n", idx, level_val);
       output[rolling_index<rolling_buf_size>(idx)] = level_val;
     }
     batch_coded_count += batch_len;
@@ -1285,7 +1284,6 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
         int max_depth = s->col.max_nesting_depth;
         for (int idx = 0; idx < max_depth; idx++) {
           PageNestingDecodeInfo* nesting_info = &s->nesting_info[idx];
-          //printf("nested info at idx %i max_depth %i\n", idx, max_depth);
 
           size_t output_offset;
           // schemas without lists
@@ -1300,7 +1298,6 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
           // TODO: ab why is this ok
           if (s->col.column_data_base != nullptr) {
             // ok this becomes 0 column_data_base[1]
-            //printf("s->col.column_data_base[idx] %" PRIu64 " idx %i\n", s->col.column_data_base[idx], idx);
             nesting_info->data_out = static_cast<uint8_t*>(s->col.column_data_base[idx]);
             if (s->col.column_string_base != nullptr) {
               nesting_info->string_out = static_cast<uint8_t*>(s->col.column_string_base[idx]);
@@ -1325,8 +1322,6 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
               nesting_info->valid_map += output_offset >> 5;
               nesting_info->valid_map_offset = (int32_t)(output_offset & 0x1f);
             }
-          } else {
-            printf ("column_data_base is null :(\n");
           }
         }
       }
@@ -1342,9 +1337,6 @@ inline __device__ bool setupLocalPageInfo(page_state_s* const s,
       s->dict_size = 0;
       // NOTE:  if additional encodings are supported in the future, modifications must
       // be made to is_supported_encoding() in reader_impl_preprocess.cu
-      #ifdef ABDEBUG
-      printf("page encoding: %i\n", s->page.encoding);
-      #endif
       switch (s->page.encoding) {
         case Encoding::PLAIN_DICTIONARY:
         case Encoding::RLE_DICTIONARY:
