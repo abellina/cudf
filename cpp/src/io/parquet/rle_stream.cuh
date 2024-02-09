@@ -298,12 +298,6 @@ struct rle_stream {
     __syncthreads();
 
     do {
-     //if (warp_lane == 0) {
-     //  printf("warp_id: %i decode_index: %i fill_index: %i\n", 
-     //    warp_id, 
-     //    decode_index_shared, 
-     //    fill_index_shared);
-     //}
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
@@ -315,20 +309,12 @@ struct rle_stream {
       // remaining warps decode the runs
       else if (decode_index_shared >= 0 && decode_index_shared >= fill_index_shared) {
         int run_index = decode_index_shared + warp_decode_id;
-        //if (warp_lane == 0) {
-        //  printf("warp_id: %i run_index: %i decode_index: %i fill_index: %i\n", 
-        //    warp_id, 
-        //    rolling_index<run_buffer_size>(run_index),
-        //    rolling_index<run_buffer_size>(decode_index_shared), 
-        //    rolling_index<run_buffer_size>(fill_index_shared));
-        //}
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
         if (run.remaining > 0 && (cur_values + output_count - run.output_pos) > 0) {
           auto batch = run.next_batch<max_output_values>(output, output_count, cur_values);
           batch.decode(end, level_bits, warp_lane);
           
           if (warp_lane == 0) {
-            //atomicAdd(&values_processed, remain_prio - run.remaining);
             run.processed += batch.size;
             run.remaining -= batch.size;
           }
