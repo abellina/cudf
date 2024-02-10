@@ -149,7 +149,6 @@ struct rle_run {
   uint8_t const* start;
   int level_run;  // level_run header value
   int remaining;
-  int processed;
 
   template<int max_output_values>
   __device__ __inline__ rle_batch<level_t, max_output_values> next_batch(
@@ -195,7 +194,6 @@ struct rle_stream {
   __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {
     for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
       runs[i].remaining = 0;
-      runs[i].processed = 0;
     }
   }
 
@@ -253,7 +251,6 @@ struct rle_stream {
       run.start      = _cur;
       run.level_run  = level_run;
       run.remaining  = run.size;
-      run.processed  = 0;
       cur += run_bytes;
       output_pos += run.size;
       fill_index++;
@@ -287,13 +284,11 @@ struct rle_stream {
     int const warp_lane      = t % cudf::detail::warp_size;
 
     __shared__ int values_processed;
-    __shared__ int new_values_processed;
     __shared__ int decode_index_shared;
     __shared__ int fill_index_shared;
     if (!t) {
       // carryover from the last call.
       values_processed = 0;
-      new_values_processed = 0;
       decode_index_shared = decode_index;
       fill_index_shared = fill_index;
     }
@@ -323,24 +318,23 @@ struct rle_stream {
           auto batch = run.next_batch<max_output_values>(output, output_count, cur_values);
           batch.decode(end, level_bits, warp_lane);
           if (warp_lane == 0) {
-            run.processed += batch.size;
             run.remaining -= batch.size;
             // TODO: can this be done in terms of _output_pos and batch.size and rolling_index of the
             // output buffer?, like the index we use to write into output[]
-            printf("am I the last run? %i output_count: %i remaining: %i, processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
-              rolling_index<run_buffer_size>(run_index),
-              output_count,
-              run.remaining,
-              new_values_processed,
-              run.output_pos,
-              batch._output_pos,
-              cur_values,
-              batch.size);
+            //printf("am I the last run? %i output_count: %i remaining: %i, processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
+            //  rolling_index<run_buffer_size>(run_index),
+            //  output_count,
+            //  run.remaining,
+            //  new_values_processed,
+            //  run.output_pos,
+            //  batch._output_pos,
+            //  cur_values,
+            //  batch.size);
             if (run.remaining > 0 || ((run.output_pos + (run.size - remain_prio) + batch.size) - cur_values) == output_count) {
-              new_values_processed = (run.output_pos + (run.size - remain_prio) + batch.size) - cur_values;
+              values_processed = (run.output_pos + (run.size - remain_prio) + batch.size) - cur_values;
               printf("I am the last run!! %i processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
                 rolling_index<run_buffer_size>(run_index),
-                new_values_processed,
+                values_processed,
                 run.output_pos,
                 batch._output_pos,
                 cur_values,
@@ -370,8 +364,6 @@ struct rle_stream {
        decode_index_shared = decode_index;
        for (int i = decode_index; i < decode_index + num_rle_stream_decode_warps; ++i) {
          auto& run = runs[rolling_index<run_buffer_size>(i)];
-         values_processed += run.processed;
-         run.processed = 0; // reset
          if (run.remaining == 0) {
            decode_index_shared++;
          } else {
@@ -387,17 +379,6 @@ struct rle_stream {
      decode_index = decode_index_shared;
 
     } while (values_processed < output_count);
-
-    if (values_processed != new_values_processed) {
-      if (t == 0) { 
-      printf("values_processed %i != new_values_processed %i\n", values_processed, new_values_processed);
-      }
-    } else {
-      if (t == 0) {
-      printf("values_processed %i == new_values_processed %i\n", values_processed, new_values_processed);
-      }
-      }
-     
 
     cur_values += values_processed;
 
