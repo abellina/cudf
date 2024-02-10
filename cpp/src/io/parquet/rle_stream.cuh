@@ -220,12 +220,10 @@ struct rle_stream {
 
   __device__ inline void fill_run_batch()
   {
-    if (decode_index == -1) {
-      // first time
-      decode_index = num_rle_stream_decode_warps;
-    }
-
-    while (fill_index < decode_index && cur < end) {
+    
+    while (((decode_index == -1 && fill_index < num_rle_stream_decode_warps) || 
+            fill_index < decode_index) && 
+            cur < end) {
       auto& run = runs[rolling_index<run_buffer_size>(fill_index)];
 
       // Encoding::RLE
@@ -254,6 +252,11 @@ struct rle_stream {
       cur += run_bytes;
       output_pos += run.size;
       fill_index++;
+    }
+
+    if (decode_index == -1) {
+      // first time, set it to the beginning of the buffer (rolled)
+      decode_index = run_buffer_size;
     }
   }
 
@@ -307,6 +310,10 @@ struct rle_stream {
       else if (decode_index_shared >= 0 && decode_index_shared >= fill_index_shared) {
         int run_index = decode_index_shared + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
+        //if (warp_lane == 0) {
+        //  printf("warp: %i run: %i remaining: %i cur_values %i output_count %i run.output_pos %i\n", 
+        //  warp_id, run_index, run.remaining, cur_values, output_count, run.output_pos);
+        //}
 
         if (run.remaining > 0 && (cur_values + output_count - run.output_pos) > 0) {
           //if (warp_lane == 0) {
@@ -332,49 +339,49 @@ struct rle_stream {
             //  batch.size);
             if (run.remaining > 0 || ((run.output_pos + (run.size - remain_prio) + batch.size) - cur_values) == output_count) {
               values_processed = (run.output_pos + (run.size - remain_prio) + batch.size) - cur_values;
-              printf("I am the last run!! %i processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
-                rolling_index<run_buffer_size>(run_index),
-                values_processed,
-                run.output_pos,
-                batch._output_pos,
-                cur_values,
-                batch.size);
+              //printf("I am the last run!! %i processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
+              //  rolling_index<run_buffer_size>(run_index),
+              //  values_processed,
+              //  run.output_pos,
+              //  batch._output_pos,
+              //  cur_values,
+              //  batch.size);
+              if (run.remaining == 0) {
+                //printf("also advancing decode index to %i", run_index + 1);
+                decode_index_shared = run_index + 1;
+              }
+            } else if (run.remaining == 0 && warp_id == num_rle_stream_decode_warps) {
+              //printf("advancing decode_index to %i", decode_index + num_rle_stream_decode_warps);
+              decode_index_shared += num_rle_stream_decode_warps;
             }
           }
         }
       }
       __syncthreads();
 
-     if(warp_id == 0 && warp_lane == 0) {
-      printf("----\n");
-     }
-     for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-       if (warp_id == 0 && warp_lane == 0) {
-         printf("runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n", 
-           i, 
-           roll,
-           runs[i].remaining, 
-           runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
-           runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
-       }
-     }
+     //if(warp_id == 0 && warp_lane == 0) {
+     // printf("----\n");
+     //}
+     //for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+     //  if (warp_id == 0 && warp_lane == 0) {
+     //    printf("runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n", 
+     //      i, 
+     //      roll,
+     //      runs[i].remaining, 
+     //      runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
+     //      runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+     //  }
+     //}
 
      // advance decode indices
      if (!t) {
-       decode_index_shared = decode_index;
-       for (int i = decode_index; i < decode_index + num_rle_stream_decode_warps; ++i) {
-         auto& run = runs[rolling_index<run_buffer_size>(i)];
-         if (run.remaining == 0) {
-           decode_index_shared++;
-         } else {
-           break;
-         }
+       if (decode_index_shared == -1) {
+        decode_index_shared = decode_index;
        }
        fill_index_shared   = fill_index;
      }
 
      __syncthreads();
-     
 
      decode_index = decode_index_shared;
 

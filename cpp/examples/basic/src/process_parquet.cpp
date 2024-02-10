@@ -162,26 +162,26 @@ std::string store_col_names[] = {
  "s_tax_precentage" //: decimal(5,2) (nullable = true)
 };
 
- for (std::string col : col_names) {
-   // setenv("USE_FIXED_OP", "0", 1);
-   // auto expected = read_parquet(name, col);
-   // cudaDeviceSynchronize();
+ //for (std::string col : col_names) {
+ //  // setenv("USE_FIXED_OP", "0", 1);
+ //  // auto expected = read_parquet(name, col);
+ //  // cudaDeviceSynchronize();
 
-   setenv("USE_FIXED_OP", "2", 1);
-   auto actual = read_parquet(name, col);
-   cudaDeviceSynchronize();
-   // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
-   std::cout << "done" << std::endl;
- }
- // setenv("USE_FIXED_OP", "0", 1);
- // auto expected = read_parquet(name, "ALL");
- // cudaDeviceSynchronize();
+ //  setenv("USE_FIXED_OP", "2", 1);
+ //  auto actual = read_parquet(name, col);
+ //  cudaDeviceSynchronize();
+ //  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+ //  std::cout << "done" << std::endl;
+ //}
+ setenv("USE_FIXED_OP", "0", 1);
+ auto expected = read_parquet(name, "ALL");
+ cudaDeviceSynchronize();
 
- // setenv("USE_FIXED_OP", "2", 1);
- // auto actual = read_parquet(name, "ALL");
- // cudaDeviceSynchronize();
- // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
- // std::cout << "done" << std::endl;
+ setenv("USE_FIXED_OP", "2", 1);
+ auto actual = read_parquet(name, "ALL");
+ cudaDeviceSynchronize();
+ CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+ std::cout << "done" << std::endl;
 
 
  //[[maybe_unused]] int num_rows = 128;
