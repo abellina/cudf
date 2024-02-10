@@ -173,15 +173,17 @@ std::string store_col_names[] = {
  //  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
  //  std::cout << "done" << std::endl;
  //}
- setenv("USE_FIXED_OP", "0", 1);
- auto expected = read_parquet(name, "ALL");
- cudaDeviceSynchronize();
+ for (int i  = 0; i < 1; ++i) {
+  setenv("USE_FIXED_OP", "0", 1);
+  auto expected = read_parquet(name, "ALL");
+  cudaDeviceSynchronize();
 
- setenv("USE_FIXED_OP", "2", 1);
- auto actual = read_parquet(name, "ALL");
- cudaDeviceSynchronize();
- CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
- std::cout << "done" << std::endl;
+  setenv("USE_FIXED_OP", "2", 1);
+  auto actual = read_parquet(name, "ALL");
+  cudaDeviceSynchronize();
+  CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+  std::cout << "done " << i << std::endl;
+ }
 
 
  //[[maybe_unused]] int num_rows = 128;
