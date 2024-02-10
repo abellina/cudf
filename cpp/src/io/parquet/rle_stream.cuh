@@ -337,8 +337,10 @@ struct rle_stream {
             //  batch._output_pos,
             //  cur_values,
             //  batch.size);
-            if (run.remaining > 0 || ((run.output_pos + (run.size - remain_prio) + batch.size) - cur_values) == output_count) {
-              values_processed = (run.output_pos + (run.size - remain_prio) + batch.size) - cur_values;
+            
+            auto last_pos = (run.output_pos + (run.size - remain_prio) + batch.size) - cur_values;
+            if (run.remaining > 0 || last_pos == output_count) {
+              values_processed = last_pos;
               //printf("I am the last run!! %i processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
               //  rolling_index<run_buffer_size>(run_index),
               //  values_processed,
