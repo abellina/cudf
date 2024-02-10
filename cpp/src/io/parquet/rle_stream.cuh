@@ -287,11 +287,13 @@ struct rle_stream {
     int const warp_lane      = t % cudf::detail::warp_size;
 
     __shared__ int values_processed;
+    __shared__ int new_values_processed;
     __shared__ int decode_index_shared;
     __shared__ int fill_index_shared;
     if (!t) {
       // carryover from the last call.
-      values_processed                 = 0;
+      values_processed = 0;
+      new_values_processed = 0;
       decode_index_shared = decode_index;
       fill_index_shared = fill_index;
     }
@@ -310,32 +312,58 @@ struct rle_stream {
       else if (decode_index_shared >= 0 && decode_index_shared >= fill_index_shared) {
         int run_index = decode_index_shared + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
+
         if (run.remaining > 0 && (cur_values + output_count - run.output_pos) > 0) {
+          //if (warp_lane == 0) {
+          //printf("running run_index %i run.remaining %i\n",
+          //       rolling_index<run_buffer_size>(run_index),
+          //       run.remaining);
+          //}
+          auto remain_prio = run.remaining;
           auto batch = run.next_batch<max_output_values>(output, output_count, cur_values);
           batch.decode(end, level_bits, warp_lane);
-          
           if (warp_lane == 0) {
             run.processed += batch.size;
             run.remaining -= batch.size;
+            // TODO: can this be done in terms of _output_pos and batch.size and rolling_index of the
+            // output buffer?, like the index we use to write into output[]
+            printf("am I the last run? %i output_count: %i remaining: %i, processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
+              rolling_index<run_buffer_size>(run_index),
+              output_count,
+              run.remaining,
+              new_values_processed,
+              run.output_pos,
+              batch._output_pos,
+              cur_values,
+              batch.size);
+            if (run.remaining > 0 || ((run.output_pos + (run.size - remain_prio) + batch.size) - cur_values) == output_count) {
+              new_values_processed = (run.output_pos + (run.size - remain_prio) + batch.size) - cur_values;
+              printf("I am the last run!! %i processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
+                rolling_index<run_buffer_size>(run_index),
+                new_values_processed,
+                run.output_pos,
+                batch._output_pos,
+                cur_values,
+                batch.size);
+            }
           }
         }
       }
       __syncthreads();
 
-     //if(warp_id == 0 && warp_lane == 0) {
-     // printf("----\n");
-     //}
-     //for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-     //  if (warp_id == 0 && warp_lane == 0) {
-     //    printf("runs[%i] rle_type: %i roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n", 
-     //      i, 
-     //      do_print,
-     //      roll,
-     //      runs[i].remaining, 
-     //      runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
-     //      runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
-     //  }
-     //}
+     if(warp_id == 0 && warp_lane == 0) {
+      printf("----\n");
+     }
+     for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+       if (warp_id == 0 && warp_lane == 0) {
+         printf("runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n", 
+           i, 
+           roll,
+           runs[i].remaining, 
+           runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
+           runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+       }
+     }
 
      // advance decode indices
      if (!t) {
@@ -354,14 +382,24 @@ struct rle_stream {
      }
 
      __syncthreads();
+     
 
      decode_index = decode_index_shared;
+
     } while (values_processed < output_count);
 
+    if (values_processed != new_values_processed) {
+      if (t == 0) { 
+      printf("values_processed %i != new_values_processed %i\n", values_processed, new_values_processed);
+      }
+    } else {
+      if (t == 0) {
+      printf("values_processed %i == new_values_processed %i\n", values_processed, new_values_processed);
+      }
+      }
+     
+
     cur_values += values_processed;
-   //if (!t) {
-   //  printf("values_processed: %i\n\n", values_processed);
-   //}
 
     // valid for every thread
     return values_processed;
