@@ -63,7 +63,7 @@ struct rle_batch {
   uint8_t const* run_start;  // start of the run we are part of
   int run_offset;            // value offset of this batch from the start of the run
   level_t* output;
-  int _output_pos;
+  int run_output_pos;
   int level_run;
   int size;
 
@@ -72,7 +72,7 @@ struct rle_batch {
     int level_bits, 
     int lane) 
   {
-    int output_pos = 0;
+    int batch_output_pos = 0;
     int remain     = size;
 
     // for bitpacked/literal runs, total size is always a multiple of 8. so we need to take care if
@@ -81,7 +81,7 @@ struct rle_batch {
     if (level_run & 1) {
       int const effective_offset = cudf::util::round_down_safe(run_offset, 8);
       int const lead_values      = (run_offset - effective_offset);
-      output_pos -= lead_values;
+      batch_output_pos -= lead_values;
       remain += lead_values;
       cur = run_start + ((effective_offset >> 3) * level_bits);
     }
@@ -131,12 +131,12 @@ struct rle_batch {
       }
 
       // store level_val
-      if (lane < batch_len && (lane + output_pos) >= 0) { 
-        auto idx = lane + _output_pos + output_pos + run_offset;
+      if (lane < batch_len && (lane + batch_output_pos) >= 0) { 
+        auto idx = lane + run_output_pos + batch_output_pos + run_offset; // TODO: why run_output_pos AND run_offset too
         output[rolling_index<max_output_values>(idx)] = level_val;
       }
       remain -= batch_len;
-      output_pos += batch_len;
+      batch_output_pos += batch_len;
     }
   }
 };
@@ -144,20 +144,32 @@ struct rle_batch {
 // a single rle run. may be broken up into multiple rle_batches
 template <typename level_t>
 struct rle_run {
-  int size;  // total size of the run
-  int output_pos;
+  int size;         // total size of the run
+  int output_pos;   // absolute position of this run w.r.t output
   uint8_t const* start;
-  int level_run;  // level_run header value
+  int level_run;    // level_run header value
   int remaining;
 
   template<int max_output_values>
   __device__ __inline__ rle_batch<level_t, max_output_values> next_batch(
     level_t* const output, int output_count, int cur_values)
   {
-    int batch_len = max(0, min(remaining, cur_values + output_count - (output_pos + size - remaining))); 
+    int batch_len = 
+      max(0, 
+        min(remaining, 
+          // in this iteration current_values + output_count seems wrong
+          // total
+          cur_values + output_count - 
+          // position + processed
+          (output_pos + size - remaining))); 
     int const run_offset = size - remaining;
     return rle_batch<level_t, max_output_values>{
-      start, run_offset, output, output_pos, level_run, batch_len};
+      start, 
+      run_offset, 
+      output, 
+      output_pos, 
+      level_run, 
+      batch_len};
   }
 };
 
@@ -316,7 +328,10 @@ struct rle_stream {
         //  warp_id, run_index, run.remaining, cur_values, output_count, run.output_pos);
         //}
 
-        if (run.remaining > 0 && (cur_values + output_count - run.output_pos) > 0) {
+        // TODO: should not need to gate on run.remaining, I don't think.
+        if (run.remaining > 0 && 
+          // the maximum amount we would write includes this run
+          (cur_values + output_count > run.output_pos)) {
           //if (warp_lane == 0) {
           //printf("running run_index %i run.remaining %i\n",
           //       rolling_index<run_buffer_size>(run_index),
