@@ -14,8 +14,6 @@
  * limitations under the License.
 */
 //#define ABDEBUG 1
-//#define ABDEBUG2 1
-//#define ABDEBUG3 1
 #include "parquet_gpu.hpp"
 #include "rle_stream.cuh"
 #include "page_decode.cuh"
