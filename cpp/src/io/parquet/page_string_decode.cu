@@ -617,13 +617,12 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size) gpuComputeStringPageBo
     decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
-  auto const mask = BitOr(decode_kernel_mask::STRING, decode_kernel_mask::DELTA_BYTE_ARRAY);
   if (!setupLocalPageInfo(s,
                           pp,
                           chunks,
                           min_row,
                           num_rows,
-                          mask_filter{mask},
+                          mask_filter{STRINGS_MASK},
                           page_processing_stage::STRING_BOUNDS)) {
     return;
   }
