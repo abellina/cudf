@@ -44,7 +44,7 @@ CUDF_KERNEL void __launch_bounds__(decode_block_size)
                     device_span<ColumnChunkDesc const> chunks,
                     size_t min_row,
                     size_t num_rows,
-                    kernel_error::pointer error_code, int page_idx_filter)
+                    kernel_error::pointer error_code)
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16)
@@ -65,10 +65,6 @@ CUDF_KERNEL void __launch_bounds__(decode_block_size)
                           num_rows,
                           mask_filter{decode_kernel_mask::GENERAL},
                           page_processing_stage::DECODE)) {
-    return;
-  }
-
-  if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
     return;
   }
 
@@ -256,19 +252,12 @@ void __host__ DecodePageData(cudf::detail::hostdevice_vector<PageInfo>& pages,
   dim3 dim_block(decode_block_size, 1);
   dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
 
-  char * page_idx_env = getenv("PAGE_IDX");
-  int page_idx_filter = -1;
-
-  if (page_idx_env != nullptr) {
-    page_idx_filter = atoi(page_idx_env);
-  }
-
   if (level_type_size == 1) {
     gpuDecodePageData<rolling_buf_size, uint8_t><<<dim_grid, dim_block, 0, stream.value()>>>(
-      pages.device_ptr(), chunks, min_row, num_rows, error_code, page_idx_filter);
+      pages.device_ptr(), chunks, min_row, num_rows, error_code);
   } else {
     gpuDecodePageData<rolling_buf_size, uint16_t><<<dim_grid, dim_block, 0, stream.value()>>>(
-      pages.device_ptr(), chunks, min_row, num_rows, error_code, page_idx_filter);
+      pages.device_ptr(), chunks, min_row, num_rows, error_code);
   }
 }
 

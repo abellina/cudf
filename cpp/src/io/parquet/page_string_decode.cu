@@ -18,6 +18,7 @@
 #include "error.hpp"
 #include "page_decode.cuh"
 #include "page_string_utils.cuh"
+#include "rle_stream_old.cuh"
 
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/stream_pool.hpp>
@@ -61,7 +62,7 @@ __device__ thrust::pair<int, int> page_bounds(page_state_s* const s,
                                               size_t num_rows,
                                               bool is_bounds_pg,
                                               bool has_repetition,
-                                              rle_stream<level_t, rle_buf_size, preproc_buf_size>* decoders)
+                                              old::rle_stream<level_t, rle_buf_size>* decoders)
 {
   using block_reduce = cub::BlockReduce<int, preprocess_block_size>;
   using block_scan   = cub::BlockScan<int, preprocess_block_size>;
@@ -97,6 +98,7 @@ __device__ thrust::pair<int, int> page_bounds(page_state_s* const s,
   decoders[level_type::DEFINITION].init(s->col.level_bits[level_type::DEFINITION],
                                         s->abs_lvl_start[level_type::DEFINITION],
                                         s->abs_lvl_end[level_type::DEFINITION],
+                                        preproc_buf_size,
                                         def_decode,
                                         s->page.num_input_values);
   // only need repetition if this is a bounds page. otherwise all we need is def level info
@@ -105,6 +107,7 @@ __device__ thrust::pair<int, int> page_bounds(page_state_s* const s,
     decoders[level_type::REPETITION].init(s->col.level_bits[level_type::REPETITION],
                                           s->abs_lvl_start[level_type::REPETITION],
                                           s->abs_lvl_end[level_type::REPETITION],
+                                          preproc_buf_size,
                                           rep_decode,
                                           s->page.num_input_values);
   }
@@ -334,7 +337,7 @@ __device__ size_t totalDictEntriesSize(uint8_t const* data,
 
   while (pos < end_value && ptr <= end) {
     if (dict_run <= 1) {
-      dict_run = (ptr < end) ? get_vlq32(ptr, end) : 0;
+      dict_run = (ptr < end) ? old::get_vlq32(ptr, end) : 0;
       if (!(dict_run & 1)) {
         // Repeated value
         if (ptr + bytecnt <= end) {
@@ -605,12 +608,12 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size) gpuComputeStringPageBo
 
   // the required number of runs in shared memory we will need to provide the
   // rle_stream object
-  constexpr int rle_run_buffer_size = rle_stream_required_run_buffer_size<preprocess_block_size>();
+  constexpr int rle_run_buffer_size = old::rle_stream_required_run_buffer_size<preprocess_block_size>();
 
   // the level stream decoders
-  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
-  __shared__ rle_run<level_t> rep_runs[rle_run_buffer_size];
-  rle_stream<level_t, preprocess_block_size, preproc_buf_size> 
+  __shared__ old::rle_run<level_t> def_runs[rle_run_buffer_size];
+  __shared__ old::rle_run<level_t> rep_runs[rle_run_buffer_size];
+  old::rle_stream<level_t, preprocess_block_size> 
     decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
