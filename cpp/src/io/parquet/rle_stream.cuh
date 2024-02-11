@@ -296,6 +296,7 @@ struct rle_stream {
       fill_index_shared = fill_index;
     }
     __syncthreads();
+    fill_index = fill_index_shared;
 
     do {
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
@@ -307,8 +308,8 @@ struct rle_stream {
         }
       }
       // remaining warps decode the runs
-      else if (decode_index_shared >= 0 && decode_index_shared >= fill_index_shared) {
-        int run_index = decode_index_shared + warp_decode_id;
+      else if (decode_index >= 0 && decode_index >= fill_index) {
+        int run_index = decode_index + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
         //if (warp_lane == 0) {
         //  printf("warp: %i run: %i remaining: %i cur_values %i output_count %i run.output_pos %i\n", 
