@@ -15,6 +15,7 @@
  */
 
 #include "page_decode.cuh"
+#include "rle_stream_old.cuh"
 
 #include <io/utilities/column_buffer.hpp>
 
@@ -32,7 +33,7 @@ constexpr int preprocess_block_size = 512;
 
 // the required number of runs in shared memory we will need to provide the
 // rle_stream object
-constexpr int rle_run_buffer_size = rle_stream_required_run_buffer_size<preprocess_block_size>();
+constexpr int rle_run_buffer_size = old::rle_stream_required_run_buffer_size<preprocess_block_size>();
 
 // the size of the rolling batch buffer
 constexpr int rolling_buf_size = LEVEL_DECODE_BUF_SIZE;
@@ -227,9 +228,9 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size)
   bool has_repetition = chunks[pp->chunk_idx].max_level[level_type::REPETITION] > 0;
 
   // the level stream decoders
-  __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
-  __shared__ rle_run<level_t> rep_runs[rle_run_buffer_size];
-  rle_stream<level_t, preprocess_block_size, rolling_buf_size> 
+  __shared__ old::rle_run<level_t> def_runs[rle_run_buffer_size];
+  __shared__ old::rle_run<level_t> rep_runs[rle_run_buffer_size];
+  old::rle_stream<level_t, preprocess_block_size> 
     decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
@@ -245,12 +246,14 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size)
   decoders[level_type::DEFINITION].init(s->col.level_bits[level_type::DEFINITION],
                                         s->abs_lvl_start[level_type::DEFINITION],
                                         s->abs_lvl_end[level_type::DEFINITION],
+                                        rolling_buf_size,
                                         def,
                                         s->page.num_input_values);
   if (has_repetition) {
     decoders[level_type::REPETITION].init(s->col.level_bits[level_type::REPETITION],
                                           s->abs_lvl_start[level_type::REPETITION],
                                           s->abs_lvl_end[level_type::REPETITION],
+                                          rolling_buf_size,
                                           rep,
                                           s->page.num_input_values);
   }
