@@ -152,17 +152,16 @@ struct rle_run {
 
   template<int max_output_values>
   __device__ __inline__ rle_batch<level_t, max_output_values> next_batch(
-    level_t* const output, int output_count, int cur_values)
+    level_t* const output, int max_count)
   {
-    int batch_len = 
-      max(0, 
-        min(remaining, 
-          // in this iteration current_values + output_count seems wrong
-          // total
-          cur_values + output_count - 
-          // position + processed
-          (output_pos + size - remaining))); 
     int const run_offset = size - remaining;
+    int batch_len = 
+      min(remaining, 
+        // in this iteration current_values + output_count seems wrong
+        // total
+        max_count - 
+        // position + processed
+        (output_pos + run_offset)); 
     return rle_batch<level_t, max_output_values>{
       start, 
       run_offset, 
@@ -309,6 +308,7 @@ struct rle_stream {
     }
     __syncthreads();
     fill_index = fill_index_shared;
+    int local_values_processed = 0;
 
     do {
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
@@ -328,30 +328,14 @@ struct rle_stream {
         int run_index = decode_index + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
 
-        //if (warp_lane == 0) {
-        //  printf("warp: %i run: %i remaining: %i cur_values %i output_count %i run.output_pos %i decode_index: %i, fill_index: %i \n", 
-        //  warp_id, run_index, run.remaining, cur_values, output_count, run.output_pos, decode_index, fill_index);
-        //}
-
+        int const max_count = cur_values + output_count;
         if (run.remaining > 0 && 
           // the maximum amount we would write includes this run
           // this is calculated in absolute position
-          (cur_values + output_count > run.output_pos)) {
-          auto batch = run.next_batch<max_output_values>(output, output_count, cur_values);
+          (max_count > run.output_pos)) {
+          auto batch = run.next_batch<max_output_values>(output, max_count);
           batch.decode(end, level_bits, warp_lane);
           if (warp_lane == 0) {
-            // TODO: can this be done in terms of _output_pos and batch.size and rolling_index of the
-            // output buffer?, like the index we use to write into output[]
-            //printf("am I the last run? %i output_count: %i remaining: %i, processed: %i run.output_pos: %i, batch._output_po: %i, cur_values: %i batch.size: %i\n", 
-            //  rolling_index<run_buffer_size>(run_index),
-            //  output_count,
-            //  run.remaining,
-            //  new_values_processed,
-            //  run.output_pos,
-            //  batch._output_pos,
-            //  cur_values,
-            //  batch.size);
-
             auto last_pos = (run.output_pos + batch.run_offset + batch.size) - cur_values;
             run.remaining -= batch.size;
             // this is the last batch we will process this iteration if:
@@ -372,6 +356,7 @@ struct rle_stream {
         }
       }
       __syncthreads();
+      local_values_processed  = values_processed;
 
      // advance decode indices
      if (!t) {
@@ -405,12 +390,12 @@ struct rle_stream {
      //__syncthreads();
 
 
-    } while (values_processed < output_count);
+    } while (local_values_processed < output_count);
 
-    cur_values += values_processed;
+    cur_values += local_values_processed;
 
     // valid for every thread
-    return values_processed;
+    return local_values_processed;
   }
 
   __device__ inline int decode_next(int t) {
