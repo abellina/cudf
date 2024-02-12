@@ -18,7 +18,7 @@
 
 #include "error.hpp"
 #include "parquet_gpu.hpp"
-#include "rle_stream_old.cuh"
+#include "rle_stream.cuh"
 #include "inttypes.h"
 
 #include <io/utilities/block_utils.cuh>
@@ -250,7 +250,7 @@ __device__ cuda::std::pair<int, int> gpuDecodeDictionaryIndices(page_state_s* s,
       uint32_t run       = s->dict_run;
       uint8_t const* cur = s->data_start;
       if (run <= 1) {
-        run = (cur < end) ? old::get_vlq32(cur, end) : 0;
+        run = (cur < end) ? get_vlq32(cur, end) : 0;
         if (!(run & 1)) {
           // Repeated value
           int bytecnt = (dict_bits + 7) >> 3;
@@ -391,7 +391,7 @@ inline __device__ int gpuDecodeRleBooleans(page_state_s* s, state_buf* sb, int t
       uint32_t run       = s->dict_run;
       uint8_t const* cur = s->data_start;
       if (run <= 1) {
-        run = (cur < end) ? old::get_vlq32(cur, end) : 0;
+        run = (cur < end) ? get_vlq32(cur, end) : 0;
         if (!(run & 1)) {
           // Repeated value
           s->dict_val = (cur < end) ? cur[0] & 1 : 0;
@@ -517,7 +517,7 @@ __device__ void gpuDecodeStream(
       int sym_len = 0;
       if (!t) {
         uint8_t const* cur = cur_def;
-        if (cur < end) { level_run = old::get_vlq32(cur, end); }
+        if (cur < end) { level_run = get_vlq32(cur, end); }
         if (!(level_run & 1)) {
           if (cur < end) level_val = cur[0];
           cur++;
@@ -954,7 +954,7 @@ inline __device__ uint32_t InitLevelSection(page_state_s* s,
   auto start = cur;
 
   auto init_rle = [s, lvl, end, level_bits](uint8_t const* cur, uint8_t const* end) {
-    uint32_t const run      = old::get_vlq32(cur, end);
+    uint32_t const run      = get_vlq32(cur, end);
     s->initial_rle_run[lvl] = run;
     if (!(run & 1)) {
       if (cur < end) {
