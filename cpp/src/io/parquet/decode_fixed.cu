@@ -273,8 +273,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   PageInfo* pages, 
   device_span<ColumnChunkDesc const> chunks, 
   size_t min_row, 
-  size_t num_rows,
-  int page_idx_filter)
+  size_t num_rows)
+  //int page_idx_filter)
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16) page_state_buffers_s<rolling_buf_size,  // size of nz_idx buffer
@@ -303,9 +303,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
       return; 
   }
 
-  if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
-    return;
-  }
+  //if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
+  //  return;
+  //}
 
   // the level stream decoders
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
@@ -386,8 +386,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   PageInfo* pages, 
   device_span<ColumnChunkDesc const> chunks, 
   size_t min_row, 
-  size_t num_rows,
-  int page_idx_filter)
+  size_t num_rows) 
+  //int page_idx_filter)
 {
   __shared__ __align__(16) page_state_s state_g;
   __shared__ __align__(16) page_state_buffers_s<rolling_buf_size,  // size of nz_idx buffer
@@ -411,9 +411,9 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     mask_filter{decode_kernel_mask::FIXED_WIDTH_DICT}, 
     page_processing_stage::DECODE)) { return; }
 
-  if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
-    return;
-  }
+  //if (page_idx_filter >= 0 && page_idx != page_idx_filter) {
+  //  return;
+  //}
 
   // the level stream decoders
   // rolling_buf_size = 256
@@ -527,21 +527,21 @@ void __host__ DecodePageDataFixed(cudf::detail::hostdevice_vector<PageInfo>& pag
   dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
 
 
-  char * page_idx_env = getenv("PAGE_IDX");
-  int page_idx_filter = -1;
+  //char * page_idx_env = getenv("PAGE_IDX");
+  //int page_idx_filter = -1;
 
-  if (page_idx_env != nullptr) {
-    page_idx_filter = atoi(page_idx_env);
-  }
+  //if (page_idx_env != nullptr) {
+  //  page_idx_filter = atoi(page_idx_env);
+  //}
 
   if (level_type_size == 1) {
     gpuDecodePageDataFixed<uint8_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(
-        pages.device_ptr(), chunks, min_row, num_rows, page_idx_filter);
+        pages.device_ptr(), chunks, min_row, num_rows);//, page_idx_filter);
   } else {
     gpuDecodePageDataFixed<uint16_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(
-        pages.device_ptr(), chunks, min_row, num_rows, page_idx_filter);
+        pages.device_ptr(), chunks, min_row, num_rows);//, page_idx_filter);
   }
 }
 
@@ -558,22 +558,22 @@ void __host__ DecodePageDataFixedDict(
   dim3 dim_block(decode_block_size, 1); // decode_block_size = 128 threads per block
   dim3 dim_grid(pages.size(), 1);       // 1 thread block per pags => # blocks
 
- char * page_idx_env = getenv("PAGE_IDX");
- int page_idx_filter = -1;
+ //char * page_idx_env = getenv("PAGE_IDX");
+ //int page_idx_filter = -1;
 
- if (page_idx_env != nullptr) {
-   page_idx_filter = atoi(page_idx_env);
- }
+ //if (page_idx_env != nullptr) {
+ //  page_idx_filter = atoi(page_idx_env);
+ //}
 
 
   if (level_type_size == 1) {
     gpuDecodePageDataFixedDict<uint8_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(
-        pages.device_ptr(), chunks, min_row, num_rows, page_idx_filter);
+        pages.device_ptr(), chunks, min_row, num_rows);//, page_idx_filter);
   } else {
     gpuDecodePageDataFixedDict<uint16_t>
       <<<dim_grid, dim_block, 0, stream.value()>>>(
-        pages.device_ptr(), chunks, min_row, num_rows, page_idx_filter);
+        pages.device_ptr(), chunks, min_row, num_rows);//, page_idx_filter);
   }
   cudaStreamSynchronize(stream.value());
 }
