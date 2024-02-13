@@ -67,6 +67,10 @@ struct rle_batch {
   int level_run;
   int size;
 
+  __device__ inline int last_pos() {
+    return run_output_pos + run_offset + size;
+  }
+
   __device__ inline void decode(
     uint8_t const* const end, 
     int level_bits, 
@@ -297,12 +301,12 @@ struct rle_stream {
     int const warp_decode_id = warp_id - 1;
     int const warp_lane      = t % cudf::detail::warp_size;
 
-    __shared__ int values_processed;
+    __shared__ int values_processed_shared;
     __shared__ int decode_index_shared;
     __shared__ int fill_index_shared;
     if (!t) {
       // carryover from the last call.
-      values_processed = 0;
+      values_processed_shared = 0;
       decode_index_shared = decode_index;
       fill_index_shared = fill_index;
     }
@@ -325,38 +329,40 @@ struct rle_stream {
       // fill_index is "behind" decode_index, that way we are always decoding upto fill_index,
       // and we are filling up to decode_index.
       else if (decode_index >= 0 && decode_index >= fill_index) {
-        int run_index = decode_index + warp_decode_id;
+        int const run_index = decode_index + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
-
+        int remaining = run.remaining;
         int const max_count = cur_values + output_count;
-        if (run.remaining > 0 && 
+        if (remaining > 0 && 
           // the maximum amount we would write includes this run
           // this is calculated in absolute position
           (max_count > run.output_pos)) {
           auto batch = run.next_batch<max_output_values>(output, max_count);
           batch.decode(end, level_bits, warp_lane);
           if (warp_lane == 0) {
-            auto last_pos = (run.output_pos + batch.run_offset + batch.size) - cur_values;
-            run.remaining -= batch.size;
+            auto last_pos = batch.last_pos() - cur_values; 
+            remaining -= batch.size;
             // this is the last batch we will process this iteration if:
             // - either this run still has remaining
             // - or it is consumed fully and its last index corresponds to output_count
-            if (run.remaining > 0 || last_pos == output_count) {
-              values_processed = last_pos;
+            if (remaining > 0 || last_pos == output_count) {
+              values_processed_shared = last_pos;
               // only if we consumed fully do we want to move on, in the decode side
-              if (run.remaining == 0) {
+              if (remaining == 0) {
                 decode_index_shared = run_index + 1;
               }
-            } else if (run.remaining == 0 && warp_id == num_rle_stream_decode_warps) {
+            } else if (remaining == 0 && warp_id == num_rle_stream_decode_warps) {
               // we skip over all num_rle_stream_decode_warp indices since all of them
               // will have been consumed.
               decode_index_shared += num_rle_stream_decode_warps;
             }
+
+            run.remaining = remaining;
           }
         }
       }
       __syncthreads();
-      local_values_processed  = values_processed;
+      local_values_processed  = values_processed_shared;
 
      // advance decode indices
      if (!t) {
