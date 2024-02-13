@@ -64,20 +64,20 @@ void simple_int_column(int num_rows)
 {  
   std::string filepath("/home/abellina/table_with_dict.parquet");
 
-  auto valids = cudf::detail::make_counting_transform_iterator(
-    0, [](auto i) { return i % 2 == 0; });
+  [[maybe_unused]] auto valids = cudf::detail::make_counting_transform_iterator(
+    0, [](auto i) { return 1; }); //i % 2 == 0; });
     //0, [](auto i) { return i == 123 || i == 555 ? 0 : 1; });
     
   /// 0, [](auto i) { return 1; });
   //  0, [](auto i) { return i == 123 || i == 777 ? 0 : 1; });
   auto iter1 = cudf::detail::make_counting_transform_iterator(0, [](int i) { return i % 10; });
-  cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows, valids);
-  //cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows);
+  //cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows, valids);
+  cudf::test::fixed_width_column_wrapper<int> col1(iter1, iter1 + num_rows);
   auto tbl = cudf::table_view{{col1}}; 
   
   cudf::io::parquet_writer_options out_opts =
     cudf::io::parquet_writer_options::builder(cudf::io::sink_info{filepath}, tbl)    
-    .dictionary_policy(cudf::io::dictionary_policy::ALWAYS);
+    .dictionary_policy(cudf::io::dictionary_policy::NEVER);
   cudf::io::write_parquet(out_opts);
 }
 
@@ -162,36 +162,35 @@ std::string store_col_names[] = {
  "s_tax_precentage" //: decimal(5,2) (nullable = true)
 };
 
- //for (std::string col : col_names) {
- //  // setenv("USE_FIXED_OP", "0", 1);
- //  // auto expected = read_parquet(name, col);
- //  // cudaDeviceSynchronize();
+//for (std::string col : col_names) {
+//  // setenv("USE_FIXED_OP", "0", 1);
+//  // auto expected = read_parquet(name, col);
+//  // cudaDeviceSynchronize();
 
- //  setenv("USE_FIXED_OP", "2", 1);
- //  auto actual = read_parquet(name, col);
- //  cudaDeviceSynchronize();
- //  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
- //  std::cout << "done" << std::endl;
+//  setenv("USE_FIXED_OP", "2", 1);
+//  auto actual = read_parquet(name, col);
+//  cudaDeviceSynchronize();
+//  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+//  std::cout << "done" << std::endl;
+//}
+ //for (int i  = 0; i < 10; ++i) {
+ // setenv("USE_FIXED_OP", "0", 1);
+ // auto expected = read_parquet(name, "ALL");
+ // cudaDeviceSynchronize();
+
+ // setenv("USE_FIXED_OP", "2", 1);
+ // auto actual = read_parquet(name, "ALL");
+ // cudaDeviceSynchronize();
+ // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+ // std::cout << "done " << i << std::endl;
  //}
- for (int i  = 0; i < 10; ++i) {
-  setenv("USE_FIXED_OP", "0", 1);
-  auto expected = read_parquet(name, "ALL");
-  cudaDeviceSynchronize();
-
-  setenv("USE_FIXED_OP", "2", 1);
-  auto actual = read_parquet(name, "ALL");
-  cudaDeviceSynchronize();
-  CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
-  std::cout << "done " << i << std::endl;
- }
 
 
- //[[maybe_unused]] int num_rows = 128;
  //if (argc > 1) {
  //  num_rows = atoi(argv[1]);
  //}
- ////simple_int_column(10000);
- //auto simple = read_parquet("/home/abellina/table_with_dict.parquet", "dummy");
+ simple_int_column(10000);
+ auto simple = read_parquet("/home/abellina/table_with_dict.parquet", "ALL");
 
  // std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
  // std::cout << "done" << std::endl;
