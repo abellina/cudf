@@ -272,9 +272,6 @@ struct rle_stream {
     // a very common case: columns with no nulls, especially if they are non-nested
     // TODO: this may not work with the logic of decode_next
     // we'd like to remove `roll`.
-    if (!t) {
-      printf("level_bits: %i roll: %i\n", level_bits, roll);
-    }
     if (level_bits == 0) {
       int written = 0;
       while (written < output_count) {
@@ -314,6 +311,13 @@ struct rle_stream {
         // kernel that uses an rle_stream.
         if (!warp_lane) { 
           fill_run_batch(); 
+          // TODO: abellina move this inside fill_run_batch?
+          if (decode_index_shared == -1) {
+            decode_index_shared = decode_index;
+          }
+          // TODO: abellina is this safe? could other threads
+          // race on line 304 with the new fill_index_shared value?
+          fill_index_shared   = fill_index;
         }
       }
       // remaining warps decode the runs
@@ -354,20 +358,13 @@ struct rle_stream {
           }
         }
       }
+     //if (!t) {
+     //  fill_index_shared   = fill_index;
+     //}
       __syncthreads();
       local_values_processed  = values_processed_shared;
+      decode_index = decode_index_shared;
 
-     // update indices
-     if (!t) {
-       if (decode_index_shared == -1) {
-        decode_index_shared = decode_index;
-       }
-       fill_index_shared   = fill_index;
-     }
-     __syncthreads();
-     decode_index = decode_index_shared;
-
-    
 #ifdef ABDEBUG
      if(!t) {
       printf("warp: %i decode_index: %i fill_index: %i\n", warp_id, decode_index, fill_index);
