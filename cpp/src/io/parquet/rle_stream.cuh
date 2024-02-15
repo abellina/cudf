@@ -311,13 +311,7 @@ struct rle_stream {
         // kernel that uses an rle_stream.
         if (!warp_lane) { 
           fill_run_batch(); 
-          // TODO: abellina move this inside fill_run_batch?
-          if (decode_index_shared == -1) {
-            decode_index_shared = decode_index;
-          }
-          // TODO: abellina is this safe? could other threads
-          // race on line 304 with the new fill_index_shared value?
-          fill_index_shared   = fill_index;
+          
         }
       }
       // remaining warps decode the runs
@@ -361,6 +355,12 @@ struct rle_stream {
      //if (!t) {
      //  fill_index_shared   = fill_index;
      //}
+      __syncthreads();
+      // TODO: abellina move this inside fill_run_batch?
+      if (decode_index_shared == -1) { decode_index_shared = decode_index; }
+      // TODO: abellina is this safe? could other threads
+      // race on line 304 with the new fill_index_shared value?
+      fill_index_shared       = fill_index;
       __syncthreads();
       local_values_processed  = values_processed_shared;
       decode_index = decode_index_shared;
