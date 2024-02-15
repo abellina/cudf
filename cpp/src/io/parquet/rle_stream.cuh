@@ -356,10 +356,14 @@ struct rle_stream {
      //}
       __syncthreads();
       // TODO: abellina move this inside fill_run_batch?
-      if (decode_index_shared == -1) { decode_index_shared = decode_index; }
-      // TODO: abellina is this safe? could other threads
-      // race on line 304 with the new fill_index_shared value?
-      fill_index_shared       = fill_index;
+      if (!t) {
+        if (decode_index_shared == -1) { 
+          decode_index_shared = decode_index;
+        }
+        // TODO: abellina is this safe? could other threads
+        // race on line 304 with the new fill_index_shared value?
+        fill_index_shared = fill_index;
+      }
       __syncthreads();
 
       local_values_processed  = values_processed_shared;
