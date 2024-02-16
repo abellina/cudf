@@ -146,6 +146,7 @@ struct rle_run {
   int level_run;    // level_run header value
   int remaining;    // number of output items remaining to be decoded
   int prior_remaining;
+  int prior_prior_remaining;
 
   template<int max_output_values>
   __device__ __inline__ rle_batch<level_t, max_output_values> next_batch(
@@ -200,6 +201,8 @@ struct rle_stream {
   __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {
     for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
       runs[i].remaining = 0;
+      runs[i].prior_remaining = 0;
+      runs[i].prior_prior_remaining = 0;
     }
   }
 
@@ -378,6 +381,7 @@ struct rle_stream {
             } else if (warp_id == num_rle_stream_decode_warps) {
               values_processed_shared = last_pos;
             }
+            run.prior_prior_remaining = run.prior_remaining;
             run.prior_remaining = run.remaining;
             run.remaining = remaining;
           }
@@ -412,12 +416,13 @@ struct rle_stream {
 
           for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
             if (!t) {
-              printf("tg: %i runs[%i] roll is: %i remaining: %i prior_remaining: %i output_pos: %i output_pos_end: %i run_status: %i warp: %i run_last_pos: %i output_count: %i\n",
+              printf("tg: %i runs[%i] roll is: %i remaining: %i prior_remaining: %i prior_prior_remaining: %i output_pos: %i output_pos_end: %i run_status: %i warp: %i run_last_pos: %i output_count: %i\n",
                      blockIdx.x,
                      i,
                      roll,
                      runs[i].remaining,
                      runs[i].prior_remaining,
+                     runs[i].prior_prior_remaining,
                      runs[i].remaining == 0 ? -1 : rolling_index<max_output_values>(runs[i].output_pos),
                      runs[i].remaining == 0
                        ? -1
