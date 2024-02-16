@@ -83,41 +83,9 @@ void simple_int_column(int num_rows)
   cudf::io::write_parquet(out_opts);
 }
 
-rmm::mr::pinned_memory_resource default_mr;
-inline cuda::mr::resource_ref<cuda::mr::host_accessible>& host_mr()
-{
-  static cuda::mr::resource_ref<cuda::mr::host_accessible> ref = default_mr;
-  return ref;
-}
-
-void set_host_memory_resource(cuda::mr::resource_ref<cuda::mr::host_accessible>const & mr) {
-  host_mr() = mr;
-}
-
 int main(int argc, char** argv)
 {
   cudaSetDevice(0);
-/*
-  auto my_pool = rmm::mr::pool_memory_resource(new rmm::mr::pinned_memory_resource(), 256, 256);
-
-  auto ptr = host_mr().allocate(12345);
-  
-  std::cout << "allocated at "<< ptr << std::endl;
-
-  host_mr().deallocate(ptr, 12345);
-
-  std::cout << "should oom" << std::endl;
-
-  set_host_memory_resource(my_pool);
-
-  std::cout << "should oom" << std::endl;
-
-  auto ptr2 = host_mr().allocate(12345); // should fail
-  host_mr().deallocate(ptr2, 12345);
-
-  std::cout << "allocated at "<< ptr2 << std::endl;
-  */
-
 
   //auto resource       = cudf::test::create_memory_resource("pool");
   //auto resource = cudf::test::create_memory_resource("cuda");
