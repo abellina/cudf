@@ -295,6 +295,8 @@ struct rle_stream {
     __shared__ int fill_index_shared;
     __shared__ int run_status[run_buffer_size];
     __shared__ int run_warp[run_buffer_size];
+    __shared__ int run_last_pos[run_buffer_size];
+    __shared__ int run_last_remaining[run_buffer_size];
     if (!t) {
       values_processed_shared = 0;
       decode_index_shared = decode_index;
@@ -304,6 +306,12 @@ struct rle_stream {
       }
       for (int i = 0; i < run_buffer_size; ++i ) {
         run_warp[i] = -1;
+      }
+      for (int i = 0; i < run_buffer_size; ++i ) {
+        run_last_pos[i] = -1;
+      }
+      for (int i = 0; i < run_buffer_size; ++i ) {
+        run_last_remaining[i] = -1;
       }
     }
 
@@ -356,6 +364,7 @@ struct rle_stream {
             // - either this run still has remaining
             // - or it is consumed fully and its last index corresponds to output_count
             run_status[rolling_index<run_buffer_size>(run_index)] = 1;
+            run_last_pos[rolling_index<run_buffer_size>(run_index)] = last_pos;
             if (remaining > 0 || last_pos == output_count) {
               values_processed_shared = last_pos;
               run_status[rolling_index<run_buffer_size>(run_index)] = 2;
@@ -394,8 +403,16 @@ struct rle_stream {
       decode_index = decode_index_shared;
 
       if (!t) {
-        if (stuck_not_processing > 100 || stuck_at_beginning > 100) {
-          printf("stuck not processing: %i  stuck_at_beginning: %i\n", 
+        bool will_block = true;
+        for (int i = decode_index ; i < decode_index + (num_rle_stream_decode_warps); i++) {
+          auto ix = rolling_index<run_buffer_size>(i);
+          if (runs[ix].remaining != 0) {
+            will_block = false;
+          }
+        }
+        if (will_block || stuck_not_processing > 100 || stuck_at_beginning > 100) {
+          printf("will_block: %i stuck not processing: %i  stuck_at_beginning: %i\n", 
+            will_block,
             stuck_not_processing, 
             stuck_at_beginning);
 
@@ -406,19 +423,28 @@ struct rle_stream {
 
           for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
             if (!t) {
-              printf("tg: %i runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i run_status: %i warp: %i\n",
+              printf("tg: %i runs[%i] roll is: %i remaining: %i last_remaining: %i output_pos: %i output_pos_end: %i run_status: %i warp: %i run_last_pos: %i output_count: %i\n",
                      blockIdx.x,
                      i,
                      roll,
                      runs[i].remaining,
-                     runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
+                     run_last_remaining[i],
+                     runs[i].remaining == 0 ? -1 : rolling_index<max_output_values>(runs[i].output_pos),
                      runs[i].remaining == 0
                        ? -1
-                       : rolling_index<256>(runs[i].output_pos + runs[i].remaining),
+                       : rolling_index<max_output_values>(runs[i].output_pos + runs[i].remaining),
                      run_status[i],
-                     run_warp[i]);
+                     run_warp[i],
+                     run_last_pos[i],
+                     output_count);
             }
           }
+        }
+      }
+
+      for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+        if (!t) {
+          run_last_remaining[i] = runs[i].remaining;
         }
       }
 
@@ -429,12 +455,14 @@ struct rle_stream {
 
      for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
        if (!t) {
-         printf("runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n", 
+         printf("runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i run_status: %i run_warp: %i\n", 
            i, 
            roll,
            runs[i].remaining, 
-           runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
-           runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+           runs[i].remaining == 0 ? -1 : rolling_index<max_output_values>(runs[i].output_pos),
+           runs[i].remaining == 0 ? -1 : rolling_index<max_output_values>(runs[i].output_pos + runs[i].remaining),
+           run_status[i],
+           run_warp[i]);
        }
      }
 
