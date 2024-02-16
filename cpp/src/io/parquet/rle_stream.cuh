@@ -293,10 +293,18 @@ struct rle_stream {
     __shared__ int values_processed_shared;
     __shared__ int decode_index_shared;
     __shared__ int fill_index_shared;
+    __shared__ int run_status[run_buffer_size];
+    __shared__ int run_warp[run_buffer_size];
     if (!t) {
       values_processed_shared = 0;
       decode_index_shared = decode_index;
       fill_index_shared = fill_index;
+      for (int i = 0; i < run_buffer_size; ++i ) {
+        run_status[i] = 0;
+      }
+      for (int i = 0; i < run_buffer_size; ++i ) {
+        run_warp[i] = -1;
+      }
     }
 
     __syncthreads();
@@ -331,12 +339,14 @@ struct rle_stream {
       else if (decode_index >= 0 && decode_index >= fill_index) {
         int const run_index = decode_index + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
+        
         int remaining = run.remaining;
         int const max_count = cur_values + output_count;
         if (remaining > 0 && 
           // the maximum amount we would write includes this run
           // this is calculated in absolute position
           (max_count > run.output_pos)) {
+          run_warp[rolling_index<run_buffer_size>(run_index)] = warp_id;
           auto batch = run.next_batch<max_output_values>(output, max_count);
           batch.decode(end, level_bits, warp_lane);
           if (!warp_lane) {
@@ -345,15 +355,19 @@ struct rle_stream {
             // this is the last batch we will process this iteration if:
             // - either this run still has remaining
             // - or it is consumed fully and its last index corresponds to output_count
+            run_status[rolling_index<run_buffer_size>(run_index)] = 1;
             if (remaining > 0 || last_pos == output_count) {
               values_processed_shared = last_pos;
+              run_status[rolling_index<run_buffer_size>(run_index)] = 2;
               // only if we consumed fully do we want to move on, in the decode side
               if (remaining == 0) {
+                run_status[rolling_index<run_buffer_size>(run_index)] = 3;
                 decode_index_shared = run_index + 1;
               }
             } else if (remaining == 0 && warp_id == num_rle_stream_decode_warps) {
               // we skip over all num_rle_stream_decode_warp indices since all of them
               // will have been consumed.
+              run_status[rolling_index<run_buffer_size>(run_index)] = 4;
               decode_index_shared += num_rle_stream_decode_warps;
             }
 
@@ -392,7 +406,7 @@ struct rle_stream {
 
           for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
             if (!t) {
-              printf("tg: %i runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n",
+              printf("tg: %i runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i run_status: %i\n",
                      blockIdx.x,
                      i,
                      roll,
@@ -400,7 +414,8 @@ struct rle_stream {
                      runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
                      runs[i].remaining == 0
                        ? -1
-                       : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+                       : rolling_index<256>(runs[i].output_pos + runs[i].remaining),
+                     run_status[i]);
             }
           }
         }

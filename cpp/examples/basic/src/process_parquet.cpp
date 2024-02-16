@@ -121,7 +121,7 @@ int main(int argc, char** argv)
 
   //auto resource       = cudf::test::create_memory_resource("pool");
   //auto resource = cudf::test::create_memory_resource("cuda");
-  auto resource       = cudf::test::create_memory_resource("async");
+  auto resource       = cudf::test::create_memory_resource("cuda");
   rmm::mr::set_current_device_resource(resource.get());
 
   // Read data
