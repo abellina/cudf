@@ -303,15 +303,24 @@ struct rle_stream {
 
     fill_index = fill_index_shared;
     int local_values_processed = 0;
+    int prior_local_values_processed = 0;
+
+    int stuck_at_beginning = 0;
+    int stuck_not_processing = 0;
 
     do {
+      if (local_values_processed == prior_local_values_processed) {
+        stuck_not_processing++;
+      }
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
         // kernel that uses an rle_stream.
         if (!warp_lane) { 
           fill_run_batch(); 
-          
+          if (decode_index_shared == -1) {
+            stuck_at_beginning++;
+          }
         }
       }
       // remaining warps decode the runs
@@ -366,8 +375,35 @@ struct rle_stream {
         fill_index_shared = fill_index;
       }
       __syncthreads();
+      prior_local_values_processed = local_values_processed;
       local_values_processed  = values_processed_shared;
       decode_index = decode_index_shared;
+
+      if (!t) {
+        if (stuck_not_processing > 10 || stuck_at_beginning > 10) {
+          printf("tg: %i stuck not processing: %i  stuck_at_beginning: %i\n",
+                 blockIdx.x,
+                 stuck_not_processing,
+                 stuck_at_beginning);
+
+          printf("tg: %i warp: %i decode_index: %i fill_index: %i\n",
+                 blockIdx.x,
+                 warp_id,
+                 decode_index,
+                 fill_index);
+          for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+            printf("tg: %i runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n",
+                   blockIdx.x,
+                   i,
+                   roll,
+                   runs[i].remaining,
+                   runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
+                   runs[i].remaining == 0
+                     ? -1
+                     : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+          }
+        }
+      }
 
 #ifdef ABDEBUG
      if(!t) {

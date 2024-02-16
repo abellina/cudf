@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+#include <cuda/memory_resource>
 #include <cudf/aggregation.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/io/parquet.hpp>
@@ -28,6 +28,8 @@
 #include <rmm/mr/device/cuda_memory_resource.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
+#include <rmm/mr/host/pinned_memory_resource.hpp>
+#include <rmm/mr/host/host_memory_resource.hpp>
 
 #include <memory>
 #include <string>
@@ -81,12 +83,41 @@ void simple_int_column(int num_rows)
   cudf::io::write_parquet(out_opts);
 }
 
+rmm::mr::pinned_memory_resource default_mr;
+inline cuda::mr::async_resource_ref<cuda::mr::host_accessible>& host_mr()
+{
+  static cuda::mr::async_resource_ref<cuda::mr::host_accessible> ref = default_mr;
+  return ref;
+}
+
+void set_host_memory_resource(cuda::mr::async_resource_ref<cuda::mr::host_accessible>const & mr) {
+  host_mr() = mr;
+}
+
 int main(int argc, char** argv)
 {
   cudaSetDevice(0);
+
+  auto my_pool = rmm::mr::pool_memory_resource(new rmm::mr::pinned_memory_resource(), 256, 256);
+
+  auto ptr = host_mr().allocate(12345);
+  host_mr().deallocate(ptr, 12345);
+
+  std::cout << "allocated at "<< ptr << std::endl;
+
+  set_host_memory_resource(my_pool);
+
+  std::cout << "should oom" << std::endl;
+
+  auto ptr2 = host_mr().allocate(12345); // should fail
+  host_mr().deallocate(ptr2, 12345);
+
+  std::cout << "allocated at "<< ptr2 << std::endl;
+
+
   //auto resource       = cudf::test::create_memory_resource("pool");
-  auto resource = cudf::test::create_memory_resource("cuda");
-  // auto resource       = cudf::test::create_memory_resource("async");
+  //auto resource = cudf::test::create_memory_resource("cuda");
+  auto resource       = cudf::test::create_memory_resource("async");
   rmm::mr::set_current_device_resource(resource.get());
 
   // Read data
@@ -173,7 +204,7 @@ std::string store_col_names[] = {
 //  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
 //  std::cout << "done" << std::endl;
 //}
- for (int i  = 0; i < 10; ++i) {
+ for (int i  = 0; i < 1; ++i) {
   setenv("USE_FIXED_OP", "0", 1);
   auto expected = read_parquet(name, "ALL");
   cudaDeviceSynchronize();
