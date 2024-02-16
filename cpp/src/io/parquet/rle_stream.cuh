@@ -416,7 +416,7 @@ struct rle_stream {
                        ? -1
                        : rolling_index<256>(runs[i].output_pos + runs[i].remaining),
                      run_status[i],
-                     run_wrap[i]);
+                     run_warp[i]);
             }
           }
         }
