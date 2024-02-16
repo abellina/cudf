@@ -97,7 +97,7 @@ void set_host_memory_resource(cuda::mr::resource_ref<cuda::mr::host_accessible>c
 int main(int argc, char** argv)
 {
   cudaSetDevice(0);
-
+/*
   auto my_pool = rmm::mr::pool_memory_resource(new rmm::mr::pinned_memory_resource(), 256, 256);
 
   auto ptr = host_mr().allocate(12345);
@@ -116,6 +116,7 @@ int main(int argc, char** argv)
   host_mr().deallocate(ptr2, 12345);
 
   std::cout << "allocated at "<< ptr2 << std::endl;
+  */
 
 
   //auto resource       = cudf::test::create_memory_resource("pool");
@@ -196,7 +197,14 @@ std::string store_col_names[] = {
  "s_tax_precentage" //: decimal(5,2) (nullable = true)
 };
 
-//for (std::string col : col_names) {
+  std::string bad_file_col_names[] = {
+    "ss_sold_time_sk",
+    "ss_hdemo_sk",
+    "ss_store_sk"
+  };
+
+
+//for (std::string col : bad_file_col_names) {
 //  // setenv("USE_FIXED_OP", "0", 1);
 //  // auto expected = read_parquet(name, col);
 //  // cudaDeviceSynchronize();

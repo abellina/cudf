@@ -380,27 +380,28 @@ struct rle_stream {
       decode_index = decode_index_shared;
 
       if (!t) {
-        if (stuck_not_processing > 2 || stuck_at_beginning > 2) {
-          printf("tg: %i stuck not processing: %i  stuck_at_beginning: %i\n",
-                 blockIdx.x,
-                 stuck_not_processing,
-                 stuck_at_beginning);
+        if (stuck_not_processing > 100 || stuck_at_beginning > 100) {
+          printf("stuck not processing: %i  stuck_at_beginning: %i\n", 
+            stuck_not_processing, 
+            stuck_at_beginning);
 
-          printf("tg: %i warp: %i decode_index: %i fill_index: %i\n",
-                 blockIdx.x,
-                 warp_id,
-                 decode_index,
-                 fill_index);
+          if (!t) {
+            printf("tg: %i warp: %i decode_index: %i fill_index: %i\n", 
+              blockIdx.x, warp_id, decode_index, fill_index);
+          }
+
           for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-            printf("tg: %i runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n",
-                   blockIdx.x,
-                   i,
-                   roll,
-                   runs[i].remaining,
-                   runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
-                   runs[i].remaining == 0
-                     ? -1
-                     : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+            if (!t) {
+              printf("tg: %i runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i\n",
+                     blockIdx.x,
+                     i,
+                     roll,
+                     runs[i].remaining,
+                     runs[i].remaining == 0 ? -1 : rolling_index<256>(runs[i].output_pos),
+                     runs[i].remaining == 0
+                       ? -1
+                       : rolling_index<256>(runs[i].output_pos + runs[i].remaining));
+            }
           }
         }
       }
