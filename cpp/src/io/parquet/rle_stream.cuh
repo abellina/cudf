@@ -378,7 +378,7 @@ struct rle_stream {
             } else if (warp_id == num_rle_stream_decode_warps) {
               values_processed_shared = last_pos;
             }
-
+            run.prior_remaining = run.remaining;
             run.remaining = remaining;
           }
         }
@@ -432,11 +432,6 @@ struct rle_stream {
       }
       prior_local_values_processed = local_values_processed;
 
-      if (!t) {
-        for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-          runs[i].prior_remaining = runs[i].remaining;
-        }
-      }
 
 #ifdef ABDEBUG
      if(!t) {
