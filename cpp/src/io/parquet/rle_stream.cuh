@@ -403,11 +403,11 @@ struct rle_stream {
       decode_index = decode_index_shared;
 
       if (!t) {
-        bool will_block = true;
-        for (int i = decode_index ; i < decode_index + (num_rle_stream_decode_warps); i++) {
-          auto ix = rolling_index<run_buffer_size>(i);
-          if (runs[ix].remaining != 0) {
-            will_block = false;
+        bool will_block = local_values_processed < output_count;
+        if (will_block) {
+          for (int i = decode_index; i < decode_index + (num_rle_stream_decode_warps); i++) {
+            auto ix = rolling_index<run_buffer_size>(i);
+            if (runs[ix].remaining != 0) { will_block = false; }
           }
         }
         if (will_block || stuck_not_processing > 100 || stuck_at_beginning > 100) {
