@@ -406,7 +406,7 @@ struct rle_stream {
 
           for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
             if (!t) {
-              printf("tg: %i runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i run_status: %i\n",
+              printf("tg: %i runs[%i] roll is: %i remaining: %i output_pos: %i output_pos_end: %i run_status: %i warp: %i\n",
                      blockIdx.x,
                      i,
                      roll,
@@ -415,7 +415,8 @@ struct rle_stream {
                      runs[i].remaining == 0
                        ? -1
                        : rolling_index<256>(runs[i].output_pos + runs[i].remaining),
-                     run_status[i]);
+                     run_status[i],
+                     run_wrap[i]);
             }
           }
         }
