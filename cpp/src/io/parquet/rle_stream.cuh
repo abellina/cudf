@@ -380,7 +380,7 @@ struct rle_stream {
       decode_index = decode_index_shared;
 
       if (!t) {
-        if (stuck_not_processing > 10 || stuck_at_beginning > 10) {
+        if (stuck_not_processing > 2 || stuck_at_beginning > 2) {
           printf("tg: %i stuck not processing: %i  stuck_at_beginning: %i\n",
                  blockIdx.x,
                  stuck_not_processing,

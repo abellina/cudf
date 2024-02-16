@@ -84,13 +84,13 @@ void simple_int_column(int num_rows)
 }
 
 rmm::mr::pinned_memory_resource default_mr;
-inline cuda::mr::async_resource_ref<cuda::mr::host_accessible>& host_mr()
+inline cuda::mr::resource_ref<cuda::mr::host_accessible>& host_mr()
 {
-  static cuda::mr::async_resource_ref<cuda::mr::host_accessible> ref = default_mr;
+  static cuda::mr::resource_ref<cuda::mr::host_accessible> ref = default_mr;
   return ref;
 }
 
-void set_host_memory_resource(cuda::mr::async_resource_ref<cuda::mr::host_accessible>const & mr) {
+void set_host_memory_resource(cuda::mr::resource_ref<cuda::mr::host_accessible>const & mr) {
   host_mr() = mr;
 }
 
@@ -101,9 +101,12 @@ int main(int argc, char** argv)
   auto my_pool = rmm::mr::pool_memory_resource(new rmm::mr::pinned_memory_resource(), 256, 256);
 
   auto ptr = host_mr().allocate(12345);
+  
+  std::cout << "allocated at "<< ptr << std::endl;
+
   host_mr().deallocate(ptr, 12345);
 
-  std::cout << "allocated at "<< ptr << std::endl;
+  std::cout << "should oom" << std::endl;
 
   set_host_memory_resource(my_pool);
 
