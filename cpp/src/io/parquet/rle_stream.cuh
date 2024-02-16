@@ -293,50 +293,50 @@ struct rle_stream {
     __shared__ int values_processed_shared;
     __shared__ int decode_index_shared;
     __shared__ int fill_index_shared;
-    __shared__ int run_status[run_buffer_size];
-    __shared__ int run_warp[run_buffer_size];
-    __shared__ int run_last_pos[run_buffer_size];
-    __shared__ int run_last_remaining[run_buffer_size];
+    //__shared__ int run_status[run_buffer_size];
+    //__shared__ int run_warp[run_buffer_size];
+    //__shared__ int run_last_pos[run_buffer_size];
+    //__shared__ int run_last_remaining[run_buffer_size];
     if (!t) {
       values_processed_shared = 0;
       decode_index_shared = decode_index;
       fill_index_shared = fill_index;
-      for (int i = 0; i < run_buffer_size; ++i ) {
-        run_status[i] = 0;
-      }
-      for (int i = 0; i < run_buffer_size; ++i ) {
-        run_warp[i] = -1;
-      }
-      for (int i = 0; i < run_buffer_size; ++i ) {
-        run_last_pos[i] = -1;
-      }
-      for (int i = 0; i < run_buffer_size; ++i ) {
-        run_last_remaining[i] = -1;
-      }
+      //for (int i = 0; i < run_buffer_size; ++i ) {
+      //  run_status[i] = 0;
+      //}
+      //for (int i = 0; i < run_buffer_size; ++i ) {
+      //  run_warp[i] = -1;
+      //}
+      //for (int i = 0; i < run_buffer_size; ++i ) {
+      //  run_last_pos[i] = -1;
+      //}
+      //for (int i = 0; i < run_buffer_size; ++i ) {
+      //  run_last_remaining[i] = -1;
+      //}
     }
 
     __syncthreads();
 
     fill_index = fill_index_shared;
     int local_values_processed = 0;
-    int prior_local_values_processed = 0;
+    //int prior_local_values_processed = 0;
 
-    int stuck_at_beginning = 0;
-    int stuck_not_processing = 0;
+    //int stuck_at_beginning = 0;
+    //int stuck_not_processing = 0;
 
     do {
-      if (local_values_processed == prior_local_values_processed) {
-        stuck_not_processing++;
-      }
+      //if (local_values_processed == prior_local_values_processed) {
+      //  stuck_not_processing++;
+      //}
       // warp 0 reads ahead and generates batches of runs to be decoded by remaining warps.
       if (!warp_id) {
         // fill the next set of runs. fill_runs will generally be the bottleneck for any
         // kernel that uses an rle_stream.
         if (!warp_lane) { 
           fill_run_batch(); 
-          if (decode_index_shared == -1) {
-            stuck_at_beginning++;
-          }
+          //if (decode_index_shared == -1) {
+          //  stuck_at_beginning++;
+          //}
         }
       }
       // remaining warps decode the runs
@@ -354,7 +354,7 @@ struct rle_stream {
           // the maximum amount we would write includes this run
           // this is calculated in absolute position
           (max_count > run.output_pos)) {
-          run_warp[rolling_index<run_buffer_size>(run_index)] = warp_id;
+          //run_warp[rolling_index<run_buffer_size>(run_index)] = warp_id;
           auto batch = run.next_batch<max_output_values>(output, max_count);
           batch.decode(end, level_bits, warp_lane);
           if (!warp_lane) {
@@ -363,20 +363,20 @@ struct rle_stream {
             // this is the last batch we will process this iteration if:
             // - either this run still has remaining
             // - or it is consumed fully and its last index corresponds to output_count
-            run_status[rolling_index<run_buffer_size>(run_index)] = 1;
-            run_last_pos[rolling_index<run_buffer_size>(run_index)] = last_pos;
+            //run_status[rolling_index<run_buffer_size>(run_index)] = 1;
+            //run_last_pos[rolling_index<run_buffer_size>(run_index)] = last_pos;
             if (remaining > 0 || last_pos == output_count) {
               values_processed_shared = last_pos;
-              run_status[rolling_index<run_buffer_size>(run_index)] = 2;
+              //run_status[rolling_index<run_buffer_size>(run_index)] = 2;
               // only if we consumed fully do we want to move on, in the decode side
               if (remaining == 0) {
-                run_status[rolling_index<run_buffer_size>(run_index)] = 3;
+                //run_status[rolling_index<run_buffer_size>(run_index)] = 3;
                 decode_index_shared = run_index + 1;
               }
             } else if (remaining == 0 && warp_id == num_rle_stream_decode_warps) {
               // we skip over all num_rle_stream_decode_warp indices since all of them
               // will have been consumed.
-              run_status[rolling_index<run_buffer_size>(run_index)] = 4;
+              //run_status[rolling_index<run_buffer_size>(run_index)] = 4;
               decode_index_shared += num_rle_stream_decode_warps;
             }
 
@@ -398,55 +398,56 @@ struct rle_stream {
         fill_index_shared = fill_index;
       }
       __syncthreads();
-      prior_local_values_processed = local_values_processed;
+      //prior_local_values_processed = local_values_processed;
       local_values_processed  = values_processed_shared;
       decode_index = decode_index_shared;
+      fill_index = fill_index_shared;
 
-      if (!t) {
-        bool will_block = local_values_processed < output_count;
-        if (will_block) {
-          for (int i = decode_index; i < decode_index + (num_rle_stream_decode_warps); i++) {
-            auto ix = rolling_index<run_buffer_size>(i);
-            if (runs[ix].remaining != 0) { will_block = false; }
-          }
-        }
-        if (will_block || stuck_not_processing > 100 || stuck_at_beginning > 100) {
-          printf("will_block: %i stuck not processing: %i  stuck_at_beginning: %i\n", 
-            will_block,
-            stuck_not_processing, 
-            stuck_at_beginning);
+      //if (!t) {
+      //  bool will_block = local_values_processed < output_count;
+      //  if (will_block) {
+      //    for (int i = decode_index; i < decode_index + (num_rle_stream_decode_warps); i++) {
+      //      auto ix = rolling_index<run_buffer_size>(i);
+      //      if (runs[ix].remaining != 0) { will_block = false; }
+      //    }
+      //  }
+      //  if (will_block || stuck_not_processing > 100 || stuck_at_beginning > 100) {
+      //    printf("will_block: %i stuck not processing: %i  stuck_at_beginning: %i\n", 
+      //      will_block,
+      //      stuck_not_processing, 
+      //      stuck_at_beginning);
 
-          if (!t) {
-            printf("tg: %i warp: %i decode_index: %i fill_index: %i\n", 
-              blockIdx.x, warp_id, decode_index, fill_index);
-          }
+      //    if (!t) {
+      //      printf("tg: %i warp: %i decode_index: %i fill_index: %i\n", 
+      //        blockIdx.x, warp_id, decode_index, fill_index);
+      //    }
 
-          for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-            if (!t) {
-              printf("tg: %i runs[%i] roll is: %i remaining: %i last_remaining: %i output_pos: %i output_pos_end: %i run_status: %i warp: %i run_last_pos: %i output_count: %i\n",
-                     blockIdx.x,
-                     i,
-                     roll,
-                     runs[i].remaining,
-                     run_last_remaining[i],
-                     runs[i].remaining == 0 ? -1 : rolling_index<max_output_values>(runs[i].output_pos),
-                     runs[i].remaining == 0
-                       ? -1
-                       : rolling_index<max_output_values>(runs[i].output_pos + runs[i].remaining),
-                     run_status[i],
-                     run_warp[i],
-                     run_last_pos[i],
-                     output_count);
-            }
-          }
-        }
-      }
+      //    for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+      //      if (!t) {
+      //        printf("tg: %i runs[%i] roll is: %i remaining: %i last_remaining: %i output_pos: %i output_pos_end: %i run_status: %i warp: %i run_last_pos: %i output_count: %i\n",
+      //               blockIdx.x,
+      //               i,
+      //               roll,
+      //               runs[i].remaining,
+      //               run_last_remaining[i],
+      //               runs[i].remaining == 0 ? -1 : rolling_index<max_output_values>(runs[i].output_pos),
+      //               runs[i].remaining == 0
+      //                 ? -1
+      //                 : rolling_index<max_output_values>(runs[i].output_pos + runs[i].remaining),
+      //               run_status[i],
+      //               run_warp[i],
+      //               run_last_pos[i],
+      //               output_count);
+      //      }
+      //    }
+      //  }
+      //}
 
-      for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-        if (!t) {
-          run_last_remaining[i] = runs[i].remaining;
-        }
-      }
+      //for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+      //  if (!t) {
+      //    run_last_remaining[i] = runs[i].remaining;
+      //  }
+      //}
 
 #ifdef ABDEBUG
      if(!t) {
