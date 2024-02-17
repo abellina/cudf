@@ -191,7 +191,10 @@ struct rle_stream {
   level_t* output;
 
   rle_run<level_t>* runs;
-  __shared__ rle_run<level_t> prior_runs[2048];
+  __shared__ rle_run<level_t> prior_runs[2048][6];
+  int prior_fill_indices[2048];
+  int prior_decode_indices[2048];
+  int prior_values_processed[2048];
   int num_iter;
   int output_pos;
 
@@ -383,20 +386,39 @@ struct rle_stream {
       fill_index = fill_index_shared;
 
       if (!t) {
+        for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+          int num_iter_roll = rolling_index<2048>(num_iter);
+          prior_runs[num_iter_roll][i].remaining = runs[i].remaining;
+          prior_fill_indices[num_iter_roll] = fill_index;
+          prior_decode_indices[num_iter_roll] = decode_index;
+          prior_values_processed[num_iter_roll] = local_values_processed;
+        }
+        num_iter++;
         if (!first_time && local_values_processed == prior_local_values_processed) { 
-          if (!t) {
-            printf("tg: %i warp: %i decode_index: %i fill_index: %i processed: %i prior: %i\n", 
-              blockIdx.x, warp_id, decode_index, fill_index, local_values_processed, prior_local_values_processed);
-          }
-
+          // current
           for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
             if (!t) {
-              printf("tg: %i runs[%i] roll is: %i remaining: %i output_count: %i\n",
-                     blockIdx.x,
-                     i,
-                     roll,
-                     runs[i].remaining,
-                     output_count);
+              printf("tg: %i current runs[%i] roll is: %i remaining: %i output_count: %i\n",
+                    blockIdx.x,
+                    i,
+                    roll,
+                    runs[i].remaining,
+                    output_count);
+            }
+          }
+          for (int it = 0; it < num_iter; ++it) {
+            auto rit = rolling_index<2048>(it);
+            for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+              if (!t) {
+                printf("tg: %i prior[%i] runs[%i] remaining: %i fill_index: %i decode_index: %i values_processed: %i\n",
+                      blockIdx.x,
+                      rit,
+                      i,
+                      prior_runs[rit][i].remaining,
+                      prior_fill_indices[rit],
+                      prior_decode_indices[rit],
+                      prior_values_processed[rit]);
+              }
             }
           }
         }
