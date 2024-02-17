@@ -18,6 +18,7 @@
 
 #include "parquet_gpu.hpp"
 #include <cudf/detail/utilities/cuda.cuh>
+#include <inttypes.h>
 
 namespace cudf::io::parquet::detail {
 
@@ -398,7 +399,8 @@ struct rle_stream {
           // current
           for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
             if (!t) {
-              printf("tg: %i current runs[%i] roll is: %i remaining: %i output_count: %i\n",
+              printf("add: %" PRIu64 " tg: %i current runs[%i] roll is: %i remaining: %i output_count: %i\n",
+                    reinterpret_cast<uint64_t>(runs),
                     blockIdx.x,
                     i,
                     roll,
@@ -410,7 +412,8 @@ struct rle_stream {
             auto rit = rolling_index<2048>(it);
             for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
               if (!t) {
-                printf("tg: %i prior[%i] runs[%i] remaining: %i fill_index: %i decode_index: %i values_processed: %i\n",
+                printf("add: %" PRIu64 " tg: %i prior[%i] runs[%i] remaining: %i fill_index: %i decode_index: %i values_processed: %i\n",
+                      reinterpret_cast<uint64_t>(runs),
                       blockIdx.x,
                       rit,
                       i,
