@@ -391,9 +391,18 @@ struct rle_stream {
      //  fill_index_shared   = fill_index;
      //}
       __syncthreads();
+      
       bool first_time = false;
       // TODO: abellina move this inside fill_run_batch?
       if (!t) {
+        bool all_zeros = true;
+        for (int i = 0; i < run_buffer_size; ++i ){ 
+          all_zeros = all_zeros && (runs[i].remaining == 0);
+        }
+        if (all_zeros){
+          decode_index = -1;
+          fill_index = 0;
+        }
         if (decode_index_shared == -1) { 
           first_time = true;
           decode_index_shared = decode_index;
@@ -440,7 +449,8 @@ struct rle_stream {
 
 #ifdef ABDEBUG
      if(!t) {
-      printf("warp: %i decode_index: %i fill_index: %i\n", warp_id, decode_index, fill_index);
+      printf("warp: %i decode_index: %i fill_index: %i output_count: %i total_values: %i cur_values: %i processed: %i\n", 
+      warp_id, decode_index, fill_index, output_count, total_values, cur_values, local_values_processed);
      }
 
      for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
