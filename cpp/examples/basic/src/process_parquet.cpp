@@ -173,17 +173,17 @@ std::string store_col_names[] = {
   };
 
 
-//for (std::string col : bad_file_col_names) {
-//  // setenv("USE_FIXED_OP", "0", 1);
-//  // auto expected = read_parquet(name, col);
-//  // cudaDeviceSynchronize();
+for (std::string col : bad_file_col_names) {
+  // setenv("USE_FIXED_OP", "0", 1);
+  // auto expected = read_parquet(name, col);
+  // cudaDeviceSynchronize();
 
-//  setenv("USE_FIXED_OP", "2", 1);
-//  auto actual = read_parquet(name, col);
-//  cudaDeviceSynchronize();
-//  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
-//  std::cout << "done" << std::endl;
-//}
+  //setenv("USE_FIXED_OP", "2", 1);
+  read_parquet(name, col);
+  cudaDeviceSynchronize();
+  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+  std::cout << "done" << std::endl;
+}
  //for (int i  = 0; i < 1; ++i) {
  // //setenv("USE_FIXED_OP", "0", 1);
  // //auto expected = read_parquet(name, "ALL");
@@ -201,8 +201,8 @@ std::string store_col_names[] = {
  //if (argc > 1) {
  //  num_rows = atoi(argv[1]);
  //}
- simple_int_column(17);
- read_parquet("/home/abellina/table_with_dict.parquet", "ALL");
+ //simple_int_column(17);
+ //read_parquet("/home/abellina/table_with_dict.parquet", "ALL");
 
 // std::cout << "over here: " << cudf::test::to_string(simple.tbl->get_column(0).view(), std::string(",")) << std::endl;
  //std::cout << "done" << std::endl;
