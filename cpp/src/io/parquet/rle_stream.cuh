@@ -393,6 +393,7 @@ struct rle_stream {
         for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
           int num_iter_roll = rolling_index<2048>(num_iter);
           any_processed = any_processed || runs[i].did_process;
+          runs[i].did_process = false;
           prior_runs[num_iter_roll][i].remaining = runs[i].remaining;
           prior_fill_indices[num_iter_roll] = fill_index;
           prior_decode_indices[num_iter_roll] = decode_index;
