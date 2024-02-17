@@ -146,6 +146,7 @@ struct rle_run {
   uint8_t const* start;
   int level_run;    // level_run header value
   int remaining;    // number of output items remaining to be decoded
+  bool did_process;
 
   template<int max_output_values>
   __device__ __inline__ rle_batch<level_t, max_output_values> next_batch(
@@ -205,6 +206,7 @@ struct rle_stream {
   __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {
     for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
       runs[i].remaining = 0;
+      runs[i].did_process = false;
     }
   }
 
@@ -260,6 +262,7 @@ struct rle_stream {
       run.start      = _cur;
       run.level_run  = level_run;
       run.remaining  = run.size;
+      run.did_process  = false;
       cur += run_bytes;
       output_pos += run.size;
       fill_index++;
@@ -387,15 +390,17 @@ struct rle_stream {
       fill_index = fill_index_shared;
 
       if (!t) {
+        bool any_processed = false;
         for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
           int num_iter_roll = rolling_index<2048>(num_iter);
+          any_processed = any_processed || runs[i].did_process;
           prior_runs[num_iter_roll][i].remaining = runs[i].remaining;
           prior_fill_indices[num_iter_roll] = fill_index;
           prior_decode_indices[num_iter_roll] = decode_index;
           prior_values_processed[num_iter_roll] = local_values_processed;
         }
         num_iter++;
-        if (!first_time && local_values_processed == prior_local_values_processed) { 
+        if (!first_time && !any_processed) {
           // current
           for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
             if (!t) {
