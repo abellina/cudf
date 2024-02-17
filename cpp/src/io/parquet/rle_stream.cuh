@@ -313,7 +313,6 @@ struct rle_stream {
 
     fill_index = fill_index_shared;
     int local_values_processed = 0;
-    int prior_local_values_processed = 0;
 
     //int stuck_at_beginning = 0;
     //int stuck_not_processing = 0;
@@ -431,7 +430,6 @@ struct rle_stream {
           }
         }
       }
-      prior_local_values_processed = local_values_processed;
 
 
 #ifdef ABDEBUG
