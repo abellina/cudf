@@ -501,7 +501,7 @@ struct rle_stream {
      }
      
 #endif
-     __syncthreads();
+     //__syncthreads();
 
 
     } while (local_values_processed < output_count);
