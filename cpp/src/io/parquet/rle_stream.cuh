@@ -146,10 +146,13 @@ struct rle_run {
   uint8_t const* start;
   int level_run;    // level_run header value
   int remaining;    // number of output items remaining to be decoded
+  
+  #ifdef ABDEBUG2
   bool did_process;
   int last_batch;
   int cur_values;
   int run_offset_;
+  #endif
 
   template<int max_output_values>
   __device__ __inline__ rle_batch<level_t, max_output_values> next_batch(
@@ -198,12 +201,16 @@ struct rle_stream {
   level_t* output;
 
   rle_run<level_t>* runs;
+
+  int output_pos;
+
+  #ifdef ABDEBUG2
   __shared__ rle_run<level_t> prior_runs[256][6];
   int prior_fill_indices[256];
   int prior_decode_indices[256];
   int prior_values_processed[256];
   int num_iter;
-  int output_pos;
+  #endif
 
   int fill_index;
   int decode_index;
@@ -211,7 +218,9 @@ struct rle_stream {
   __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {
     for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
       runs[i].remaining = 0;
+      #ifdef ABDEBUG2
       runs[i].did_process = false;
+      #endif
     }
   }
 
@@ -234,7 +243,9 @@ struct rle_stream {
     cur_values   = 0;
     fill_index = 0;
     decode_index = -1;
+    #ifdef ABDEBUG2
     num_iter = 0;
+    #endif
   }
 
   __device__ inline void fill_run_batch()
@@ -267,8 +278,10 @@ struct rle_stream {
       run.start      = _cur;
       run.level_run  = level_run;
       run.remaining  = run.size;
+      #ifdef ABDEBUG2
       run.did_process  = false;
       run.cur_values = 0;
+      #endif
       cur += run_bytes;
       output_pos += run.size;
       fill_index++;
@@ -355,12 +368,14 @@ struct rle_stream {
           auto batch = run.next_batch<max_output_values>(output, max_count);
           batch.decode(end, level_bits, warp_lane);
           if (!warp_lane) {
+            #ifdef ABDEBUG2
             run.run_offset_ = run.size - run.remaining;          
             run.cur_values = cur_values;
             run.last_batch = batch.size;
             if (batch.size > 0) {
               run.did_process = true;
             }
+            #endif
             auto last_pos = batch.last_pos() - cur_values; 
             remaining -= batch.size;
             // this is the last batch we will process this iteration if:
@@ -385,12 +400,16 @@ struct rle_stream {
      //  fill_index_shared   = fill_index;
      //}
       __syncthreads();
-      
+
+      #ifdef ABDEBUG2 
       bool first_time = false;
+      #endif
       // TODO: abellina move this inside fill_run_batch?
       if (!t) {
         if (decode_index_shared == -1) { 
+          #ifdef ABDEBUG2
           first_time = true;
+          #endif
           decode_index_shared = decode_index;
         }
         fill_index_shared = fill_index;
@@ -400,6 +419,7 @@ struct rle_stream {
       decode_index = decode_index_shared;
       fill_index = fill_index_shared;
 
+#ifdef ABDEBUG2
       if (!t) {
         bool any_processed = false;
         for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
@@ -457,6 +477,7 @@ struct rle_stream {
         }
         num_iter++;
       }
+#endif
 
 
 #ifdef ABDEBUG
