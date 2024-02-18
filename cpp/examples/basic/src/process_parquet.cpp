@@ -37,7 +37,7 @@
 #include <vector>
 #include <iostream>
 
-void /*cudf::io::table_with_metadata*/ read_parquet(
+cudf::io::table_with_metadata read_parquet(
   std::string const& file_path, 
   std::string const& col_name)
 {
@@ -60,7 +60,9 @@ void /*cudf::io::table_with_metadata*/ read_parquet(
                 << " num_rows: " << res.tbl->get_column(i).size() 
                 << " num_nulls: " << res.tbl->get_column(i).null_count() << std::endl;
     }
+    return res;
   }
+  return cudf::io::table_with_metadata{};
 }
 
 void simple_int_column(int num_rows)
@@ -173,29 +175,29 @@ std::string store_col_names[] = {
   };
 
 
-for (std::string col : bad_file_col_names) {
-  // setenv("USE_FIXED_OP", "0", 1);
-  // auto expected = read_parquet(name, col);
-  // cudaDeviceSynchronize();
+ //for (std::string col : bad_file_col_names) {
+ //  // setenv("USE_FIXED_OP", "0", 1);
+ //  // auto expected = read_parquet(name, col);
+ //  // cudaDeviceSynchronize();
 
-  //setenv("USE_FIXED_OP", "2", 1);
-  read_parquet(name, col);
+ //  //setenv("USE_FIXED_OP", "2", 1);
+ //  read_parquet(name, col);
+ //  cudaDeviceSynchronize();
+ //  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+ //  std::cout << "done" << std::endl;
+//}
+ for (int i  = 0; i < 1; ++i) {
+  setenv("USE_FIXED_OP", "0", 1);
+  auto expected = read_parquet(name, "ALL");
   cudaDeviceSynchronize();
-  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
-  std::cout << "done" << std::endl;
-}
- //for (int i  = 0; i < 1; ++i) {
- // //setenv("USE_FIXED_OP", "0", 1);
- // //auto expected = read_parquet(name, "ALL");
- // //cudaDeviceSynchronize();
 
- // setenv("USE_FIXED_OP", "2", 1);
- // //auto actual = read_parquet(name, "ALL");
- // read_parquet(name, "ALL");
- // cudaDeviceSynchronize();
- // //CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
- // std::cout << "done " << i << std::endl;
- //}
+  setenv("USE_FIXED_OP", "2", 1);
+  auto actual = read_parquet(name, "ALL");
+  //read_parquet(name, "ALL");
+  cudaDeviceSynchronize();
+  //CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+  std::cout << "done " << i << std::endl;
+ }
 
 
  //if (argc > 1) {
