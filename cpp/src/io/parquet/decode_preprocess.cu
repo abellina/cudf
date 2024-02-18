@@ -402,9 +402,11 @@ void ComputePageSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
   // If uses_custom_row_bounds is set to true, we have to do a second pass later that "trims"
   // the starting and ending read values to account for these bounds.
   if (level_type_size == 1) {
+    printf("dim_grid %i dim_block %i\n", (int)preprocess_block_size, (int)pages.size());
     gpuComputePageSizes<uint8_t><<<dim_grid, dim_block, 0, stream.value()>>>(
       pages.device_ptr(), chunks, min_row, num_rows, compute_num_rows, compute_string_sizes);
   } else {
+    printf("dim_grid %i dim_block %i\n", (int)preprocess_block_size, (int)pages.size());
     gpuComputePageSizes<uint16_t><<<dim_grid, dim_block, 0, stream.value()>>>(
       pages.device_ptr(), chunks, min_row, num_rows, compute_num_rows, compute_string_sizes);
   }

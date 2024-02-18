@@ -147,18 +147,22 @@ struct rle_run {
   int level_run;    // level_run header value
   int remaining;    // number of output items remaining to be decoded
   bool did_process;
+  int last_batch;
+  int cur_values;
+  int run_offset_;
 
   template<int max_output_values>
   __device__ __inline__ rle_batch<level_t, max_output_values> next_batch(
     level_t* const output, int max_count)
   {
-    int const run_offset = size - remaining;
+    int const run_offset = size - remaining;          
     int batch_len = 
+    max(0, 
       min(remaining, 
         // total
         max_count - 
         // position + processed by prior batches
-        (output_pos + run_offset)); 
+        (output_pos + run_offset))); 
     return rle_batch<level_t, max_output_values>{
       start, 
       run_offset, 
@@ -189,14 +193,15 @@ struct rle_stream {
 
   int total_values;
   int cur_values;
+  
 
   level_t* output;
 
   rle_run<level_t>* runs;
-  __shared__ rle_run<level_t> prior_runs[2048][6];
-  int prior_fill_indices[2048];
-  int prior_decode_indices[2048];
-  int prior_values_processed[2048];
+  __shared__ rle_run<level_t> prior_runs[256][6];
+  int prior_fill_indices[256];
+  int prior_decode_indices[256];
+  int prior_values_processed[256];
   int num_iter;
   int output_pos;
 
@@ -263,6 +268,7 @@ struct rle_stream {
       run.level_run  = level_run;
       run.remaining  = run.size;
       run.did_process  = false;
+      run.cur_values = 0;
       cur += run_bytes;
       output_pos += run.size;
       fill_index++;
@@ -349,6 +355,12 @@ struct rle_stream {
           auto batch = run.next_batch<max_output_values>(output, max_count);
           batch.decode(end, level_bits, warp_lane);
           if (!warp_lane) {
+            run.run_offset_ = run.size - run.remaining;          
+            run.cur_values = cur_values;
+            run.last_batch = batch.size;
+            if (batch.size > 0) {
+              run.did_process = true;
+            }
             auto last_pos = batch.last_pos() - cur_values; 
             remaining -= batch.size;
             // this is the last batch we will process this iteration if:
@@ -391,51 +403,66 @@ struct rle_stream {
       if (!t) {
         bool any_processed = false;
         for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-          int num_iter_roll = rolling_index<2048>(num_iter);
+          int num_iter_roll = rolling_index<256>(num_iter);
           any_processed = any_processed || runs[i].did_process;
           runs[i].did_process = false;
           prior_runs[num_iter_roll][i].remaining = runs[i].remaining;
+          prior_runs[num_iter_roll][i].cur_values = runs[i].cur_values;
+          prior_runs[num_iter_roll][i].output_pos = runs[i].output_pos;
           prior_fill_indices[num_iter_roll] = fill_index;
           prior_decode_indices[num_iter_roll] = decode_index;
           prior_values_processed[num_iter_roll] = local_values_processed;
         }
-        num_iter++;
-        if (!first_time && !any_processed) {
-          // current
-          for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
-            if (!t) {
-              printf("add: %" PRIu64 " tg: %i current runs[%i] roll is: %i remaining: %i output_count: %i\n",
-                    reinterpret_cast<uint64_t>(runs),
-                    blockIdx.x,
-                    i,
-                    roll,
-                    runs[i].remaining,
-                    output_count);
-            }
-          }
+        
+        if (!first_time && !any_processed && local_values_processed < output_count) {
+          
           for (int it = 0; it < num_iter; ++it) {
-            auto rit = rolling_index<2048>(it);
+            auto rit = rolling_index<256>(it);
             for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
               if (!t) {
-                printf("add: %" PRIu64 " tg: %i prior[%i] runs[%i] remaining: %i fill_index: %i decode_index: %i values_processed: %i\n",
-                      reinterpret_cast<uint64_t>(runs),
+                printf("tg: %i prior[%i] runs[%i] remaining: %i cur_values: %i output_pos: %i run_offset: %i fill_index: %i decode_index: %i values_processed: %i\n",
                       blockIdx.x,
                       rit,
                       i,
                       prior_runs[rit][i].remaining,
+                      prior_runs[rit][i].cur_values,
+                      prior_runs[rit][i].output_pos,
+                      prior_runs[rit][i].run_offset_,
                       prior_fill_indices[rit],
                       prior_decode_indices[rit],
                       prior_values_processed[rit]);
               }
             }
           }
+          // current
+          for (int i = 0; i < num_rle_stream_decode_warps * 2; ++i) {
+            if (!t) {
+              printf("rit: %i tg: %i current runs[%i] roll is: %i remaining: %i last_batch: %i fill_count: %i decode_index: %i output_count: %i cur_values: %i output_pos: %i run_offset: %i\n",
+                    rolling_index<256>(num_iter),
+                    blockIdx.x,
+                    i,
+                    roll,
+                    runs[i].remaining,
+                    runs[i].last_batch,
+                    fill_index,
+                    decode_index,
+                    output_count,
+                    runs[i].cur_values,
+                    runs[i].output_pos,
+                    runs[i].run_offset_);
+            }
+            runs[i].last_batch = -456789;
+            runs[i].cur_values     = 0; 
+          }
         }
+        num_iter++;
       }
 
 
 #ifdef ABDEBUG
      if(!t) {
-      printf("warp: %i decode_index: %i fill_index: %i output_count: %i total_values: %i cur_values: %i processed: %i\n", 
+      printf("block: %i warp: %i decode_index: %i fill_index: %i output_count: %i total_values: %i cur_values: %i processed: %i\n", 
+      blockIdx.x,
       warp_id, decode_index, fill_index, output_count, total_values, cur_values, local_values_processed);
      }
 
@@ -451,8 +478,9 @@ struct rle_stream {
      if(!t) {
      printf("----\n");
      }
-     __syncthreads();
+     
 #endif
+     __syncthreads();
 
 
     } while (local_values_processed < output_count);

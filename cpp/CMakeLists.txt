@@ -232,6 +232,15 @@ endif()
 # ##################################################################################################
 # * library targets -------------------------------------------------------------------------------
 
+set_source_files_properties(src/io/parquet/decode_preprocess.cu PROPERTIES COMPILE_OPTIONS "-lineinfo")
+set_source_files_properties(src/io/parquet/page_enc.cu PROPERTIES COMPILE_OPTIONS "-lineinfo")
+set_source_files_properties(src/io/parquet/page_hdr.cu PROPERTIES COMPILE_OPTIONS "-lineinfo")
+set_source_files_properties(src/io/parquet/page_delta_decode.cu PROPERTIES COMPILE_OPTIONS "-lineinfo")
+set_source_files_properties(src/io/parquet/page_string_decode.cu PROPERTIES COMPILE_OPTIONS "-lineinfo")
+set_source_files_properties(src/io/parquet/reader_impl_chunking.cu PROPERTIES COMPILE_OPTIONS "-lineinfo")
+set_source_files_properties(src/io/parquet/reader_impl_preprocess.cu PROPERTIES COMPILE_OPTIONS "-lineinfo")
+set_source_files_properties(src/io/parquet/decode_fixed.cu PROPERTIES COMPILE_OPTIONS "-lineinfo")
+
 add_library(
   cudf
   src/aggregation/aggregation.cpp
