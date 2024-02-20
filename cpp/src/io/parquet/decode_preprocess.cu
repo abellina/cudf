@@ -16,6 +16,7 @@
 
 #include "io/utilities/column_buffer.hpp"
 #include "page_decode.cuh"
+#include "rle_stream.cuh"
 
 #include <cudf/hashing/detail/default_hash.cuh>
 
@@ -222,14 +223,15 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size)
   int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
+  // TODO: abellina woldn't this access of chunks be allowed to go out of bounds
   // whether or not we have repetition levels (lists)
   bool has_repetition = chunks[pp->chunk_idx].max_level[level_type::REPETITION] > 0;
 
   // the level stream decoders
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
   __shared__ rle_run<level_t> rep_runs[rle_run_buffer_size];
-  rle_stream<level_t, preprocess_block_size> decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs},
-                                                                                      {rep_runs}};
+  rle_stream<level_t, preprocess_block_size, rolling_buf_size> 
+    decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
   if (!setupLocalPageInfo(
@@ -239,20 +241,17 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size)
 
   // initialize the stream decoders (requires values computed in setupLocalPageInfo)
   // the size of the rolling batch buffer
-  int const max_batch_size = rolling_buf_size;
   level_t* rep             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::REPETITION]);
   level_t* def             = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::DEFINITION]);
   decoders[level_type::DEFINITION].init(s->col.level_bits[level_type::DEFINITION],
                                         s->abs_lvl_start[level_type::DEFINITION],
                                         s->abs_lvl_end[level_type::DEFINITION],
-                                        max_batch_size,
                                         def,
                                         s->page.num_input_values);
   if (has_repetition) {
     decoders[level_type::REPETITION].init(s->col.level_bits[level_type::REPETITION],
                                           s->abs_lvl_start[level_type::REPETITION],
                                           s->abs_lvl_end[level_type::REPETITION],
-                                          max_batch_size,
                                           rep,
                                           s->page.num_input_values);
   }
@@ -385,8 +384,8 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size)
 /**
  * @copydoc cudf::io::parquet::gpu::ComputePageSizes
  */
-void ComputePageSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
-                      cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
+void ComputePageSizes(cudf::detail::hostdevice_span<PageInfo> pages,
+                      cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
                       size_t min_row,
                       size_t num_rows,
                       bool compute_num_rows,
