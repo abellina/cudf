@@ -18,6 +18,7 @@
 #include "error.hpp"
 #include "page_decode.cuh"
 #include "page_string_utils.cuh"
+#include "rle_stream.cuh"
 
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/stream_pool.hpp>
@@ -61,7 +62,7 @@ __device__ thrust::pair<int, int> page_bounds(page_state_s* const s,
                                               size_t num_rows,
                                               bool is_bounds_pg,
                                               bool has_repetition,
-                                              rle_stream<level_t, rle_buf_size>* decoders)
+                                              rle_stream<level_t, rle_buf_size, preproc_buf_size>* decoders)
 {
   using block_reduce = cub::BlockReduce<int, preprocess_block_size>;
   using block_scan   = cub::BlockScan<int, preprocess_block_size>;
@@ -97,7 +98,6 @@ __device__ thrust::pair<int, int> page_bounds(page_state_s* const s,
   decoders[level_type::DEFINITION].init(s->col.level_bits[level_type::DEFINITION],
                                         s->abs_lvl_start[level_type::DEFINITION],
                                         s->abs_lvl_end[level_type::DEFINITION],
-                                        preproc_buf_size,
                                         def_decode,
                                         s->page.num_input_values);
   // only need repetition if this is a bounds page. otherwise all we need is def level info
@@ -106,7 +106,6 @@ __device__ thrust::pair<int, int> page_bounds(page_state_s* const s,
     decoders[level_type::REPETITION].init(s->col.level_bits[level_type::REPETITION],
                                           s->abs_lvl_start[level_type::REPETITION],
                                           s->abs_lvl_end[level_type::REPETITION],
-                                          preproc_buf_size,
                                           rep_decode,
                                           s->page.num_input_values);
   }
@@ -612,8 +611,8 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size) gpuComputeStringPageBo
   // the level stream decoders
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
   __shared__ rle_run<level_t> rep_runs[rle_run_buffer_size];
-  rle_stream<level_t, preprocess_block_size> decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs},
-                                                                                      {rep_runs}};
+  rle_stream<level_t, preprocess_block_size, preproc_buf_size> 
+    decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
 
   // setup page info
   if (!setupLocalPageInfo(s,
@@ -1109,8 +1108,8 @@ struct page_tform_functor {
 /**
  * @copydoc cudf::io::parquet::detail::ComputePageStringSizes
  */
-void ComputePageStringSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
-                            cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
+void ComputePageStringSizes(cudf::detail::hostdevice_span<PageInfo> pages,
+                            cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
                             rmm::device_uvector<uint8_t>& temp_string_buf,
                             size_t min_row,
                             size_t num_rows,
@@ -1154,7 +1153,7 @@ void ComputePageStringSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
 
   // check for needed temp space for DELTA_BYTE_ARRAY
   auto const need_sizes = thrust::any_of(
-    rmm::exec_policy(stream), pages.d_begin(), pages.d_end(), [] __device__(auto& page) {
+    rmm::exec_policy(stream), pages.device_begin(), pages.device_end(), [] __device__(auto& page) {
       return page.temp_string_size != 0;
     });
 
@@ -1162,8 +1161,8 @@ void ComputePageStringSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
     // sum up all of the temp_string_sizes
     auto const page_sizes = [] __device__(PageInfo const& page) { return page.temp_string_size; };
     auto const total_size = thrust::transform_reduce(rmm::exec_policy(stream),
-                                                     pages.d_begin(),
-                                                     pages.d_end(),
+                                                     pages.device_begin(),
+                                                     pages.device_end(),
                                                      page_sizes,
                                                      0L,
                                                      thrust::plus<int64_t>{});
@@ -1172,8 +1171,8 @@ void ComputePageStringSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
     // page's chunk of the temp buffer
     rmm::device_uvector<int64_t> page_string_offsets(pages.size(), stream);
     thrust::transform_exclusive_scan(rmm::exec_policy_nosync(stream),
-                                     pages.d_begin(),
-                                     pages.d_end(),
+                                     pages.device_begin(),
+                                     pages.device_end(),
                                      page_string_offsets.begin(),
                                      page_sizes,
                                      0L,
@@ -1184,10 +1183,10 @@ void ComputePageStringSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
 
     // now use the offsets array to set each page's temp_string_buf pointers
     thrust::transform(rmm::exec_policy_nosync(stream),
-                      pages.d_begin(),
-                      pages.d_end(),
+                      pages.device_begin(),
+                      pages.device_end(),
                       page_string_offsets.begin(),
-                      pages.d_begin(),
+                      pages.device_begin(),
                       page_tform_functor{temp_string_buf.data()});
   }
 }
@@ -1195,8 +1194,8 @@ void ComputePageStringSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
 /**
  * @copydoc cudf::io::parquet::detail::DecodeStringPageData
  */
-void __host__ DecodeStringPageData(cudf::detail::hostdevice_vector<PageInfo>& pages,
-                                   cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
+void __host__ DecodeStringPageData(cudf::detail::hostdevice_span<PageInfo> pages,
+                                   cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
                                    size_t num_rows,
                                    size_t min_row,
                                    int level_type_size,
