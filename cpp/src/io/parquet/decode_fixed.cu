@@ -153,13 +153,13 @@ static __device__ int gpuUpdateValidityOffsetsAndRowIndicesFlat(int32_t target_v
 
 template <typename state_buf>
 __device__ inline void gpuDecodeValues(
-  page_state_s* s, state_buf* const sb, int start, int end, int t, int dict)
+  page_state_s* s, state_buf* const sb, int start, int end, int t)
 {
   constexpr int num_warps      = decode_block_size / 32;
   constexpr int max_batch_size = num_warps * 32;
 
   PageNestingDecodeInfo* nesting_info_base = s->nesting_info;
-  [[maybe_unused]] int const dtype                          = s->col.data_type & 7;
+  int const dtype                          = s->col.data_type & 7;
 
   // decode values
   int pos = start;
@@ -176,15 +176,11 @@ __device__ inline void gpuDecodeValues(
     // target_pos will always be properly bounded by num_rows, but dst_pos may be negative (values
     // before first_row) in the flat hierarchy case.
     if (src_pos < target_pos && dst_pos >= 0) {
-      //if (dict)  {
-      //  printf("src_pos=%i dst_pos=%i, pos=%i, end=%i\n", src_pos, dst_pos, pos, end);
-      //}
-
       // nesting level that is storing actual leaf values
       int leaf_level_index = s->col.max_nesting_depth - 1;
 
       uint32_t dtype_len = s->dtype_len;
-      [[maybe_unused]] void* dst =
+      void* dst =
         nesting_info_base[leaf_level_index].data_out + static_cast<size_t>(dst_pos) * dtype_len;
       if (dtype == BYTE_ARRAY) {
         if (s->col.converted_type == DECIMAL) {
@@ -277,8 +273,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
 
   page_state_s* const s = &state_g;
   auto* const sb        = &state_buffers;
-  int page_idx          = blockIdx.x;
-  int t                 = threadIdx.x;
+  const int page_idx          = blockIdx.x;
+  const int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
   if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT))) { 
@@ -343,33 +339,27 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
     int next_valid;
 
     // only need to process definition levels if this is a nullable column
-    int this_processed;
     if (nullable) {
-      this_processed = def_decoder.decode_next(t);
+      processed += def_decoder.decode_next(t);
       __syncthreads();
 
       next_valid = gpuUpdateValidityOffsetsAndRowIndicesFlat<true, level_t>(
-        processed + this_processed, s, sb, def, t);
+        processed, s, sb, def, t);
     }
     // if we wanted to split off the skip_rows/num_rows case into a separate kernel, we could skip
     // this function call entirely since all it will ever generate is a mapping of (i -> i) for
     // nz_idx.  gpuDecodeValues would be the only work that happens.
     else {
-      this_processed = min(rolling_buf_size, s->page.num_input_values - processed);
+      processed += min(rolling_buf_size, s->page.num_input_values - processed);
       next_valid     = gpuUpdateValidityOffsetsAndRowIndicesFlat<false, level_t>(
-        processed + this_processed, s, sb, nullptr, t);
+        processed, s, sb, nullptr, t);
     }
     __syncthreads();
-   //if (t == 0){
-   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-   //    page_idx, this_processed, processed, next_valid, valid );
-   //}
 
     // decode the values themselves
-    gpuDecodeValues(s, sb, valid, next_valid, t, 2);
+    gpuDecodeValues(s, sb, valid, next_valid, t);
     __syncthreads();
 
-    processed += this_processed;
     valid = next_valid;
   }
 }
@@ -398,8 +388,8 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
 
   page_state_s* const s = &state_g;
   auto* const sb        = &state_buffers;
-  int page_idx          = blockIdx.x;
-  int t                 = threadIdx.x;
+  const int page_idx          = blockIdx.x;
+  const int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
   if (!(BitAnd(pages[page_idx].kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT))) { return; }
@@ -458,7 +448,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
                      def,              // 2048 sized
                      s->page.num_input_values);
   }
-  __syncthreads();
+  //__syncthreads();
   
   // TODO: abellina
   // dict_pos and dict_run are always 0
@@ -474,46 +464,38 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   // the core loop. decode batches of level stream data using rle_stream objects
   // and pass the results to gpuUpdatePageSizes
   int processed = 0;
-  [[maybe_unused]] int valid     = 0;
+  int valid     = 0;
   while (processed < s->page.num_input_values) {
     int next_valid;
 
     // only need to process definition levels if this is a nullable column
-    int this_processed;
     if (nullable) {
       //-1 don't cap it
-      this_processed = def_decoder.decode_next(t);
+      processed += def_decoder.decode_next(t);
       __syncthreads();
 
       // count of valid items in this batch
       next_valid = gpuUpdateValidityOffsetsAndRowIndicesFlat<true, level_t>(
-        processed + this_processed, s, sb, def, t);
+        processed, s, sb, def, t);
     }
     // if we wanted to split off the skip_rows/num_rows case into a separate kernel, we could skip
     // this function call entirely since all it will ever generate is a mapping of (i -> i) for
     // nz_idx.  gpuDecodeValues would be the only work that happens.
     else {
-      this_processed = min(rolling_buf_size, s->page.num_input_values - processed);
+      processed += min(rolling_buf_size, s->page.num_input_values - processed);
       next_valid     = gpuUpdateValidityOffsetsAndRowIndicesFlat<false, level_t>(
-        processed + this_processed, s, sb, nullptr, t);
+        processed, s, sb, nullptr, t);
     }
     __syncthreads();
-   //if (t == 0){
-   //  printf("page_idx: %i this_processed: %i processed: %i next_valid: %i, valid: %i\n", 
-   //    page_idx, this_processed, processed, next_valid, valid );
-   //}
-   // __syncthreads();
 
     dict_stream.decode_next(t, (next_valid - valid), valid);
     __syncthreads();
 
     // decode the values themselves
-   gpuDecodeValues(s, sb, valid, next_valid, t, 1);
-   __syncthreads();
+    gpuDecodeValues(s, sb, valid, next_valid, t);
+    __syncthreads();
 
-    processed += this_processed;
     valid = next_valid;
-
   }
 }
 
