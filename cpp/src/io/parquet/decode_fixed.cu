@@ -488,7 +488,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
     }
     __syncthreads();
 
-    dict_stream.decode_next(t, (next_valid - valid), valid);
+    dict_stream.decode_next(t, (next_valid - valid));
     __syncthreads();
 
     // decode the values themselves

@@ -266,35 +266,11 @@ struct rle_stream {
       fill_index++;
     }
 
-    if (decode_index == -1) {
-      // first time, set it to the beginning of the buffer (rolled)
-      decode_index = run_buffer_size;
-      for (int i = fill_index; i < run_buffer_size; ++i) {
-        runs[i].remaining = 0; // initialize rest
-      }
-    }
   }
 
-  __device__ inline int decode_next(int t, int count, int roll)
+  __device__ inline int decode_next(int t, int count)
   {
     int const output_count = min(count, total_values - cur_values);
-
-    // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
-    // a very common case: columns with no nulls, especially if they are non-nested
-    // TODO: this may not work with the logic of decode_next
-    // we'd like to remove `roll`.
-    if (level_bits == 0) {
-      int written = 0;
-      while (written < output_count) {
-        int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
-        if (t < batch_size) { 
-          output[rolling_index<max_output_values>(written + t + roll)] = 0; 
-        }
-        written += batch_size;
-      }
-      cur_values += output_count;
-      return output_count;
-    }
 
     // otherwise, full decode.
     int const warp_id        = t / cudf::detail::warp_size;
@@ -322,6 +298,15 @@ struct rle_stream {
         // kernel that uses an rle_stream.
         if (!warp_lane) { 
           fill_run_batch(); 
+          if (decode_index == -1) {
+            // first time, set it to the beginning of the buffer (rolled)
+            decode_index = run_buffer_size;
+            decode_index_shared = decode_index;
+            for (int i = fill_index; i < run_buffer_size; ++i) {
+              runs[i].remaining = 0; // initialize rest
+            }
+          }
+          fill_index_shared = fill_index;
         }
       }
       // remaining warps decode the runs
@@ -366,26 +351,14 @@ struct rle_stream {
             // - or it is consumed fully and its last index corresponds to output_count
             if (remaining > 0 || last_pos == output_count) {
               values_processed_shared = last_pos;
-              // only if we consumed fully do we want to move on, in the decode side
-              if (remaining == 0) {
-                decode_index_shared = run_index + 1;
-              }
-            } else if (remaining == 0 && warp_id == num_rle_stream_decode_warps) {
-              // we skip over all num_rle_stream_decode_warp indices since all of them
-              // will have been consumed.
-              decode_index_shared += num_rle_stream_decode_warps;
+            } 
+
+            if (remaining == 0 && (last_pos == output_count || warp_id == num_rle_stream_decode_warps)) {
+              decode_index_shared = run_index + 1;
             }
             run.remaining = remaining;
           }
         }
-      }
-      __syncthreads();
-
-      if (!t) {
-        if (decode_index_shared == -1) { 
-          decode_index_shared = decode_index;
-        }
-        fill_index_shared = fill_index;
       }
       __syncthreads();
       decode_index = decode_index_shared;
@@ -399,6 +372,24 @@ struct rle_stream {
   }
 
   __device__ inline int decode_next(int t) {
+    int const output_count = min(max_output_values, total_values - cur_values);
+    // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
+    // a very common case: columns with no nulls, especially if they are non-nested
+    // TODO: this may not work with the logic of decode_next
+    // we'd like to remove `roll`.
+    if (level_bits == 0) {
+      int written = 0;
+      while (written < output_count) {
+        int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
+        if (t < batch_size) { 
+          output[rolling_index<max_output_values>(written + t)] = 0; 
+        }
+        written += batch_size;
+      }
+      cur_values += output_count;
+      return output_count;
+    }
+
     return decode_next(t, max_output_values, 0);
   }
 };
