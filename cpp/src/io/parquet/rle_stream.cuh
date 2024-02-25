@@ -390,7 +390,7 @@ struct rle_stream {
       return output_count;
     }
 
-    return decode_next(t, max_output_values, 0);
+    return decode_next(t, max_output_values);
   }
 };
 
