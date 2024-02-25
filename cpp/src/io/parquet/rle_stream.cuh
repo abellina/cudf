@@ -105,8 +105,7 @@ __device__ inline void decode(
     }
 
     // process
-    while (remain > 0) {
-      int const batch_len = min(32, remain);
+      int const batch_len = size;
 
       // if this is a literal run. each thread computes its own level_val
       if (level_run & 1) {
@@ -148,7 +147,6 @@ __device__ inline void decode(
       }
       remain -= batch_len;
       batch_output_pos += batch_len;
-    }
   }
 
 // a single rle run. may be broken up into multiple rle_batches
@@ -209,6 +207,12 @@ struct rle_stream {
   int fill_index;
   int decode_index;
 
+  int run_remaining;
+  uint8_t const* run_cur;
+  int run_size;
+  int run_output_pos;
+  int run_level_run;
+
   __device__ rle_stream(rle_run<level_t>* _runs) : runs(_runs) {}
 
   __device__ void init(int _level_bits,
@@ -229,40 +233,59 @@ struct rle_stream {
     cur_values   = 0;
     fill_index = 0;
     decode_index = -1;
+
+
+    run_remaining = 0;
   }
 
   __device__ inline void fill_run_batch()
   {
     while (((decode_index == -1 && fill_index < num_rle_stream_decode_warps) || 
             fill_index < decode_index) && 
-            cur < end) {
+            (cur < end || run_remaining != 0)) {
       auto& run = runs[rolling_index<run_buffer_size>(fill_index)];
 
       // Encoding::RLE
 
       // bytes for the varint header
-      uint8_t const* _cur = cur;
-      int const level_run = get_vlq32(_cur, end);
-      // run_bytes includes the header size
-      int run_bytes       = _cur - cur;
+      if (run_remaining == 0) {
+        uint8_t const* _cur = cur;
+        int const level_run = get_vlq32(_cur, end);
+        run_cur = _cur;
+        // run_bytes includes the header size
+        int run_bytes       = _cur - cur;
 
-      // literal run
-      if (level_run & 1) {
-        // multiples of 8
-        run.size            = (level_run >> 1) * 8; 
-        run_bytes += ((run.size * level_bits) + 7) >> 3;
+        // literal run
+        if (level_run & 1) {
+          // multiples of 8
+          run_size = (level_run >> 1) * 8; 
+          run_bytes += ((run_size * level_bits) + 7) >> 3;
+        }
+        // repeated value run
+        else {
+          run_size = (level_run >> 1);
+          run_bytes += ((level_bits) + 7) >> 3;
+        }
+
+        cur += run_bytes;
+        run_output_pos = output_pos;
+        output_pos += run_size;
+        run_level_run = level_run;
+        run_remaining = run_size;
       }
-      // repeated value run
-      else {
-        run.size = (level_run >> 1);
-        run_bytes += ((level_bits) + 7) >> 3;
-      }
-      run.output_pos = output_pos;
-      run.start      = _cur;
-      run.level_run  = level_run;
-      run.remaining  = run.size;
-      cur += run_bytes;
-      output_pos += run.size;
+
+      int this_batch = min(32, run_remaining);
+
+      // don't change per batch
+      run.size       = run_size;
+      run.output_pos = run_output_pos;
+      run.start      = run_cur;
+      run.level_run  = run_level_run;
+
+      // changes per batch
+      run.remaining = run_remaining;
+      run_remaining -= this_batch;
+
       fill_index++;
     }
 
@@ -317,7 +340,7 @@ struct rle_stream {
       else if (decode_index >= fill_index) {
         int const run_index = decode_index + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
-        int remaining = run.remaining;
+        int remaining = min(32, run.remaining);
         int const max_count = cur_values + output_count;
         if (remaining > 0 && 
           // the maximum amount we would write includes this run
@@ -327,7 +350,7 @@ struct rle_stream {
           int const last_run_pos = run.output_pos + run_offset;
           int const batch_len =
             // max(0,
-            min(run.remaining,
+            min(remaining,
                 // total
                 max_count -
                   // position + processed by prior batches
