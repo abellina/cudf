@@ -327,7 +327,7 @@ struct rle_stream {
             decode_index = run_buffer_size;
             decode_index_shared = decode_index;
             for (int i = fill_index; i < run_buffer_size; ++i) {
-              runs[i].remaining = 0; // initialize rest
+              runs[i].batch_remaining = 0; // initialize rest
             }
           }
           fill_index_shared = fill_index;
