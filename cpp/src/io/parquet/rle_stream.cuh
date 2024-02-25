@@ -156,8 +156,8 @@ struct rle_run {
   int output_pos;   // absolute position of this run w.r.t output
   uint8_t const* start;
   int level_run;    // level_run header value
-  int remaining;    // number of output items remaining to be decoded
   int batch_remaining;
+  int run_offset;
 
  //template<int max_output_values>
  //__device__ __inline__ rle_batch<level_t, max_output_values> next_batch(int max_count)
@@ -278,16 +278,15 @@ struct rle_stream {
       int this_batch = min(32, run_remaining);
 
       // don't change per batch
-      run.size       = run_size;
+      run.size       = this_batch;
       run.output_pos = run_output_pos;
       run.start      = run_cur;
       run.level_run  = run_level_run;
       run.batch_remaining = this_batch;
+      run.run_offset = run_size - run_remaining;
 
-      // changes per batch
-      run.remaining = run_remaining;
+      //run_output_pos += this_batch;
       run_remaining -= this_batch;
-
       fill_index++;
     }
 
@@ -342,17 +341,17 @@ struct rle_stream {
       else if (decode_index >= fill_index) {
         int const run_index = decode_index + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
-        int remaining = run.batch_remaining;
+        int batch_remaining = run.batch_remaining;
         int const max_count = cur_values + output_count;
-        if (remaining > 0 && 
+        if (batch_remaining > 0 && 
           // the maximum amount we would write includes this run
           // this is calculated in absolute position
           (max_count > run.output_pos)) {
-          int const run_offset = run.size - run.remaining;          
+          int const run_offset = run.run_offset + (run.size - batch_remaining);
           int const last_run_pos = run.output_pos + run_offset;
           int const batch_len =
             // max(0,
-            min(remaining,
+            min(batch_remaining,
                 // total
                 max_count -
                   // position + processed by prior batches
@@ -370,19 +369,18 @@ struct rle_stream {
             warp_lane);
           if (!warp_lane) {
             auto last_pos = last_run_pos + batch_len - cur_values; 
-            remaining -= batch_len;
+            batch_remaining -= batch_len;
             // this is the last batch we will process this iteration if:
             // - either this run still has remaining
             // - or it is consumed fully and its last index corresponds to output_count
-            if (remaining > 0 || last_pos == output_count) {
+            if (batch_remaining > 0 || last_pos == output_count) {
               values_processed_shared = last_pos;
             } 
 
-            if (remaining == 0 && (last_pos == output_count || warp_id == num_rle_stream_decode_warps)) {
+            if (batch_remaining == 0 && (last_pos == output_count || warp_id == num_rle_stream_decode_warps)) {
               decode_index_shared = run_index + 1;
             }
-            run.batch_remaining = remaining;
-            run.remaining -= batch_len;
+            run.batch_remaining = batch_remaining;
           }
         }
       }
