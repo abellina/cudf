@@ -674,7 +674,7 @@ uint32_t GetAggregatedDecodeKernelMask(cudf::detail::hostdevice_vector<PageInfo>
  * @param stream CUDA stream to use
  */
 void ComputePageSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
-                      cudf::detail::hostdevice_vector<ColumnChunkDesc>& chunks,
+                      cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
                       size_t min_row,
                       size_t num_rows,
                       bool compute_num_rows,
