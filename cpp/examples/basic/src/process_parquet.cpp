@@ -176,29 +176,29 @@ std::string store_col_names[] = {
   };
 
 
- for (std::string col : col_names) {
-   // setenv("USE_FIXED_OP", "0", 1);
-   // auto expected = read_parquet(name, col);
-   // cudaDeviceSynchronize();
+//for (std::string col : col_names) {
+//  // setenv("USE_FIXED_OP", "0", 1);
+//  // auto expected = read_parquet(name, col);
+//  // cudaDeviceSynchronize();
 
-   //setenv("USE_FIXED_OP", "2", 1);
-   read_parquet(name, col);
+//  //setenv("USE_FIXED_OP", "2", 1);
+//  read_parquet(name, col);
+//  cudaDeviceSynchronize();
+//  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+//  std::cout << "done" << std::endl;
+//}
+for (int i  = 0; i < 1; ++i) {
+   setenv("USE_FIXED_OP", "0", 1);
+   auto expected = read_parquet(name, "ALL");
    cudaDeviceSynchronize();
-   // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
-   std::cout << "done" << std::endl;
-}
-// for (int i  = 0; i < 10; ++i) {
-  //   //setenv("USE_FIXED_OP", "0", 1);
-//   //auto expected = read_parquet(name, "ALL");
-//   //cudaDeviceSynchronize();
 
-//   setenv("USE_FIXED_OP", "2", 1);
-  //   auto actual = read_parquet(name, "ALL");
-  //   //read_parquet(name, "ALL");
-  //   cudaDeviceSynchronize();
-  //   //CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
-  //   std::cout << "done " << i << std::endl;
-  // }
+   setenv("USE_FIXED_OP", "2", 1);
+   auto actual = read_parquet(name, "ALL");
+   //read_parquet(name, "ALL");
+   cudaDeviceSynchronize();
+   CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+   std::cout << "done " << i << std::endl;
+}
 
 
  //if (argc > 1) {

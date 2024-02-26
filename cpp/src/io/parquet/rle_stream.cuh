@@ -105,7 +105,8 @@ __device__ inline void decode(
     }
 
     // process
-      int const batch_len = size;
+    while (remain > 0) {
+      int const batch_len = min(32, remain);
 
       // if this is a literal run. each thread computes its own level_val
       if (level_run & 1) {
@@ -147,6 +148,7 @@ __device__ inline void decode(
       }
       remain -= batch_len;
       batch_output_pos += batch_len;
+    }
   }
 
 // a single rle run. may be broken up into multiple rle_batches
@@ -273,7 +275,17 @@ struct rle_stream {
         output_pos += run_size;
         run_level_run = level_run;
         run_remaining = run_size;
+        #ifdef ABDEBUG
+        printf("run starting at %i with size %i\n", 
+          rolling_index<run_buffer_size>(fill_index), 
+          run_size);
+        #endif
       }
+      #ifdef ABDEBUG
+      printf("fill_index: %i run size: %i remaining %i\n", 
+      fill_index, run_size, run_remaining);
+      
+      #endif
 
       int this_batch = min(32, run_remaining);
 
@@ -305,6 +317,9 @@ struct rle_stream {
     __shared__ int decode_index_shared;
     __shared__ int fill_index_shared;
     if (!t) {
+      #ifdef ABDEBUG
+      printf("-----start---------\n");
+      #endif
       values_processed_shared = 0;
       decode_index_shared = decode_index;
       fill_index_shared = fill_index;
@@ -343,12 +358,12 @@ struct rle_stream {
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
         int batch_remaining = run.batch_remaining;
         int const max_count = cur_values + output_count;
+        int const run_offset = run.run_offset + (run.size - batch_remaining);
+        int const last_run_pos = run.output_pos + run_offset;
         if (batch_remaining > 0 && 
           // the maximum amount we would write includes this run
           // this is calculated in absolute position
-          (max_count > run.output_pos)) {
-          int const run_offset = run.run_offset + (run.size - batch_remaining);
-          int const last_run_pos = run.output_pos + run_offset;
+          (max_count > last_run_pos)) {
           int const batch_len =
             // max(0,
             min(batch_remaining,
@@ -370,6 +385,13 @@ struct rle_stream {
           if (!warp_lane) {
             auto last_pos = last_run_pos + batch_len - cur_values; 
             batch_remaining -= batch_len;
+            #ifdef ABDEBUG
+            printf("run[%i] batch_remaining: %i last_pos: %i output_count: %i\n",
+              rolling_index<run_buffer_size>(run_index),
+              batch_remaining,
+              last_pos,
+              output_count);
+            #endif
             // this is the last batch we will process this iteration if:
             // - either this run still has remaining
             // - or it is consumed fully and its last index corresponds to output_count
@@ -385,8 +407,27 @@ struct rle_stream {
         }
       }
       __syncthreads();
+      
       decode_index = decode_index_shared;
       fill_index = fill_index_shared;
+
+      #ifdef ABDEBUG
+        if (!t) {
+        printf("have more?: %i processed: %i output_count: %i fill_index: %i/%i decode_index: %i/%i\n", 
+          cur < end,
+          values_processed_shared, output_count, 
+          rolling_index<run_buffer_size>(fill_index), fill_index,
+          rolling_index<run_buffer_size>(decode_index), decode_index);
+        for (int i = 0; i < run_buffer_size; ++i) {
+          printf("page %i runs[%i] remaining: %i\n",
+            blockIdx.x,
+            i,
+            runs[i].batch_remaining);
+        }
+        printf("----end---------\n");
+        }
+      #endif
+      
     } while (values_processed_shared < output_count);
 
     cur_values += values_processed_shared;
