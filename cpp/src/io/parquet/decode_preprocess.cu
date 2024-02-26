@@ -223,15 +223,14 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size)
   int t                 = threadIdx.x;
   PageInfo* pp          = &pages[page_idx];
 
-  // TODO: abellina woldn't this access of chunks be allowed to go out of bounds
   // whether or not we have repetition levels (lists)
   bool has_repetition = chunks[pp->chunk_idx].max_level[level_type::REPETITION] > 0;
 
   // the level stream decoders
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
   __shared__ rle_run<level_t> rep_runs[rle_run_buffer_size];
-  rle_stream<level_t, preprocess_block_size, rolling_buf_size> 
-    decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs}, {rep_runs}};
+  rle_stream<level_t, preprocess_block_size> decoders[level_type::NUM_LEVEL_TYPES] = {{def_runs},
+                                                                                      {rep_runs}};
 
   // setup page info
   if (!setupLocalPageInfo(
@@ -384,8 +383,8 @@ CUDF_KERNEL void __launch_bounds__(preprocess_block_size)
 /**
  * @copydoc cudf::io::parquet::gpu::ComputePageSizes
  */
-void ComputePageSizes(cudf::detail::hostdevice_span<PageInfo> pages,
-                      cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
+void ComputePageSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
+                      cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
                       size_t min_row,
                       size_t num_rows,
                       bool compute_num_rows,

@@ -489,7 +489,6 @@ void __host__ DecodePageDataFixed(cudf::detail::hostdevice_span<PageInfo> pages,
       <<<dim_grid, dim_block, 0, stream.value()>>>(
         pages.device_ptr(), chunks, min_row, num_rows);
   }
-  #endif
 }
 
 void __host__ DecodePageDataFixedDict(
