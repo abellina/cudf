@@ -1111,8 +1111,8 @@ struct page_tform_functor {
 /**
  * @copydoc cudf::io::parquet::detail::ComputePageStringSizes
  */
-void ComputePageStringSizes(cudf::detail::hostdevice_span<PageInfo> pages,
-                            cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
+void ComputePageStringSizes(cudf::detail::hostdevice_vector<PageInfo>& pages,
+                            cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
                             rmm::device_uvector<uint8_t>& temp_string_buf,
                             size_t min_row,
                             size_t num_rows,
@@ -1156,7 +1156,7 @@ void ComputePageStringSizes(cudf::detail::hostdevice_span<PageInfo> pages,
 
   // check for needed temp space for DELTA_BYTE_ARRAY
   auto const need_sizes = thrust::any_of(
-    rmm::exec_policy(stream), pages.device_begin(), pages.device_end(), [] __device__(auto& page) {
+    rmm::exec_policy(stream), pages.d_begin(), pages.d_end(), [] __device__(auto& page) {
       return page.temp_string_size != 0;
     });
 
@@ -1164,8 +1164,8 @@ void ComputePageStringSizes(cudf::detail::hostdevice_span<PageInfo> pages,
     // sum up all of the temp_string_sizes
     auto const page_sizes = [] __device__(PageInfo const& page) { return page.temp_string_size; };
     auto const total_size = thrust::transform_reduce(rmm::exec_policy(stream),
-                                                     pages.device_begin(),
-                                                     pages.device_end(),
+                                                     pages.d_begin(),
+                                                     pages.d_end(),
                                                      page_sizes,
                                                      0L,
                                                      thrust::plus<int64_t>{});
@@ -1174,8 +1174,8 @@ void ComputePageStringSizes(cudf::detail::hostdevice_span<PageInfo> pages,
     // page's chunk of the temp buffer
     rmm::device_uvector<int64_t> page_string_offsets(pages.size(), stream);
     thrust::transform_exclusive_scan(rmm::exec_policy_nosync(stream),
-                                     pages.device_begin(),
-                                     pages.device_end(),
+                                     pages.d_begin(),
+                                     pages.d_end(),
                                      page_string_offsets.begin(),
                                      page_sizes,
                                      0L,
@@ -1186,10 +1186,10 @@ void ComputePageStringSizes(cudf::detail::hostdevice_span<PageInfo> pages,
 
     // now use the offsets array to set each page's temp_string_buf pointers
     thrust::transform(rmm::exec_policy_nosync(stream),
-                      pages.device_begin(),
-                      pages.device_end(),
+                      pages.d_begin(),
+                      pages.d_end(),
                       page_string_offsets.begin(),
-                      pages.device_begin(),
+                      pages.d_begin(),
                       page_tform_functor{temp_string_buf.data()});
   }
 }
@@ -1197,8 +1197,8 @@ void ComputePageStringSizes(cudf::detail::hostdevice_span<PageInfo> pages,
 /**
  * @copydoc cudf::io::parquet::detail::DecodeStringPageData
  */
-void __host__ DecodeStringPageData(cudf::detail::hostdevice_span<PageInfo> pages,
-                                   cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
+void __host__ DecodeStringPageData(cudf::detail::hostdevice_vector<PageInfo>& pages,
+                                   cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
                                    size_t num_rows,
                                    size_t min_row,
                                    int level_type_size,

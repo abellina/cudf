@@ -174,6 +174,7 @@ __device__ decode_kernel_mask kernel_mask_for_page(PageInfo const& page,
   } else if (is_string_col(chunk)) {
     return decode_kernel_mask::STRING;
   }
+
   // non-string, non-delta
   return decode_kernel_mask::GENERAL;
 }
@@ -409,7 +410,7 @@ void __launch_bounds__(128) gpuDecodePageHeaders(ColumnChunkDesc* chunks,
     }
     num_values    = bs->ck.num_values;
     page_info     = chunk_pages ? chunk_pages[chunk].pages : nullptr;
-    max_num_pages = page_info ? (bs->ck.num_data_pages + bs->ck.num_dict_pages) : 0;
+    max_num_pages = page_info ? bs->ck.max_num_pages : 0;
     values_found  = 0;
     __syncwarp();
     while (values_found < num_values && bs->cur < bs->end) {
@@ -462,8 +463,7 @@ void __launch_bounds__(128) gpuDecodePageHeaders(ColumnChunkDesc* chunks,
             error[warp_id] |=
               static_cast<kernel_error::value_type>(decode_error::DATA_STREAM_OVERRUN);
           }
-          bs->page.kernel_mask = kernel_mask_for_page(
-            bs->page, bs->ck, use_fixed_op);
+          bs->page.kernel_mask = kernel_mask_for_page(bs->page, bs->ck, use_fixed_op);
         } else {
           bs->cur = bs->end;
         }
