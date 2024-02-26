@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.
+ * Copyright (c) 2024, NVIDIA CORPORATION.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,15 +22,15 @@ namespace cudf {
 namespace io {
 namespace parquet {
 namespace detail {
-void DecodePageDataFixed(cudf::detail::hostdevice_span<PageInfo> pages,
-                         cudf::detail::hostdevice_span<ColumnChunkDesc const> const chunks,
+void DecodePageDataFixed(cudf::detail::hostdevice_vector<PageInfo>& pages,
+                         cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
                          std::size_t num_rows,
                          size_t min_row,
                          int level_type_size,
                          rmm::cuda_stream_view stream);
 
-void DecodePageDataFixedDict(cudf::detail::hostdevice_span<PageInfo> pages,
-                             cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
+void DecodePageDataFixedDict(cudf::detail::hostdevice_vector<PageInfo>& pages,
+                             cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
                              std::size_t num_rows,
                              size_t min_row,
                              int level_type_size,
