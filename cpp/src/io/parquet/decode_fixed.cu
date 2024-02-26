@@ -470,12 +470,13 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
 
 }  // anonymous namespace
 
-void __host__ DecodePageDataFixed(cudf::detail::hostdevice_span<PageInfo> pages,
-                                  cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
-                                  size_t num_rows,
-                                  size_t min_row,
-                                  int level_type_size,
-                                  rmm::cuda_stream_view stream)
+void __host__ DecodePageDataFixed(
+  cudf::detail::hostdevice_vector<PageInfo>& pages,
+  cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
+  size_t num_rows,
+  size_t min_row,
+  int level_type_size,
+  rmm::cuda_stream_view stream)
 {
   dim3 dim_block(decode_block_size, 1);
   dim3 dim_grid(pages.size(), 1);  // 1 threadblock per page
@@ -492,8 +493,8 @@ void __host__ DecodePageDataFixed(cudf::detail::hostdevice_span<PageInfo> pages,
 }
 
 void __host__ DecodePageDataFixedDict(
-  cudf::detail::hostdevice_span<PageInfo> pages,
-  cudf::detail::hostdevice_span<ColumnChunkDesc const> chunks,
+  cudf::detail::hostdevice_vector<PageInfo>& pages,
+  cudf::detail::hostdevice_vector<ColumnChunkDesc> const& chunks,
   size_t num_rows,
   size_t min_row,
   int level_type_size,
