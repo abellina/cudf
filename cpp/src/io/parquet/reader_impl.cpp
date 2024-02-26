@@ -23,13 +23,10 @@
 #include <cudf/detail/utilities/stream_pool.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
 
-// TODO: abellina.. need???? this include
-#include <rmm/cuda_stream_pool.hpp>
 #include "decode_fixed.hpp"
 
 #include <bitset>
 #include <numeric>
-#include <inttypes.h>
 
 namespace cudf::io::parquet::detail {
 
