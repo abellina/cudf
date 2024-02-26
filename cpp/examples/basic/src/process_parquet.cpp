@@ -44,25 +44,26 @@ cudf::io::table_with_metadata read_parquet(
   std::cout << "reading parquet file: " << file_path << " column: " << col_name << std::endl;
   auto source_info = cudf::io::source_info(file_path);
   auto builder     = cudf::io::parquet_reader_options::builder(source_info);
-  //auto options     = builder.build();
   cudf::io::parquet_reader_options options;
   if (col_name == "ALL") {
     options = builder.build();
   } else {
     options = builder.columns({col_name}).build();
   }
-  auto reader = cudf::io::chunked_parquet_reader(1L*1024*1024, 4L*1024*1024, options);
+  auto reader = cudf::io::chunked_parquet_reader(
+    1L*1024*1024*1024, 
+    4L*1024*1024*1024, options);
+  cudf::io::table_with_metadata res;
   while (reader.has_next()) {
-    auto res = reader.read_chunk();
+    res = reader.read_chunk();
     std::cout << "table of " << res.tbl->num_rows() << " rows scanned" << std::endl;
     for (int i = 0; i < res.tbl->num_columns(); ++i) { 
       std::cout << "Col " << i 
                 << " num_rows: " << res.tbl->get_column(i).size() 
                 << " num_nulls: " << res.tbl->get_column(i).null_count() << std::endl;
     }
-    return res;
   }
-  return cudf::io::table_with_metadata{};
+  return res;
 }
 
 void simple_int_column(int num_rows)
@@ -175,29 +176,29 @@ std::string store_col_names[] = {
   };
 
 
- //for (std::string col : bad_file_col_names) {
- //  // setenv("USE_FIXED_OP", "0", 1);
- //  // auto expected = read_parquet(name, col);
- //  // cudaDeviceSynchronize();
+ for (std::string col : col_names) {
+   // setenv("USE_FIXED_OP", "0", 1);
+   // auto expected = read_parquet(name, col);
+   // cudaDeviceSynchronize();
 
- //  //setenv("USE_FIXED_OP", "2", 1);
- //  read_parquet(name, col);
- //  cudaDeviceSynchronize();
- //  // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
- //  std::cout << "done" << std::endl;
-//}
- for (int i  = 0; i < 10; ++i) {
-  setenv("USE_FIXED_OP", "0", 1);
-  auto expected = read_parquet(name, "ALL");
-  cudaDeviceSynchronize();
+   //setenv("USE_FIXED_OP", "2", 1);
+   read_parquet(name, col);
+   cudaDeviceSynchronize();
+   // CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+   std::cout << "done" << std::endl;
+}
+// for (int i  = 0; i < 10; ++i) {
+  //   //setenv("USE_FIXED_OP", "0", 1);
+//   //auto expected = read_parquet(name, "ALL");
+//   //cudaDeviceSynchronize();
 
-  setenv("USE_FIXED_OP", "2", 1);
-  auto actual = read_parquet(name, "ALL");
-  //read_parquet(name, "ALL");
-  cudaDeviceSynchronize();
-  //CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
-  std::cout << "done " << i << std::endl;
- }
+//   setenv("USE_FIXED_OP", "2", 1);
+  //   auto actual = read_parquet(name, "ALL");
+  //   //read_parquet(name, "ALL");
+  //   cudaDeviceSynchronize();
+  //   //CUDF_TEST_EXPECT_TABLES_EQUAL(expected.tbl->view(), actual.tbl->view());
+  //   std::cout << "done " << i << std::endl;
+  // }
 
 
  //if (argc > 1) {
