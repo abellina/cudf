@@ -91,10 +91,10 @@ constexpr bool is_supported_encoding(Encoding enc)
  */
 constexpr void set_error(kernel_error::value_type error, kernel_error::pointer error_code)
 {
-  //if (error != 0) {
-  //  cuda::atomic_ref<kernel_error::value_type, cuda::thread_scope_device> ref{*error_code};
-  //  ref.fetch_or(error, cuda::std::memory_order_relaxed);
-  //}
+  if (error != 0) {
+    cuda::atomic_ref<kernel_error::value_type, cuda::thread_scope_device> ref{*error_code};
+    ref.fetch_or(error, cuda::std::memory_order_relaxed);
+  }
 }
 
 /**
@@ -199,14 +199,14 @@ enum level_type {
  * Used to control which decode kernels to run.
  */
 enum class decode_kernel_mask {
-  NONE             = 0,
-  GENERAL          = (1 << 0),  // Run catch-all decode kernel
-  STRING           = (1 << 1),  // Run decode kernel for string data
-  DELTA_BINARY     = (1 << 2),  // Run decode kernel for DELTA_BINARY_PACKED data
-  DELTA_BYTE_ARRAY = (1 << 3),  // Run decode kernel for DELTA_BYTE_ARRAY encoded data
-  DELTA_LENGTH_BA  = (1 << 4),  // Run decode kernel for DELTA_LENGTH_BYTE_ARRAY encoded data
-  FIXED_WIDTH_NO_DICT = (1 << 5),
-  FIXED_WIDTH_DICT =    (1 << 6)
+  NONE                = 0,
+  GENERAL             = (1 << 0),  // Run catch-all decode kernel
+  STRING              = (1 << 1),  // Run decode kernel for string data
+  DELTA_BINARY        = (1 << 2),  // Run decode kernel for DELTA_BINARY_PACKED data
+  DELTA_BYTE_ARRAY    = (1 << 3),  // Run decode kernel for DELTA_BYTE_ARRAY encoded data
+  DELTA_LENGTH_BA     = (1 << 4),  // Run decode kernel for DELTA_LENGTH_BYTE_ARRAY encoded data
+  FIXED_WIDTH_NO_DICT = (1 << 5),  // Run decode kernel for fixed width non-dictionary pages
+  FIXED_WIDTH_DICT    = (1 << 6)   // Run decode kernel for fixed width dictionary pages
 };
 
 // mask representing all the ways in which a string can be encoded
