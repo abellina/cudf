@@ -356,17 +356,15 @@ struct rle_stream {
       else if (decode_index >= fill_index) {
         int const run_index = decode_index + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
-        int batch_remaining = run.batch_remaining;
         int const max_count = cur_values + output_count;
-        int const run_offset = run.run_offset + (run.size - batch_remaining);
-        int const last_run_pos = run.output_pos + run_offset;
-        if (batch_remaining > 0 && 
+        int const last_run_pos = run.output_pos + run.run_offset;
+        if (run.batch_remaining > 0 && 
           // the maximum amount we would write includes this run
           // this is calculated in absolute position
           (max_count > last_run_pos)) {
           int const batch_len =
             // max(0,
-            min(batch_remaining,
+            min(run.batch_remaining,
                 // total
                 max_count -
                   // position + processed by prior batches
@@ -375,7 +373,7 @@ struct rle_stream {
           decode<level_t, max_output_values>(
             output,
             run.start,
-            run_offset,
+            run.run_offset,
             run.output_pos,
             run.level_run,
             batch_len,
@@ -384,7 +382,7 @@ struct rle_stream {
             warp_lane);
           if (!warp_lane) {
             auto last_pos = last_run_pos + batch_len - cur_values; 
-            batch_remaining -= batch_len;
+            run.batch_remaining -= batch_len;
             #ifdef ABDEBUG
             printf("run[%i] batch_remaining: %i last_pos: %i output_count: %i\n",
               rolling_index<run_buffer_size>(run_index),
@@ -395,14 +393,14 @@ struct rle_stream {
             // this is the last batch we will process this iteration if:
             // - either this run still has remaining
             // - or it is consumed fully and its last index corresponds to output_count
-            if (batch_remaining > 0 || last_pos == output_count) {
+            if (run.batch_remaining > 0 || last_pos == output_count) {
               values_processed_shared = last_pos;
             } 
 
-            if (batch_remaining == 0 && (last_pos == output_count || warp_id == num_rle_stream_decode_warps)) {
+            if (run.batch_remaining == 0 && (last_pos == output_count || warp_id == num_rle_stream_decode_warps)) {
               decode_index_shared = run_index + 1;
             }
-            run.batch_remaining = batch_remaining;
+            run.run_offset += (run.size - run.batch_remaining);
           }
         }
       }
