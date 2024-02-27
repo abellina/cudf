@@ -135,7 +135,7 @@ __device__ inline void decode(
 
       // store level_val
       if (lane < batch_len && (lane + batch_output_pos) >= 0) { 
-        auto idx = lane + run_output_pos + run_offset + batch_output_pos; // TODO abellina: why run_output_pos AND run_offset too
+        auto idx = lane + run_output_pos + run_offset + batch_output_pos; 
         output[rolling_index<max_output_values>(idx)] = level_val;
       }
       remain -= batch_len;
