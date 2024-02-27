@@ -284,7 +284,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
   rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
-  bool const has_repetition = false;
   bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
 
   // if we have no work to do (eg, in a skip_rows/num_rows case) in this page.
@@ -297,9 +296,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   //      row start           row end
   // P1 will contain 0 rows
   //
-  // TODO: abellina added `has_repetition` argument to call to is_bounds_page`
-  if (s->num_rows == 0 && !(has_repetition && (is_bounds_page(s, min_row, num_rows, has_repetition) ||
-                                               is_page_contained(s, min_row, num_rows)))) {
+  if (s->num_rows == 0) {
     return;
   }
 
@@ -386,8 +383,6 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   __shared__ rle_run<uint32_t> dict_runs[rle_run_buffer_size]; // should be array of 6
   rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
 
-  // has_repetition == nullable????
-  bool const has_repetition = false;
   bool const nullable       = s->col.max_level[level_type::DEFINITION] > 0;
 
   // if we have no work to do (eg, in a skip_rows/num_rows case) in this page.
@@ -400,10 +395,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   //      row start           row end
   // P1 will contain 0 rows
   //
-  // TODO: abellina added `has_repetition` argument to call to is_bounds_page`
-  // check this with Dave
-  if (s->num_rows == 0 && !(has_repetition && (is_bounds_page(s, min_row, num_rows, has_repetition) ||
-                                               is_page_contained(s, min_row, num_rows)))) {
+  if (s->num_rows == 0) {
     return;
   }
 
@@ -417,16 +409,11 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
                      def,              // 2048 sized
                      s->page.num_input_values);
   }
-  //__syncthreads();
   
-  // TODO: abellina
-  // dict_pos and dict_run are always 0
-  // we don't use these printf("dict_pos: %i dict_run: %u\n", s->dict_pos, s->dict_run);
-  dict_stream.init(s->dict_bits, // 4 bits for the 506 row case
-                   // TODO: abellina what is dict_pos
-                   s->data_start, // end - start goes up to 302 when it is bad, 253 when it is good.
+  dict_stream.init(s->dict_bits,
+                   s->data_start, 
                    s->data_end,
-                   sb->dict_idx, // 256 x uint32_t
+                   sb->dict_idx,
                    s->page.num_input_values); 
   __syncthreads();
 
