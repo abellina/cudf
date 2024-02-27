@@ -16,7 +16,6 @@
 
 #include "io/utilities/column_buffer.hpp"
 #include "page_decode.cuh"
-#include "rle_stream.cuh"
 
 #include <cudf/hashing/detail/default_hash.cuh>
 

@@ -118,20 +118,14 @@ __device__ inline void decode(
           level_val = 0;
           if (cur_thread < end) { level_val = cur_thread[0]; }
           cur_thread++;
-          if constexpr (sizeof(level_t) > 1) {
-            if (level_bits > 8 - bitpos && cur_thread < end) {
-              level_val |= cur_thread[0] << 8;
+          if (level_bits > 8 - bitpos && cur_thread < end) {
+            level_val |= cur_thread[0] << 8;
+            cur_thread++;
+            if (level_bits > 16 - bitpos && cur_thread < end) { 
+              level_val |= cur_thread[0] << 16;
               cur_thread++;
-              if constexpr (sizeof(level_t) > 2) {
-                if (level_bits > 16 - bitpos && cur_thread < end) { 
-                  level_val |= cur_thread[0] << 16;
-                  cur_thread++;
-                  if constexpr (sizeof(level_t) > 3) {
-                    if (level_bits > 24 - bitpos && cur_thread < end) { 
-                      level_val |= cur_thread[0] << 24;
-                    }
-                  }
-                }
+              if (level_bits > 24 - bitpos && cur_thread < end) { 
+                level_val |= cur_thread[0] << 24;
               }
             }
           }
@@ -144,6 +138,9 @@ __device__ inline void decode(
       // store level_val
       if (lane < batch_len && (lane + batch_output_pos) >= 0) { 
         auto idx = lane + run_output_pos + run_offset + batch_output_pos; // TODO abellina: why run_output_pos AND run_offset too
+        #ifdef ABDEBUG
+        printf("output[%i]=%i\n", rolling_index<max_output_values>(idx), level_val);
+        #endif
         output[rolling_index<max_output_values>(idx)] = level_val;
       }
       remain -= batch_len;
@@ -210,6 +207,11 @@ struct rle_stream {
     cur_values   = 0;
     fill_index = 0;
     decode_index = -1;
+    #ifdef ABDEBUG
+    if (threadIdx.x == 0) {
+      printf("page: %i total_values: %i max_output_values: %i\n", blockIdx.x, _total_values, max_output_values);
+    }
+    #endif
   }
 
   __device__ inline void fill_run_batch()
@@ -252,6 +254,22 @@ struct rle_stream {
   __device__ inline int decode_next(int t, int count)
   {
     int const output_count = min(count, total_values - cur_values);
+    // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
+    // a very common case: columns with no nulls, especially if they are non-nested
+    // TODO: this may not work with the logic of decode_next
+    // we'd like to remove `roll`.
+    if (level_bits == 0) {
+      int written = 0;
+      while (written < output_count) {
+        int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
+        if (t < batch_size) { 
+          output[rolling_index<max_output_values>(written + t)] = 0; 
+        }
+        written += batch_size;
+      }
+      cur_values += output_count;
+      return output_count;
+    }
 
     // otherwise, full decode.
     int const warp_id        = t / cudf::detail::warp_size;
@@ -344,7 +362,21 @@ struct rle_stream {
       __syncthreads();
       decode_index = decode_index_shared;
       fill_index = fill_index_shared;
+      #ifdef ABDEBUG
+      if (!t) {
+        printf("page: %i decode_index %i fill_index: %i\n", 
+          blockIdx.x, decode_index, fill_index);
+      for (int i = 0; i < run_buffer_size; ++i) {
+        printf("page: %i run[%i] remaining %i\n", blockIdx.x, i, runs[i].remaining);
+      }
+      }
+      #endif 
     } while (values_processed_shared < output_count);
+    #ifdef ABDEBUG
+      if (!t) {
+        printf("page: %i values_processed %i\n", blockIdx.x, values_processed_shared);
+      }
+    #endif
 
     cur_values += values_processed_shared;
 
@@ -353,24 +385,6 @@ struct rle_stream {
   }
 
   __device__ inline int decode_next(int t) {
-    int const output_count = min(max_output_values, total_values - cur_values);
-    // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
-    // a very common case: columns with no nulls, especially if they are non-nested
-    // TODO: this may not work with the logic of decode_next
-    // we'd like to remove `roll`.
-    if (level_bits == 0) {
-      int written = 0;
-      while (written < output_count) {
-        int const batch_size = min(num_rle_stream_decode_threads, output_count - written);
-        if (t < batch_size) { 
-          output[rolling_index<max_output_values>(written + t)] = 0; 
-        }
-        written += batch_size;
-      }
-      cur_values += output_count;
-      return output_count;
-    }
-
     return decode_next(t, max_output_values);
   }
 };
