@@ -55,8 +55,6 @@ inline __device__ uint32_t get_vlq32(uint8_t const*& cur, uint8_t const* end)
   return v;
 }
 
-// an individual batch. processed by a warp.
-// batches should be in shared memory.
 template <typename level_t, int max_output_values>
 __device__ inline void decode(
     level_t* const output, 
@@ -209,7 +207,7 @@ struct rle_stream {
   __device__ inline void fill_run_batch()
   {
     while (((decode_index == -1 && fill_index < num_rle_stream_decode_warps) || 
-            fill_index < decode_index) && 
+            fill_index < decode_index + run_buffer_size) && 
             cur < end) {
       auto& run = runs[rolling_index<run_buffer_size>(fill_index)];
 
@@ -291,11 +289,8 @@ struct rle_stream {
           fill_run_batch(); 
           if (decode_index == -1) {
             // first time, set it to the beginning of the buffer (rolled)
-            decode_index = run_buffer_size;
+            decode_index = 0;
             decode_index_shared = decode_index;
-            for (int i = fill_index; i < run_buffer_size; ++i) {
-              runs[i].remaining = 0; // initialize rest
-            }
           }
           fill_index_shared = fill_index;
         }
@@ -305,15 +300,14 @@ struct rle_stream {
       // since we are filling.
       // fill_index is "behind" decode_index, that way we are always decoding upto fill_index,
       // and we are filling up to decode_index.
-      else if (decode_index >= fill_index) {
+      else if (decode_index >= 0 && decode_index + warp_decode_id < fill_index) {
         int const run_index = decode_index + warp_decode_id;
         auto& run  = runs[rolling_index<run_buffer_size>(run_index)];
-        int remaining = run.remaining;
         int const max_count = cur_values + output_count;
-        if (remaining > 0 && 
-          // the maximum amount we would write includes this run
-          // this is calculated in absolute position
-          (max_count > run.output_pos)) {
+        // the maximum amount we would write includes this run
+        // this is calculated in absolute position
+        if (max_count > run.output_pos) {
+          int remaining = run.remaining;
           int const run_offset = run.size - run.remaining;          
           int const last_run_pos = run.output_pos + run_offset;
           int const batch_len =
