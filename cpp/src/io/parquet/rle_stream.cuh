@@ -308,16 +308,13 @@ struct rle_stream {
         // this is calculated in absolute position
         if (max_count > run.output_pos) {
           int remaining = run.remaining;
-          int const run_offset = run.size - run.remaining;          
+          int const run_offset = run.size - remaining;          
           int const last_run_pos = run.output_pos + run_offset;
-          int const batch_len =
-            // max(0,
-            min(run.remaining,
-                // total
-                max_count -
-                  // position + processed by prior batches
-                  (last_run_pos));//);
-          //auto batch = run.next_batch<max_output_values>(max_count);
+
+          // the amount we should process is the smallest of current remaining, or 
+          // space available in the output buffer (for that last run at the end of 
+          // a call to decode_next).
+          int const batch_len = min(remaining, max_count - last_run_pos);
           decode<level_t, max_output_values>(
             output,
             run.start,
@@ -329,16 +326,18 @@ struct rle_stream {
             level_bits,
             warp_lane);
           if (!warp_lane) {
-            auto last_pos = last_run_pos + batch_len - cur_values; 
+            // after writing this batch, are we at the end of the output buffer?
+            auto const at_end = (last_run_pos + batch_len - cur_values == output_count);
+
+            // update remaining for my warp
             remaining -= batch_len;
             // this is the last batch we will process this iteration if:
             // - either this run still has remaining
             // - or it is consumed fully and its last index corresponds to output_count
-            if (remaining > 0 || last_pos == output_count) {
-              values_processed_shared = last_pos;
+            if (remaining > 0 || at_end) {
+              values_processed_shared = output_count;
             } 
-
-            if (remaining == 0 && (last_pos == output_count || warp_id == num_rle_stream_decode_warps)) {
+            if (remaining == 0 && (at_end || warp_id == num_rle_stream_decode_warps)) {
               decode_index_shared = run_index + 1;
             }
             run.remaining = remaining;
