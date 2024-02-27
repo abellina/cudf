@@ -138,9 +138,6 @@ __device__ inline void decode(
       // store level_val
       if (lane < batch_len && (lane + batch_output_pos) >= 0) { 
         auto idx = lane + run_output_pos + run_offset + batch_output_pos; // TODO abellina: why run_output_pos AND run_offset too
-        #ifdef ABDEBUG
-        printf("output[%i]=%i\n", rolling_index<max_output_values>(idx), level_val);
-        #endif
         output[rolling_index<max_output_values>(idx)] = level_val;
       }
       remain -= batch_len;
@@ -207,11 +204,6 @@ struct rle_stream {
     cur_values   = 0;
     fill_index = 0;
     decode_index = -1;
-    #ifdef ABDEBUG
-    if (threadIdx.x == 0) {
-      printf("page: %i total_values: %i max_output_values: %i\n", blockIdx.x, _total_values, max_output_values);
-    }
-    #endif
   }
 
   __device__ inline void fill_run_batch()
@@ -362,21 +354,7 @@ struct rle_stream {
       __syncthreads();
       decode_index = decode_index_shared;
       fill_index = fill_index_shared;
-      #ifdef ABDEBUG
-      if (!t) {
-        printf("page: %i decode_index %i fill_index: %i\n", 
-          blockIdx.x, decode_index, fill_index);
-      for (int i = 0; i < run_buffer_size; ++i) {
-        printf("page: %i run[%i] remaining %i\n", blockIdx.x, i, runs[i].remaining);
-      }
-      }
-      #endif 
     } while (values_processed_shared < output_count);
-    #ifdef ABDEBUG
-      if (!t) {
-        printf("page: %i values_processed %i\n", blockIdx.x, values_processed_shared);
-      }
-    #endif
 
     cur_values += values_processed_shared;
 
