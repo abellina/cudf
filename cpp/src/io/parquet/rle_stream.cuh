@@ -201,7 +201,7 @@ struct rle_stream {
     total_values = _total_values;
     cur_values   = 0;
     fill_index = 0;
-    decode_index = -1;
+    decode_index = -1; // signals the first iteration. Nothing to decode.
   }
 
   __device__ inline void fill_run_batch()
@@ -246,8 +246,6 @@ struct rle_stream {
     int const output_count = min(count, total_values - cur_values);
     // special case. if level_bits == 0, just return all zeros. this should tremendously speed up
     // a very common case: columns with no nulls, especially if they are non-nested
-    // TODO: this may not work with the logic of decode_next
-    // we'd like to remove `roll`.
     if (level_bits == 0) {
       int written = 0;
       while (written < output_count) {
