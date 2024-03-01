@@ -80,35 +80,26 @@ class PinnedMemoryPoolTest extends CudfTestBase {
   void testFragmentationAndExhaustion() {
     final long poolSize = 15 * 1024L;
     PinnedMemoryPool.initialize(poolSize);
-    assertEquals(poolSize, PinnedMemoryPool.getAvailableBytes());
     HostMemoryBuffer[] buffers = new HostMemoryBuffer[5];
     try {
       buffers[0] = PinnedMemoryPool.tryAllocate(1024);
       assertNotNull(buffers[0]);
-      assertEquals(14*1024L, PinnedMemoryPool.getAvailableBytes());
       buffers[1] = PinnedMemoryPool.tryAllocate(2048);
       assertNotNull(buffers[1]);
-      assertEquals(12*1024L, PinnedMemoryPool.getAvailableBytes());
       buffers[2] = PinnedMemoryPool.tryAllocate(4096);
       assertNotNull(buffers[2]);
-      assertEquals(8*1024L, PinnedMemoryPool.getAvailableBytes());
       buffers[1].close();
-      assertEquals(10*1024L, PinnedMemoryPool.getAvailableBytes());
       buffers[1] = null;
       buffers[1] = PinnedMemoryPool.tryAllocate(8192);
       assertNotNull(buffers[1]);
-      assertEquals(2*1024L, PinnedMemoryPool.getAvailableBytes());
       buffers[3] = PinnedMemoryPool.tryAllocate(2048);
       assertNotNull(buffers[3]);
-      assertEquals(0L, PinnedMemoryPool.getAvailableBytes());
       buffers[4] = PinnedMemoryPool.tryAllocate(64);
       assertNull(buffers[4]);
       buffers[0].close();
-      assertEquals(1024L, PinnedMemoryPool.getAvailableBytes());
       buffers[0] = null;
       buffers[4] = PinnedMemoryPool.tryAllocate(64);
       assertNotNull(buffers[4]);
-      assertEquals(1024L - 64, PinnedMemoryPool.getAvailableBytes());
     } finally {
       for (HostMemoryBuffer buffer : buffers) {
         if (buffer != null) {
@@ -116,19 +107,15 @@ class PinnedMemoryPoolTest extends CudfTestBase {
         }
       }
     }
-    assertEquals(poolSize, PinnedMemoryPool.getAvailableBytes());
   }
 
   @Test
   void testZeroSizedAllocation() {
     final long poolSize = 4 * 1024L;
     PinnedMemoryPool.initialize(poolSize);
-    assertEquals(poolSize, PinnedMemoryPool.getAvailableBytes());
     try (HostMemoryBuffer buffer = PinnedMemoryPool.tryAllocate(0)) {
       assertNotNull(buffer);
       assertEquals(0, buffer.getLength());
-      assertEquals(poolSize, PinnedMemoryPool.getAvailableBytes());
     }
-    assertEquals(poolSize, PinnedMemoryPool.getAvailableBytes());
   }
 }

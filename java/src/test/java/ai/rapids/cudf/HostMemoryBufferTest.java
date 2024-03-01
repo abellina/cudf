@@ -187,7 +187,7 @@ public class HostMemoryBufferTest extends CudfTestBase {
   }
 
   public static void initPinnedPoolIfNeeded(long size) {
-    long available = PinnedMemoryPool.getAvailableBytes();
+    long available = PinnedMemoryPool.getTotalPoolSizeBytes();
     if (available < size) {
       if (PinnedMemoryPool.isInitialized()) {
         PinnedMemoryPool.shutdown();

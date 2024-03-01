@@ -64,12 +64,19 @@ public class RmmTest {
     try (RmmManagedMemoryResource r = new RmmManagedMemoryResource()) {
       assert(r.getHandle() != 0);
     }
+    try (RmmPinnedHostMemoryResource r = new RmmPinnedHostMemoryResource()) {
+      assert(r.getHandle() != 0);
+    }
     try (RmmArenaMemoryResource<RmmCudaMemoryResource> r =
              new RmmArenaMemoryResource<>(new RmmCudaMemoryResource(), poolSize, false)) {
       assert(r.getHandle() != 0);
     }
     try (RmmPoolMemoryResource<RmmCudaMemoryResource> r =
              new RmmPoolMemoryResource<>(new RmmCudaMemoryResource(), poolSize, poolSize)) {
+      assert(r.getHandle() != 0);
+    }
+    try (RmmPoolHostMemoryResource<RmmPinnedHostMemoryResource> r =
+             new RmmPoolHostMemoryResource<>(new RmmPinnedHostMemoryResource(), poolSize, poolSize)) {
       assert(r.getHandle() != 0);
     }
     try (RmmLimitingResourceAdaptor<RmmCudaMemoryResource> r =

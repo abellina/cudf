@@ -179,10 +179,10 @@ public class Rmm {
     if (resource instanceof RmmTrackingResourceAdaptor) {
       Rmm.tracker = (RmmTrackingResourceAdaptor<RmmDeviceMemoryResource>) resource;
     } else if (resource instanceof RmmPoolMemoryResource) {
-      Rmm.poolSize = Math.max(((RmmPoolMemoryResource)resource).getMaxSize(), Rmm.poolSize);
+      Rmm.poolSize = Math.max(((RmmPoolMemoryResource<?>)resource).getMaxSize(), Rmm.poolSize);
       Rmm.poolingEnabled = true;
     } else if (resource instanceof RmmArenaMemoryResource) {
-      Rmm.poolSize = Math.max(((RmmArenaMemoryResource)resource).getSize(), Rmm.poolSize);
+      Rmm.poolSize = Math.max(((RmmArenaMemoryResource<?>)resource).getSize(), Rmm.poolSize);
       Rmm.poolingEnabled = true;
     } else if (resource instanceof RmmCudaAsyncMemoryResource) {
       Rmm.poolSize = Math.max(((RmmCudaAsyncMemoryResource)resource).getSize(), Rmm.poolSize);
@@ -191,7 +191,8 @@ public class Rmm {
 
     // Recurse as needed
     if (resource instanceof RmmWrappingDeviceMemoryResource) {
-      setGlobalValsFromResource(((RmmWrappingDeviceMemoryResource<RmmDeviceMemoryResource>)resource).getWrapped());
+      setGlobalValsFromResource(
+        ((RmmWrappingDeviceMemoryResource<RmmDeviceMemoryResource>)resource).getWrapped());
     }
   }
 
@@ -508,8 +509,11 @@ public class Rmm {
 
   private static native long allocInternal(long size, long stream) throws RmmException;
 
+  public static native long allocHostInternal(long size, long resource, long stream) throws RmmException;
 
   static native void free(long ptr, long length, long stream) throws RmmException;
+
+  public static native void freeHost(long ptr, long size, long resource, long stream) throws RmmException;
 
   /**
    * Delete an rmm::device_buffer.
@@ -539,10 +543,21 @@ public class Rmm {
 
   static native void releaseManagedMemoryResource(long handle);
 
-  static native long newPoolMemoryResource(long childHandle,
+  static native long newPinnedHostMemoryResource() throws RmmException;
+
+  static native void releasePinnedHostMemoryResource(long handle);
+
+  static native void setCuioCurrentHostMemoryResource(long handle);
+
+  static native long newPoolMemoryResourceDevice(long childHandle,
       long initSize, long maxSize) throws RmmException;
 
-  static native void releasePoolMemoryResource(long handle);
+  static native long newPoolMemoryResourceHost(long childHandle,
+      long initSize, long maxSize) throws RmmException;
+
+  static native void releasePoolMemoryResourceDevice(long handle);
+
+  static native void releasePoolMemoryResourceHost(long handle);
 
   static native long newArenaMemoryResource(long childHandle,
       long size, boolean dumpOnOOM) throws RmmException;
