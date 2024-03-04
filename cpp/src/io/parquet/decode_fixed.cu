@@ -231,6 +231,14 @@ __device__ inline void gpuDecodeValues(
   }
 }
 
+__device__ inline bool is_nullable(page_state_s* const page_state) {
+  int const max_def_level = page_state->col.max_level[level_type::DEFINITION];
+  bool const no_nulls =
+    page_state->page.num_input_values == (page_state->initial_rle_run[level_type::DEFINITION] >> 1) &&
+    page_state->initial_rle_value[level_type::DEFINITION] == max_def_level;
+  return max_def_level > 0 and not no_nulls;
+}
+
 /**
  * @brief Kernel for co the column data stored in the pages
  *
@@ -279,7 +287,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
   rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
-  bool const nullable = s->col.max_level[level_type::DEFINITION] > 0;
+  bool const nullable = is_nullable(s);
 
   // if we have no work to do (eg, in a skip_rows/num_rows case) in this page.
   if (s->num_rows == 0) { return; }
@@ -369,7 +377,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   __shared__ rle_run<uint32_t> dict_runs[rle_run_buffer_size];  // should be array of 6
   rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
 
-  bool const nullable = s->col.max_level[level_type::DEFINITION] > 0;
+  bool const nullable = is_nullable(s);
 
   // if we have no work to do (eg, in a skip_rows/num_rows case) in this page.
   if (s->num_rows == 0) { return; }
