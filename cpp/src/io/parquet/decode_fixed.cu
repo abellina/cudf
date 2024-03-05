@@ -190,8 +190,6 @@ __device__ inline void gpuDecodeValues(
           } else {
             gpuOutputByteArrayAsInt(ptr, len, static_cast<__int128_t*>(dst));
           }
-        } else {
-          gpuOutputString(s, sb, src_pos, dst);
         }
       } else if (dtype == BOOLEAN) {
         gpuOutputBoolean(sb, src_pos, static_cast<uint8_t*>(dst));
@@ -231,6 +229,18 @@ __device__ inline void gpuDecodeValues(
 
     pos += batch_size;
   }
+}
+
+__device__ inline bool is_nullable(page_state_s* s) {
+  auto const lvl = level_type::DEFINITION;
+  if (s->col.max_level[lvl] <= 0) { return false; }
+  auto const init_run = s->initial_rle_run[lvl] ;
+  if ((init_run & 1) == 1) { return true; }
+  if (s->page.num_input_values != (init_run >> 1)) { return true; }
+
+  auto const lvl_bits = s->col.level_bits[lvl];
+  auto const run_val = lvl_bits == 0 ? 0 : s->initial_rle_value[lvl];
+  return run_val != s->col.max_level[lvl];
 }
 
 /**
@@ -281,10 +291,10 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixed(
   __shared__ rle_run<level_t> def_runs[rle_run_buffer_size];
   rle_stream<level_t, decode_block_size, rolling_buf_size> def_decoder{def_runs};
 
-  bool const nullable = s->col.max_level[level_type::DEFINITION] > 0;
-
   // if we have no work to do (eg, in a skip_rows/num_rows case) in this page.
   if (s->num_rows == 0) { return; }
+
+  bool const nullable = is_nullable(s);
 
   // initialize the stream decoders (requires values computed in setupLocalPageInfo)
   level_t* const def = reinterpret_cast<level_t*>(pp->lvl_decode_buf[level_type::DEFINITION]);
@@ -374,7 +384,7 @@ __global__ void __launch_bounds__(decode_block_size) gpuDecodePageDataFixedDict(
   __shared__ rle_run<uint32_t> dict_runs[rle_run_buffer_size];
   rle_stream<uint32_t, decode_block_size, rolling_buf_size> dict_stream{dict_runs};
 
-  bool const nullable = s->col.max_level[level_type::DEFINITION] > 0;
+  bool const nullable = is_nullable(s);
 
   // if we have no work to do (eg, in a skip_rows/num_rows case) in this page.
   if (s->num_rows == 0) { return; }
