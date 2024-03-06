@@ -231,16 +231,25 @@ __device__ inline void gpuDecodeValues(
   }
 }
 
-__device__ inline bool is_nullable(page_state_s* s) {
+__device__ inline bool no_nulls(page_state_s* s) {
   auto const lvl = level_type::DEFINITION;
-  if (s->col.max_level[lvl] <= 0) { return false; }
   auto const init_run = s->initial_rle_run[lvl] ;
-  if ((init_run & 1) == 1) { return true; }
-  if (s->page.num_input_values != (init_run >> 1)) { return true; }
+  if ((init_run & 1) == 1) { return false; }
+  if (s->page.num_input_values != (init_run >> 1)) { return false; }
 
   auto const lvl_bits = s->col.level_bits[lvl];
   auto const run_val = lvl_bits == 0 ? 0 : s->initial_rle_value[lvl];
-  return run_val != s->col.max_level[lvl];
+  return run_val == s->col.max_level[lvl];
+}
+
+__device__ inline bool is_nullable(page_state_s* s) {
+  auto const lvl = level_type::DEFINITION;
+  auto const max_def_level = s->col.max_level[lvl];
+  auto const has_no_nulls = no_nulls(s);
+  if (threadIdx.x == 0) {
+    printf("page: %i max_def_level: %i has_no_nulls: %i\n", blockIdx.x, max_def_level, has_no_nulls);
+  }
+  return max_def_level and not has_no_nulls;
 }
 
 /**
