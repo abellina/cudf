@@ -152,6 +152,49 @@ TEST_F(ParquetReaderTest, UserBoundsWithNulls)
   }
 }
 
+TEST_F(ParquetReaderTest, UserBoundsWithNullsAllNulls)
+{
+  // clang-format off
+  auto valids =
+    cudf::detail::make_counting_transform_iterator(0, 
+    [&](int index) { return index % 8; });
+
+  auto element_list = std::vector<int>();
+  element_list.insert(element_list.end(), 100000000, 1);
+  cudf::test::fixed_width_column_wrapper<int> col{
+    element_list.begin(), element_list.end(), valids};
+    //{1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1,  1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,1, 1,1,1,1,1,1,1,0}};
+  // clang-format on
+  cudf::table_view tbl({col});
+  auto filepath = temp_env->get_temp_filepath("UserBoundsWithNulls.parquet");
+  cudf::io::parquet_writer_options out_args =
+    cudf::io::parquet_writer_options::builder(
+      cudf::io::sink_info{filepath}, 
+      tbl)
+    .dictionary_policy(cudf::io::dictionary_policy::ALWAYS)
+    .max_dictionary_size(16);
+  cudf::io::write_parquet(out_args);
+
+  // skip_rows / num_rows
+  // clang-format off
+  std::vector<std::pair<int, int>> params{ {-1, -1} };
+  // clang-format on
+  for (auto p : params) {
+    cudf::io::parquet_reader_options read_args =
+      cudf::io::parquet_reader_options::builder(cudf::io::source_info{filepath});
+    if (p.first >= 0) { read_args.set_skip_rows(p.first); }
+    if (p.second >= 0) { read_args.set_num_rows(p.second); }
+    auto result = cudf::io::read_parquet(read_args);
+
+    p.first  = p.first < 0 ? 0 : p.first;
+    p.second = p.second < 0 ? static_cast<cudf::column_view>(col).size() - p.first : p.second;
+    std::vector<cudf::size_type> slice_indices{p.first, p.first + p.second};
+    auto expected = cudf::slice(col, slice_indices);
+
+    CUDF_TEST_EXPECT_COLUMNS_EQUAL(result.tbl->get_column(0), expected[0]);
+  }
+}
+
 TEST_F(ParquetReaderTest, UserBoundsWithNullsMixedTypes)
 {
   constexpr int num_rows = 32 * 1024;
