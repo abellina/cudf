@@ -35,6 +35,8 @@
 
 #include "cudf_jni_apis.hpp"
 
+#include <cudf/io/memory_resource.hpp>
+
 using rmm::mr::device_memory_resource;
 using rmm::mr::logging_resource_adaptor;
 using rmm_pinned_pool_t = rmm::mr::pool_memory_resource<rmm::mr::pinned_host_memory_resource>;
@@ -755,6 +757,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newPinnedPoolMemoryResource(JNIE
   try {
     cudf::jni::auto_set_device(env);
     auto pool = new rmm_pinned_pool_t(new rmm::mr::pinned_host_memory_resource(), init, max);
+    cudf::io::set_host_memory_resource(*pool);
     return reinterpret_cast<jlong>(pool);
   }
   CATCH_STD(env, 0)
