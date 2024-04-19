@@ -18,6 +18,9 @@
 #include <cudf/detail/iterator.cuh>
 #include <cudf/types.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
+#include <cudf/io/memory_resource.hpp>
+#include <cudf/copying.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 
@@ -47,6 +50,7 @@ template <typename ColumnView, typename ColumnDeviceView>
 std::unique_ptr<ColumnDeviceView, std::function<void(ColumnDeviceView*)>>
 create_device_view_from_view(ColumnView const& source, rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   size_type num_children = source.num_children();
   // First calculate the size of memory needed to hold the child columns. This is done by calling
   // extent() for each of the children.
@@ -60,6 +64,8 @@ create_device_view_from_view(ColumnView const& source, rmm::cuda_stream_view str
   // A buffer of CPU memory is allocated to hold the ColumnDeviceView
   // objects. Once filled, the CPU memory is copied to device memory
   // and then set into the d_children member pointer.
+
+  // TODO: H2D pageable here FIX!!!
   std::vector<char> staging_buffer(descendant_storage_bytes);
 
   // Each ColumnDeviceView instance may have child objects that
@@ -76,14 +82,13 @@ create_device_view_from_view(ColumnView const& source, rmm::cuda_stream_view str
   std::unique_ptr<ColumnDeviceView, decltype(deleter)> result{
     new ColumnDeviceView(source, staging_buffer.data(), descendant_storage->data()), deleter};
 
-  // copy the CPU memory with all the children into device memory
-  CUDF_CUDA_TRY(cudaMemcpyAsync(descendant_storage->data(),
-                                staging_buffer.data(),
-                                descendant_storage->size(),
-                                cudaMemcpyDefault,
-                                stream.value()));
+  auto host_mr = cudf::io::get_host_memory_resource();
+  auto pinned_buffer = host_mr.allocate(descendant_storage->size());
+  memcpy(pinned_buffer, staging_buffer.data(), descendant_storage->size());
+  cudf::smart_h2d(descendant_storage->data(), pinned_buffer, descendant_storage->size(), stream);
 
   stream.synchronize();
+  host_mr.deallocate(pinned_buffer, descendant_storage->size());
 
   return result;
 }

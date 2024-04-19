@@ -25,6 +25,7 @@
 #include <cudf/concatenate.hpp>
 #include <cudf/datetime.hpp>
 #include <cudf/detail/null_mask.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/filling.hpp>
 #include <cudf/hashing.hpp>
 #include <cudf/json/json.hpp>
@@ -85,6 +86,8 @@
 #include "dtype_utils.hpp"
 #include "jni_utils.hpp"
 #include "maps_column_view.hpp"
+#include <nvtx3/nvtx3.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 using cudf::jni::ptr_as_jlong;
 using cudf::jni::release_as_jlong;
@@ -1455,6 +1458,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_binaryOpVV(JNIEnv *env, j
                                                                   jlong lhs_view, jlong rhs_view,
                                                                   jint int_op, jint out_dtype,
                                                                   jint scale) {
+  CUDF_FUNC_RANGE();
   JNI_NULL_CHECK(env, lhs_view, "lhs is null", 0);
   JNI_NULL_CHECK(env, rhs_view, "rhs is null", 0);
   try {
@@ -1501,6 +1505,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_binaryOpVS(JNIEnv *env, j
                                                                   jlong lhs_view, jlong rhs_ptr,
                                                                   jint int_op, jint out_dtype,
                                                                   jint scale) {
+  CUDF_FUNC_RANGE();
   JNI_NULL_CHECK(env, lhs_view, "lhs is null", 0);
   JNI_NULL_CHECK(env, rhs_ptr, "rhs is null", 0);
   try {

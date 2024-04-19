@@ -400,6 +400,7 @@ void sparse_to_dense_results(table_view const& keys,
                              rmm::cuda_stream_view stream,
                              rmm::mr::device_memory_resource* mr)
 {
+  CUDF_FUNC_RANGE();
   auto row_bitmask =
     cudf::detail::bitmask_and(keys, stream, rmm::mr::get_current_device_resource()).first;
   bool skip_key_rows_with_nulls = keys_have_nulls and include_null_keys == null_policy::EXCLUDE;
@@ -466,6 +467,7 @@ void compute_single_pass_aggs(table_view const& keys,
                               null_policy include_null_keys,
                               rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   // flatten the aggs to a table that can be operated on by aggregate_row
   auto const [flattened_values, agg_kinds, aggs] = flatten_single_pass_aggs(requests);
 
@@ -474,8 +476,10 @@ void compute_single_pass_aggs(table_view const& keys,
   // prepare to launch kernel to do the actual aggregation
   auto d_sparse_table = mutable_table_device_view::create(sparse_table, stream);
   auto d_values       = table_device_view::create(flattened_values, stream);
+  nvtxRangePush("make device uvector async");
   auto const d_aggs   = cudf::detail::make_device_uvector_async(
     agg_kinds, stream, rmm::mr::get_current_device_resource());
+  nvtxRangePop();
   auto const skip_key_rows_with_nulls =
     keys_have_nulls and include_null_keys == null_policy::EXCLUDE;
 
@@ -553,10 +557,10 @@ std::unique_ptr<table> groupby(table_view const& keys,
                                rmm::cuda_stream_view stream,
                                rmm::mr::device_memory_resource* mr)
 {
+  CUDF_FUNC_RANGE();
   auto const num_keys            = keys.num_rows();
   auto const null_keys_are_equal = null_equality::EQUAL;
   auto const has_null            = nullate::DYNAMIC{cudf::has_nested_nulls(keys)};
-
   auto preprocessed_keys = cudf::experimental::row::hash::preprocessed_table::create(keys, stream);
   auto const comparator  = cudf::experimental::row::equality::self_comparator{preprocessed_keys};
   auto const row_hash    = cudf::experimental::row::hash::row_hasher{std::move(preprocessed_keys)};

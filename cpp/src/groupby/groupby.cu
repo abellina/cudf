@@ -67,6 +67,7 @@ std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> groupby::disp
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
+  CUDF_FUNC_RANGE();
   // If sort groupby has been called once on this groupby object, then
   // always use sort groupby from now on. Because once keys are sorted,
   // all the aggs that can be done by hash groupby are efficiently done by
@@ -173,6 +174,7 @@ auto empty_results(host_span<RequestType const> requests)
 template <typename RequestType>
 void verify_valid_requests(host_span<RequestType const> requests)
 {
+  CUDF_FUNC_RANGE();
   CUDF_EXPECTS(
     std::all_of(
       requests.begin(),

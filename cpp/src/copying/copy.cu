@@ -416,6 +416,27 @@ std::unique_ptr<column> copy_if_else(scalar const& lhs,
     lhs, rhs, !lhs.is_valid(stream), !rhs.is_valid(stream), boolean_mask, stream, mr);
 }
 
+
+void smart_h2d(void * d_ptr, void * h_ptr, cudf::size_type size, rmm::cuda_stream_view stream)
+{
+  // pick different startegies due to size
+  // detect whether h_ptr is pinned or not and trampoline on a pinned buffer if needed
+  thrust::copy_n(
+    rmm::exec_policy_nosync(stream), 
+    reinterpret_cast<uint8_t*>(h_ptr), 
+    size, 
+    reinterpret_cast<uint8_t*>(d_ptr));
+}
+
+void smart_d2h(void * h_ptr, void * d_ptr, cudf::size_type size, rmm::cuda_stream_view stream)
+{
+  thrust::copy_n(
+    rmm::exec_policy_nosync(stream), 
+    reinterpret_cast<uint8_t*>(d_ptr), 
+    size, 
+    reinterpret_cast<uint8_t*>(h_ptr));
+}
+
 };  // namespace detail
 
 std::unique_ptr<column> copy_if_else(column_view const& lhs,
@@ -456,6 +477,17 @@ std::unique_ptr<column> copy_if_else(scalar const& lhs,
 {
   CUDF_FUNC_RANGE();
   return detail::copy_if_else(lhs, rhs, boolean_mask, stream, mr);
+}
+
+void smart_h2d(void * d_ptr, void * h_ptr, cudf::size_type size, rmm::cuda_stream_view stream)
+{
+  CUDF_FUNC_RANGE();
+  detail::smart_h2d(d_ptr, h_ptr, size, stream);
+}
+void smart_d2h(void * h_ptr, void * d_ptr, cudf::size_type size, rmm::cuda_stream_view stream)
+{
+  CUDF_FUNC_RANGE();
+  detail::smart_d2h(h_ptr, d_ptr, size, stream);
 }
 
 }  // namespace cudf

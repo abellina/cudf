@@ -44,6 +44,7 @@
 #include <bitset>
 #include <numeric>
 
+
 namespace cudf::io::parquet::detail {
 namespace {
 
@@ -979,6 +980,7 @@ std::pair<bool, std::vector<std::future<void>>> reader::impl::read_column_chunks
 
 void reader::impl::read_compressed_data()
 {
+  CUDF_FUNC_RANGE();
   auto& pass = *_pass_itm_data;
 
   // This function should never be called if `num_rows == 0`.
@@ -1218,6 +1220,7 @@ void reader::impl::preprocess_file(
   host_span<std::vector<size_type> const> row_group_indices,
   std::optional<std::reference_wrapper<ast::expression const>> filter)
 {
+  CUDF_FUNC_RANGE();
   CUDF_EXPECTS(!_file_preprocessed, "Attempted to preprocess file more than once");
 
   // if filter is not empty, then create output types as vector and pass for filtering.

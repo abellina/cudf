@@ -18,6 +18,7 @@
 #include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/io/types.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 #include <rmm/device_buffer.hpp>
 
@@ -144,6 +145,7 @@ cudf::size_type find_all_from_set(host_span<char const> data,
                                   T* positions,
                                   rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   rmm::device_buffer d_chunk(std::min(max_chunk_bytes, data.size()), stream);
   auto d_count = cudf::detail::make_zeroed_device_uvector_async<cudf::size_type>(
     1, stream, rmm::mr::get_current_device_resource());

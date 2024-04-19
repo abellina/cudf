@@ -58,12 +58,26 @@ std::pair<rmm::device_buffer, size_type> scalar_col_valid_mask_and(
   rmm::cuda_stream_view stream,
   rmm::mr::device_memory_resource* mr)
 {
-  if (col.is_empty()) return std::pair(rmm::device_buffer{0, stream, mr}, 0);
+  CUDF_FUNC_RANGE();
+  if (col.is_empty()) { 
+    nvtxRangePush("if col.is_empty");
+    auto res = std::pair(rmm::device_buffer{0, stream, mr}, 0);
+    nvtxRangePop();
+    return res;
+  }
 
-  if (not s.is_valid(stream)) {
+  nvtxRangePush("is_valid s");
+  bool is_valid = s.is_valid(stream);
+  nvtxRangePop();
+
+  nvtxRangePush("nullable");
+  bool is_nullable = col.nullable();
+  nvtxRangePop();
+
+  if (not is_valid) {
     return std::pair(cudf::detail::create_null_mask(col.size(), mask_state::ALL_NULL, stream, mr),
                      col.size());
-  } else if (s.is_valid(stream) and col.nullable()) {
+  } else if (is_valid and is_nullable) {
     return std::pair(cudf::detail::copy_bitmask(col, stream, mr), col.null_count());
   } else {
     return std::pair(rmm::device_buffer{0, stream, mr}, 0);
@@ -168,6 +182,7 @@ void fixed_point_binary_operation_validation(binary_operator op,
                                              Rhs rhs,
                                              thrust::optional<cudf::data_type> output_type = {})
 {
+  CUDF_FUNC_RANGE();
   CUDF_EXPECTS((is_fixed_point(lhs) or is_fixed_point(rhs)),
                "One of the inputs must have fixed_point data_type.");
   CUDF_EXPECTS(binops::is_supported_fixed_point_binop(op),
@@ -252,6 +267,7 @@ std::unique_ptr<column> make_fixed_width_column_for_output(scalar const& lhs,
                                                            rmm::cuda_stream_view stream,
                                                            rmm::mr::device_memory_resource* mr)
 {
+  CUDF_FUNC_RANGE();
   if (binops::is_null_dependent(op)) {
     return make_fixed_width_column(output_type, rhs.size(), mask_state::ALL_VALID, stream, mr);
   } else {
@@ -279,6 +295,7 @@ std::unique_ptr<column> make_fixed_width_column_for_output(column_view const& lh
                                                            rmm::cuda_stream_view stream,
                                                            rmm::mr::device_memory_resource* mr)
 {
+  CUDF_FUNC_RANGE();
   if (binops::is_null_dependent(op)) {
     return make_fixed_width_column(output_type, lhs.size(), mask_state::ALL_VALID, stream, mr);
   } else {

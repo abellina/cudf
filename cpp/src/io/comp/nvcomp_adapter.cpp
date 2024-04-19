@@ -19,6 +19,7 @@
 #include "nvcomp_adapter.cuh"
 
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 #include <nvcomp/lz4.h>
 #include <nvcomp/snappy.h>
@@ -169,6 +170,7 @@ void batched_decompress(compression_type compression,
                         size_t max_total_uncomp_size,
                         rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   auto const num_chunks = inputs.size();
 
   // cuDF inflate inputs converted to nvcomp inputs

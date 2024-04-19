@@ -15,6 +15,7 @@
  */
 
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <rmm/device_buffer.hpp>
 
 #ifdef CUDF_JNI_ENABLE_PROFILING
@@ -343,6 +344,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_eventSynchronize(JNIEnv *env, jc
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_memcpyOnStream(JNIEnv *env, jclass, jlong jdst,
                                                                jlong jsrc, jlong count, jint jkind,
                                                                jlong jstream) {
+  CUDF_FUNC_RANGE();
   if (count == 0) {
     return;
   }
@@ -363,6 +365,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_memcpyOnStream(JNIEnv *env, jcla
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_asyncMemcpyOnStream(JNIEnv *env, jclass, jlong jdst,
                                                                     jlong jsrc, jlong count,
                                                                     jint jkind, jlong jstream) {
+  CUDF_FUNC_RANGE();
   if (count == 0) {
     return;
   }

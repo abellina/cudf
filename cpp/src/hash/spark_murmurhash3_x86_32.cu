@@ -409,12 +409,22 @@ std::unique_ptr<column> spark_murmurhash3_x86_32(table_view const& input,
   // Return early if there's nothing to hash
   if (input.num_columns() == 0 || input.num_rows() == 0) { return output; }
 
+  nvtxRangePush("check_hash_compatibility");
   // Lists of structs are not supported
   check_hash_compatibility(input);
+  nvtxRangePop();
 
+  nvtxRangePush("has_nested_nulls");
   bool const nullable   = has_nested_nulls(input);
+  nvtxRangePop();
+
+  nvtxRangePush("row_hasher");
   auto const row_hasher = cudf::experimental::row::hash::row_hasher(input, stream);
+  nvtxRangePop();
+
+  nvtxRangePush("mutable_view");
   auto output_view      = output->mutable_view();
+  nvtxRangePop();
 
   // Compute the hash value for each row
   thrust::tabulate(

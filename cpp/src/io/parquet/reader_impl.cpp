@@ -22,6 +22,7 @@
 #include <cudf/detail/transform.hpp>
 #include <cudf/detail/utilities/stream_pool.hpp>
 #include <cudf/detail/utilities/vector_factories.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 #include <bitset>
 #include <numeric>
@@ -268,16 +269,22 @@ void reader::impl::decode_page_data(bool uses_custom_row_bounds, size_t skip_row
                    streams[s_idx++]);
   }
 
+  nvtxRangePush("join streams");
   // synchronize the streams
   cudf::detail::join_streams(streams, _stream);
+  nvtxRangePop();
 
+  nvtxRangePush("d2hs for subpasses");
   subpass.pages.device_to_host_async(_stream);
   page_nesting.device_to_host_async(_stream);
   page_nesting_decode.device_to_host_async(_stream);
+  nvtxRangePop();
 
+  nvtxRangePush("error check"); 
   if (auto const error = error_code.value_sync(_stream); error != 0) {
     CUDF_FAIL("Parquet data decode failed with code(s) " + kernel_error::to_string(error));
   }
+  nvtxRangePop();
 
   // for list columns, add the final offset to every offset buffer.
   // TODO : make this happen in more efficiently. Maybe use thrust::for_each
@@ -286,6 +293,8 @@ void reader::impl::decode_page_data(bool uses_custom_row_bounds, size_t skip_row
   // that it is difficult/impossible for a given page to know that it is writing the very
   // last value that should then be followed by a terminator (because rows can span
   // page boundaries).
+  auto host_mr = cudf::io::get_host_memory_resource();
+  std::vector<size_type*> offset_ptrs;
   for (size_t idx = 0; idx < _input_columns.size(); idx++) {
     input_column_info const& input_col = _input_columns[idx];
 
@@ -300,23 +309,32 @@ void reader::impl::decode_page_data(bool uses_custom_row_bounds, size_t skip_row
         auto const& child = (*cols)[input_col.nesting[l_idx + 1]];
 
         // the final offset for a list at level N is the size of it's child
-        size_type const offset = child.type.id() == type_id::LIST ? child.size - 1 : child.size;
-        CUDF_CUDA_TRY(cudaMemcpyAsync(static_cast<size_type*>(out_buf.data()) + (out_buf.size - 1),
-                                      &offset,
-                                      sizeof(size_type),
-                                      cudaMemcpyDefault,
-                                      _stream.value()));
+        auto offset_ptr = reinterpret_cast<size_type*>(host_mr.allocate(sizeof(size_type)));
+        offset_ptrs.push_back(offset_ptr);
+        *offset_ptr = child.type.id() == type_id::LIST ? child.size - 1 : child.size;
+        // this is arguably a a bad idea over a tight loop like this when you have 100's of columns
+        cudf::smart_h2d(static_cast<size_type*>(out_buf.data()) + (out_buf.size - 1),
+                        offset_ptr,
+                        sizeof(size_type),
+                        _stream);
         out_buf.user_data |= PARQUET_COLUMN_BUFFER_FLAG_LIST_TERMINATED;
       } else if (out_buf.type.id() == type_id::STRING) {
         // need to cap off the string offsets column
-        auto const sz = static_cast<size_type>(col_string_sizes[idx]);
-        CUDF_CUDA_TRY(cudaMemcpyAsync(static_cast<size_type*>(out_buf.data()) + out_buf.size,
-                                      &sz,
-                                      sizeof(size_type),
-                                      cudaMemcpyDefault,
-                                      _stream.value()));
+        auto sz_ptr = reinterpret_cast<size_type*>(host_mr.allocate(sizeof(size_type)));
+        offset_ptrs.push_back(sz_ptr);
+        *sz_ptr = static_cast<size_type>(col_string_sizes[idx]);
+        cudf::smart_h2d(static_cast<size_type*>(out_buf.data()) + out_buf.size,
+                        sz_ptr,
+                        sizeof(size_type),
+                        _stream);
       }
     }
+  }
+
+  _stream.synchronize();
+
+  for (auto ptr : offset_ptrs) {
+    host_mr.deallocate(ptr, sizeof(size_type));
   }
 
   // update null counts in the final column buffers
@@ -403,6 +421,7 @@ void reader::impl::prepare_data(int64_t skip_rows,
                                 host_span<std::vector<size_type> const> row_group_indices,
                                 std::optional<std::reference_wrapper<ast::expression const>> filter)
 {
+  CUDF_FUNC_RANGE();
   // if we have not preprocessed at the whole-file level, do that now
   if (!_file_preprocessed) {
     // setup file level information
@@ -436,6 +455,7 @@ void reader::impl::populate_metadata(table_metadata& out_metadata)
 table_with_metadata reader::impl::read_chunk_internal(
   bool uses_custom_row_bounds, std::optional<std::reference_wrapper<ast::expression const>> filter)
 {
+  CUDF_FUNC_RANGE();
   // If `_output_metadata` has been constructed, just copy it over.
   auto out_metadata = _output_metadata ? table_metadata{*_output_metadata} : table_metadata{};
   out_metadata.schema_info.resize(_output_buffers.size());
@@ -486,6 +506,7 @@ table_with_metadata reader::impl::finalize_output(
   std::vector<std::unique_ptr<column>>& out_columns,
   std::optional<std::reference_wrapper<ast::expression const>> filter)
 {
+  CUDF_FUNC_RANGE();
   // Create empty columns as needed (this can happen if we've ended up with no actual data to read)
   for (size_t i = out_columns.size(); i < _output_buffers.size(); ++i) {
     if (!_output_metadata) {

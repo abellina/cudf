@@ -18,6 +18,7 @@
 #include <cudf/column/column_view.hpp>
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 
@@ -28,6 +29,7 @@ bool is_element_valid_sync(column_view const& col_view,
                            size_type element_index,
                            rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   CUDF_EXPECTS(element_index >= 0 and element_index < col_view.size(), "invalid index.");
   if (!col_view.nullable()) { return true; }
 

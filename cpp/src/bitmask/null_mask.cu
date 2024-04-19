@@ -315,6 +315,8 @@ cudf::size_type count_set_bits(bitmask_type const* bitmask,
                                size_type stop,
                                rmm::cuda_stream_view stream)
 {
+  // TODO: fix this one too
+  CUDF_FUNC_RANGE();
   CUDF_EXPECTS(bitmask != nullptr, "Invalid bitmask.");
   CUDF_EXPECTS(start >= 0, "Invalid range.");
   CUDF_EXPECTS(start <= stop, "Invalid bit range.");

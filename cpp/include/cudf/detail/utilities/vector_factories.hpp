@@ -22,8 +22,11 @@
  */
 
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/io/memory_resource.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/copying.hpp>
+#include <rmm/mr/host/host_memory_resource.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
@@ -96,12 +99,22 @@ rmm::device_uvector<T> make_device_uvector_async(host_span<T const> source_data,
                                                  rmm::cuda_stream_view stream,
                                                  rmm::mr::device_memory_resource* mr)
 {
+  auto size_bytes = source_data.size_bytes();
   rmm::device_uvector<T> ret(source_data.size(), stream, mr);
-  CUDF_CUDA_TRY(cudaMemcpyAsync(ret.data(),
-                                source_data.data(),
-                                source_data.size() * sizeof(T),
-                                cudaMemcpyDefault,
-                                stream.value()));
+  if (size_bytes > 0 && size_bytes < 2097152) {
+    auto host_mr = cudf::io::get_host_memory_resource();
+    auto pinned_buffer = host_mr.allocate(size_bytes);
+    memcpy(pinned_buffer, source_data.data(), size_bytes);
+    cudf::smart_h2d(ret.data(), pinned_buffer, size_bytes, stream);
+    stream.synchronize();
+    host_mr.deallocate(pinned_buffer, size_bytes);
+  } else {
+    CUDF_CUDA_TRY(cudaMemcpyAsync(ret.data(),
+                                  source_data.data(),
+                                  source_data.size() * sizeof(T),
+                                  cudaMemcpyDefault,
+                                  stream.value()));
+  }
   return ret;
 }
 
@@ -272,9 +285,19 @@ rmm::device_uvector<typename Container::value_type> make_device_uvector_sync(
 template <typename T, typename OutContainer>
 OutContainer make_vector_async(device_span<T const> v, rmm::cuda_stream_view stream)
 {
+  auto size_bytes = v.size() * sizeof(T);
   OutContainer result(v.size());
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    result.data(), v.data(), v.size() * sizeof(T), cudaMemcpyDefault, stream.value()));
+  if (size_bytes > 0 && size_bytes < 2097152) {
+    auto host_mr = cudf::io::get_host_memory_resource();
+    auto pinned_buffer = host_mr.allocate(size_bytes);
+    cudf::smart_d2h(pinned_buffer, (void*)v.data(), size_bytes, stream);
+    stream.synchronize();
+    memcpy(result.data(), pinned_buffer, size_bytes);
+    host_mr.deallocate(pinned_buffer, size_bytes);
+  } else {
+    CUDF_CUDA_TRY(cudaMemcpyAsync(
+      result.data(), v.data(), v.size() * sizeof(T), cudaMemcpyDefault, stream.value()));
+  }
   return result;
 }
 

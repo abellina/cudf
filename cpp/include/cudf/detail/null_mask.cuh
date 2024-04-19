@@ -22,6 +22,7 @@
 #include <cudf/null_mask.hpp>
 #include <cudf/types.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/io/memory_resource.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_scalar.hpp>
@@ -168,13 +169,14 @@ size_type inplace_bitmask_binop(Binop op,
   rmm::device_uvector<bitmask_type const*> d_masks(masks.size(), stream, mr);
   rmm::device_uvector<size_type> d_begin_bits(masks_begin_bits.size(), stream, mr);
 
-  CUDF_CUDA_TRY(cudaMemcpyAsync(
-    d_masks.data(), masks.data(), masks.size_bytes(), cudaMemcpyDefault, stream.value()));
-  CUDF_CUDA_TRY(cudaMemcpyAsync(d_begin_bits.data(),
-                                masks_begin_bits.data(),
-                                masks_begin_bits.size_bytes(),
-                                cudaMemcpyDefault,
-                                stream.value()));
+  auto host_mr = cudf::io::get_host_memory_resource();
+  auto pinned_buffer_masks = host_mr.allocate(masks.size_bytes());
+  memcpy(pinned_buffer_masks, masks.data(), masks.size_bytes());
+  cudf::smart_h2d(d_masks.data(), pinned_buffer_masks, masks.size_bytes(), stream);
+
+  auto pinned_masks_begin_bits = host_mr.allocate(masks_begin_bits.size_bytes());
+  memcpy(pinned_masks_begin_bits, masks_begin_bits.data(), masks_begin_bits.size_bytes());
+  cudf::smart_h2d(d_begin_bits.data(), pinned_masks_begin_bits, masks_begin_bits.size_bytes(), stream);
 
   auto constexpr block_size = 256;
   cudf::detail::grid_1d config(dest_mask.size(), block_size);
@@ -182,7 +184,12 @@ size_type inplace_bitmask_binop(Binop op,
     <<<config.num_blocks, config.num_threads_per_block, 0, stream.value()>>>(
       op, dest_mask, d_masks, d_begin_bits, mask_size_bits, d_counter.data());
   CUDF_CHECK_CUDA(stream.value());
-  return d_counter.value(stream);
+  auto result = d_counter.value(stream);
+
+  host_mr.deallocate(pinned_buffer_masks, masks.size_bytes());
+  host_mr.deallocate(pinned_masks_begin_bits, masks_begin_bits.size_bytes());
+
+  return result;
 }
 
 /**

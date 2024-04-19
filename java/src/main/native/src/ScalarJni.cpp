@@ -20,6 +20,8 @@
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/strings/repeat_strings.hpp>
 #include <cudf/types.hpp>
+#include <nvtx3/nvtx3.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
@@ -276,6 +278,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Scalar_makeDurationDaysScalar(JNIEnv
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Scalar_makeInt32Scalar(JNIEnv *env, jclass, jint value,
                                                                    jboolean is_valid) {
+  CUDF_FUNC_RANGE();
   try {
     cudf::jni::auto_set_device(env);
     std::unique_ptr<cudf::scalar> s =
@@ -493,6 +496,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Scalar_makeDecimal128Scalar(JNIEnv *
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Scalar_binaryOpSV(JNIEnv *env, jclass, jlong lhs_ptr,
                                                               jlong rhs_view, jint int_op,
                                                               jint out_dtype, jint scale) {
+  CUDF_FUNC_RANGE();
   JNI_NULL_CHECK(env, lhs_ptr, "lhs is null", 0);
   JNI_NULL_CHECK(env, rhs_view, "rhs is null", 0);
   try {

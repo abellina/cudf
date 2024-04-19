@@ -23,6 +23,7 @@
 #include <cudf/structs/structs_column_view.hpp>
 #include <cudf/table/table.hpp>
 #include <cudf/types.hpp>
+#include <cudf/smart_h2d.hpp>
 
 #include <rmm/mr/device/per_device_resource.hpp>
 
@@ -702,6 +703,7 @@ std::unique_ptr<column> copy_if_else(
   column_view const& boolean_mask,
   rmm::cuda_stream_view stream        = cudf::get_default_stream(),
   rmm::mr::device_memory_resource* mr = rmm::mr::get_current_device_resource());
+
 
 /**
  * @brief Scatters rows from the input table to rows of the output corresponding

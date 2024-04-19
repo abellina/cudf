@@ -18,6 +18,7 @@
 
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/copying.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 
@@ -177,8 +178,12 @@ class hostdevice_span {
 
   void host_to_device_async(rmm::cuda_stream_view stream)
   {
-    CUDF_CUDA_TRY(
-      cudaMemcpyAsync(device_ptr(), host_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    if (size_bytes() < 2097152) {
+      cudf::smart_h2d(device_ptr(), host_ptr(), size_bytes(), stream);
+    } else {
+      CUDF_CUDA_TRY(
+        cudaMemcpyAsync(device_ptr(), host_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    }
   }
 
   void host_to_device_sync(rmm::cuda_stream_view stream)
@@ -189,8 +194,12 @@ class hostdevice_span {
 
   void device_to_host_async(rmm::cuda_stream_view stream)
   {
-    CUDF_CUDA_TRY(
-      cudaMemcpyAsync(host_ptr(), device_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    if (size_bytes() < 2097152) {
+      cudf::smart_d2h(host_ptr(), device_ptr(), size_bytes(), stream);
+    } else {
+      CUDF_CUDA_TRY(
+        cudaMemcpyAsync(host_ptr(), device_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    }
   }
 
   void device_to_host_sync(rmm::cuda_stream_view stream)

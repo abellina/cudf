@@ -644,6 +644,7 @@ std::tuple<rmm::device_uvector<page_span>, size_t, size_t> compute_next_subpass(
   size_t num_columns,
   rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   auto [aggregated_info, page_keys_by_split] = adjust_cumulative_sizes(c_info, pages, stream);
 
   // bring back to the cpu
@@ -802,28 +803,40 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
   rmm::device_buffer decomp_pages(
     cudf::util::round_up_safe(total_decomp_size, BUFFER_PADDING_MULTIPLE), stream);
 
+  nvtxRangePush("comp_in_create");
   std::vector<device_span<uint8_t const>> comp_in;
   comp_in.reserve(num_comp_pages);
   std::vector<device_span<uint8_t>> comp_out;
   comp_out.reserve(num_comp_pages);
+  nvtxRangePop();
 
+  nvtxRangePush("comp_out_create");
   // vectors to save v2 def and rep level data, if any
-  std::vector<device_span<uint8_t const>> copy_in;
-  copy_in.reserve(num_comp_pages);
-  std::vector<device_span<uint8_t>> copy_out;
-  copy_out.reserve(num_comp_pages);
+  //std::vector<device_span<uint8_t const>> copy_in;
+  //copy_in.reserve(num_comp_pages);
+  cudf::detail::hostdevice_vector<device_span<uint8_t const>> copy_in(num_comp_pages, stream);
 
+  //std::vector<device_span<uint8_t>> copy_out;
+  //copy_out.reserve(num_comp_pages);
+  cudf::detail::hostdevice_vector<device_span<uint8_t>> copy_out(num_comp_pages, stream);
+  
+  nvtxRangePop();
+
+
+  nvtxRangePush("fill");
   rmm::device_uvector<compression_result> comp_res(num_comp_pages, stream);
   thrust::fill(rmm::exec_policy_nosync(stream),
                comp_res.begin(),
                comp_res.end(),
                compression_result{0, compression_status::FAILURE});
+  nvtxRangePop();
 
   size_t decomp_offset = 0;
   int32_t start_pos    = 0;
   for (auto const& codec : codecs) {
     if (codec.num_pages == 0) { continue; }
 
+    std::size_t ix = 0;
     for_each_codec_page(codec.compression_type, [&](size_t page_idx) {
       auto const dst_base = static_cast<uint8_t*>(decomp_pages.data()) + decomp_offset;
       auto& page          = pages[page_idx];
@@ -834,8 +847,9 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
       // input and output buffers. otherwise we'd have to keep both the compressed
       // and decompressed data.
       if (offset != 0) {
-        copy_in.emplace_back(page.page_data, offset);
-        copy_out.emplace_back(dst_base, offset);
+        copy_in[ix] = device_span<uint8_t>(page.page_data, offset);
+        copy_out[ix] = device_span<uint8_t>(dst_base, offset);
+	ix++; 
       }
       comp_in.emplace_back(page.page_data + offset,
                            static_cast<size_t>(page.compressed_page_size - offset));
@@ -845,15 +859,25 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
       decomp_offset += page.uncompressed_page_size;
     });
 
-    host_span<device_span<uint8_t const> const> comp_in_view{comp_in.data() + start_pos,
-                                                             codec.num_pages};
-    auto const d_comp_in = cudf::detail::make_device_uvector_async(
-      comp_in_view, stream, rmm::mr::get_current_device_resource());
-    host_span<device_span<uint8_t> const> comp_out_view(comp_out.data() + start_pos,
-                                                        codec.num_pages);
-    auto const d_comp_out = cudf::detail::make_device_uvector_async(
-      comp_out_view, stream, rmm::mr::get_current_device_resource());
+    nvtxRangePush("comp_in_view");
+    cudf::detail::hostdevice_vector<device_span<uint8_t const>> d_comp_in(codec.num_pages, stream);
+    auto hptr = reinterpret_cast<uint8_t*>(d_comp_in.host_ptr());
+    std::memcpy(hptr, comp_in.data() + start_pos, codec.num_pages * sizeof(device_span<uint8_t>));
+    d_comp_in.host_to_device_async(stream);
+    nvtxRangePop();
+
+    nvtxRangePush("d_com_out");
+
+    cudf::detail::hostdevice_vector<device_span<uint8_t>> d_comp_out(codec.num_pages, stream);
+    auto hptr_out = reinterpret_cast<uint8_t*>(d_comp_out.host_ptr());
+    std::memcpy(hptr_out, comp_out.data() + start_pos, codec.num_pages * sizeof(device_span<uint8_t>));
+    d_comp_out.host_to_device_async(stream);
+
+    nvtxRangePush("d_com_out::d_comp_res_view");
     device_span<compression_result> d_comp_res_view(comp_res.data() + start_pos, codec.num_pages);
+    nvtxRangePop();
+
+    nvtxRangePop();
 
     switch (codec.compression_type) {
       case GZIP:
@@ -903,22 +927,21 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
     start_pos += codec.num_pages;
   }
 
+  nvtxRangePush("check decomp error");
   CUDF_EXPECTS(thrust::all_of(rmm::exec_policy(stream),
-                              comp_res.begin(),
-                              comp_res.end(),
-                              cuda::proclaim_return_type<bool>([] __device__(auto const& res) {
-                                return res.status == compression_status::SUCCESS;
-                              })),
-               "Error during decompression");
+  			    comp_res.begin(),
+  			    comp_res.end(),
+  			    cuda::proclaim_return_type<bool>([] __device__(auto const& res) {
+  			      return res.status == compression_status::SUCCESS;
+  			    })),
+  	     "Error during decompression");
+  nvtxRangePop();
 
   // now copy the uncompressed V2 def and rep level data
   if (not copy_in.empty()) {
-    auto const d_copy_in = cudf::detail::make_device_uvector_async(
-      copy_in, stream, rmm::mr::get_current_device_resource());
-    auto const d_copy_out = cudf::detail::make_device_uvector_async(
-      copy_out, stream, rmm::mr::get_current_device_resource());
-
-    gpu_copy_uncompressed_blocks(d_copy_in, d_copy_out, stream);
+    copy_in.host_to_device_async(stream);
+    copy_out.host_to_device_async(stream);
+    gpu_copy_uncompressed_blocks(copy_in, copy_out, stream);
     stream.synchronize();
   }
 
@@ -966,55 +989,55 @@ struct row_counts_different {
  * @param expected_row_count Expected row count, if applicable
  * @param stream CUDA stream used for device memory operations and kernel launches
  */
-void detect_malformed_pages(device_span<PageInfo const> pages,
-                            device_span<ColumnChunkDesc const> chunks,
-                            std::optional<size_t> expected_row_count,
-                            rmm::cuda_stream_view stream)
-{
-  CUDF_FUNC_RANGE();
+  void detect_malformed_pages(device_span<PageInfo const> pages,
+                              device_span<ColumnChunkDesc const> chunks,
+                              std::optional<size_t> expected_row_count,
+                              rmm::cuda_stream_view stream)
+  {
+    CUDF_FUNC_RANGE();
 
-  // sum row counts for all non-dictionary, non-list columns. other columns will be indicated as 0
-  rmm::device_uvector<size_type> row_counts(pages.size(),
-                                            stream);  // worst case:  num keys == num pages
-  auto const size_iter =
-    thrust::make_transform_iterator(pages.begin(), flat_column_num_rows{chunks.data()});
-  auto const row_counts_begin = row_counts.begin();
-  auto page_keys              = make_page_key_iterator(pages);
-  auto const row_counts_end   = thrust::reduce_by_key(rmm::exec_policy(stream),
-                                                    page_keys,
-                                                    page_keys + pages.size(),
-                                                    size_iter,
-                                                    thrust::make_discard_iterator(),
-                                                    row_counts_begin)
-                                .second;
+    // sum row counts for all non-dictionary, non-list columns. other columns will be indicated as 0
+    rmm::device_uvector<size_type> row_counts(pages.size(),
+                                              stream);  // worst case:  num keys == num pages
+    auto const size_iter =
+      thrust::make_transform_iterator(pages.begin(), flat_column_num_rows{chunks.data()});
+    auto const row_counts_begin = row_counts.begin();
+    auto page_keys              = make_page_key_iterator(pages);
+    auto const row_counts_end   = thrust::reduce_by_key(rmm::exec_policy(stream),
+                                                      page_keys,
+                                                      page_keys + pages.size(),
+                                                      size_iter,
+                                                      thrust::make_discard_iterator(),
+                                                      row_counts_begin)
+                                  .second;
 
-  // make sure all non-zero row counts are the same
-  rmm::device_uvector<size_type> compacted_row_counts(pages.size(), stream);
-  auto const compacted_row_counts_begin = compacted_row_counts.begin();
-  auto const compacted_row_counts_end   = thrust::copy_if(rmm::exec_policy(stream),
-                                                        row_counts_begin,
-                                                        row_counts_end,
-                                                        compacted_row_counts_begin,
-                                                        row_counts_nonzero{});
-  if (compacted_row_counts_end != compacted_row_counts_begin) {
-    size_t const found_row_count = static_cast<size_t>(compacted_row_counts.element(0, stream));
+    // make sure all non-zero row counts are the same
+    rmm::device_uvector<size_type> compacted_row_counts(pages.size(), stream);
+    auto const compacted_row_counts_begin = compacted_row_counts.begin();
+    auto const compacted_row_counts_end   = thrust::copy_if(rmm::exec_policy(stream),
+                                                          row_counts_begin,
+                                                          row_counts_end,
+                                                          compacted_row_counts_begin,
+                                                          row_counts_nonzero{});
+    if (compacted_row_counts_end != compacted_row_counts_begin) {
+      size_t const found_row_count = static_cast<size_t>(compacted_row_counts.element(0, stream));
 
-    // if we somehow don't match the expected row count from the row groups themselves
-    if (expected_row_count.has_value()) {
-      CUDF_EXPECTS(expected_row_count.value() == found_row_count,
-                   "Encountered malformed parquet page data (unexpected row count in page data)");
+      // if we somehow don't match the expected row count from the row groups themselves
+      if (expected_row_count.has_value()) {
+        CUDF_EXPECTS(expected_row_count.value() == found_row_count,
+                    "Encountered malformed parquet page data (unexpected row count in page data)");
+      }
+
+      // all non-zero row counts must be the same
+      auto const chk =
+        thrust::count_if(rmm::exec_policy(stream),
+                        compacted_row_counts_begin,
+                        compacted_row_counts_end,
+                        row_counts_different{static_cast<size_type>(found_row_count)});
+      CUDF_EXPECTS(chk == 0,
+                  "Encountered malformed parquet page data (row count mismatch in page data)");
     }
-
-    // all non-zero row counts must be the same
-    auto const chk =
-      thrust::count_if(rmm::exec_policy(stream),
-                       compacted_row_counts_begin,
-                       compacted_row_counts_end,
-                       row_counts_different{static_cast<size_type>(found_row_count)});
-    CUDF_EXPECTS(chk == 0,
-                 "Encountered malformed parquet page data (row count mismatch in page data)");
   }
-}
 
 struct decompression_info {
   Compression codec;
@@ -1108,6 +1131,7 @@ void include_decompression_scratch_size(device_span<ColumnChunkDesc const> chunk
                                         device_span<cumulative_page_info> c_info,
                                         rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   CUDF_EXPECTS(pages.size() == c_info.size(),
                "Encountered page/cumulative_page_info size mismatch");
 
@@ -1310,6 +1334,7 @@ void reader::impl::setup_next_pass(bool uses_custom_row_bounds)
 
 void reader::impl::setup_next_subpass(bool uses_custom_row_bounds)
 {
+  CUDF_FUNC_RANGE();
   auto& pass    = *_pass_itm_data;
   pass.subpass  = std::make_unique<subpass_intermediate_data>();
   auto& subpass = *pass.subpass;
@@ -1563,6 +1588,7 @@ void reader::impl::create_global_chunk_info()
 
 void reader::impl::compute_input_passes()
 {
+  CUDF_FUNC_RANGE();
   // at this point, row_groups has already been filtered down to just the row groups we need to
   // handle optional skip_rows/num_rows parameters.
   auto const& row_groups_info = _file_itm_data.row_groups;

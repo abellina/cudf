@@ -22,6 +22,7 @@
 #include <cudf/column/column_device_view.cuh>
 #include <cudf/column/column_view.hpp>
 #include <cudf/detail/utilities/integer_utils.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -281,6 +282,7 @@ void apply_binary_op(mutable_column_view& out,
                      bool is_rhs_scalar,
                      rmm::cuda_stream_view stream)
 {
+  CUDF_FUNC_RANGE();
   auto common_dtype = get_common_type(out.type(), lhs.type(), rhs.type());
 
   auto lhsd = column_device_view::create(lhs, stream);
