@@ -610,4 +610,6 @@ public class Rmm {
 
   // only for tests
   public static native void freeFromFallbackPinnedPool(long ptr, long size);
+
+  public static native void setKernelPinnedCopyThreshold(long threshold);
 }
