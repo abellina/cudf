@@ -1118,15 +1118,4 @@ JNIEXPORT jboolean JNICALL Java_ai_rapids_cudf_Rmm_configureDefaultCudfPinnedPoo
   }
   CATCH_STD(env, false)
 }
-
-JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_setKernelPinnedCopyThreshold(JNIEnv* env,
-                                                                            jclass clazz,
-                                                                            jlong threshold)
-{
-  try {
-    cudf::jni::auto_set_device(env);
-    return cudf::set_kernel_pinned_copy_threshold(std::static_cast<std::size_t>(threshold));
-  }
-  CATCH_STD(env, )
-}
 }
