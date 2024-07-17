@@ -553,6 +553,8 @@ std::unique_ptr<table> groupby(table_view const& keys,
                                rmm::cuda_stream_view stream,
                                rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
+  nvtxRangePush("before comparator_helper");
   // convert to int64_t to avoid potential overflow with large `keys`
   auto const num_keys            = static_cast<int64_t>(keys.num_rows());
   auto const null_keys_are_equal = null_equality::EQUAL;
@@ -562,10 +564,13 @@ std::unique_ptr<table> groupby(table_view const& keys,
   auto const comparator  = cudf::experimental::row::equality::self_comparator{preprocessed_keys};
   auto const row_hash    = cudf::experimental::row::hash::row_hasher{std::move(preprocessed_keys)};
   auto const d_row_hash  = row_hash.device_hasher(has_null);
+  nvtxRangePop();
 
+  nvtxRangePush("make sparse_results");
   // Cache of sparse results where the location of aggregate value in each
   // column is indexed by the hash set
   cudf::detail::result_cache sparse_results(requests.size());
+  nvtxRangePop();
 
   auto const comparator_helper = [&](auto const d_key_equal) {
     auto const set = cuco::static_set{num_keys,
@@ -659,8 +664,10 @@ std::pair<std::unique_ptr<table>, std::vector<aggregation_result>> groupby(
 {
   cudf::detail::result_cache cache(requests.size());
 
+  nvtxRangePush("calling groupby function");
   std::unique_ptr<table> unique_keys =
     groupby(keys, requests, &cache, cudf::has_nulls(keys), include_null_keys, stream, mr);
+  nvtxRangePop();
 
   return std::pair(std::move(unique_keys), extract_results(requests, cache, stream, mr));
 }

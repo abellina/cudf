@@ -18,6 +18,7 @@
 
 #include <cudf/detail/aggregation/result_cache.hpp>
 #include <cudf/detail/groupby.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/utilities/span.hpp>
 
 #include <rmm/resource_ref.hpp>
@@ -35,6 +36,7 @@ inline std::vector<aggregation_result> extract_results(host_span<RequestType con
                                                        rmm::cuda_stream_view stream,
                                                        rmm::device_async_resource_ref mr)
 {
+  CUDF_FUNC_RANGE();
   std::vector<aggregation_result> results(requests.size());
   std::unordered_map<std::pair<column_view, std::reference_wrapper<aggregation const>>,
                      column_view,

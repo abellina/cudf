@@ -38,25 +38,46 @@ scalar::scalar(data_type type,
                rmm::device_async_resource_ref mr)
   : _type(type), _is_valid(is_valid, stream, mr)
 {
+  nvtxRangePush("scalar ctr");
+  nvtxRangePop();
 }
 
 scalar::scalar(scalar const& other, rmm::cuda_stream_view stream, rmm::device_async_resource_ref mr)
   : _type(other.type()), _is_valid(other._is_valid, stream, mr)
 {
+  nvtxRangePush("scalar ctr");
+  nvtxRangePop();
 }
 
 data_type scalar::type() const noexcept { return _type; }
 
 void scalar::set_valid_async(bool is_valid, rmm::cuda_stream_view stream)
 {
+  nvtxRangePush("scalar::set_valid_async");
   _is_valid.set_value_async(is_valid, stream);
+  nvtxRangePop();
 }
 
-bool scalar::is_valid(rmm::cuda_stream_view stream) const { return _is_valid.value(stream); }
+bool scalar::is_valid(rmm::cuda_stream_view stream) const { 
+  nvtxRangePush("scalar::is_valid");
+  auto res = _is_valid.value(stream); 
+  nvtxRangePop();
+  return res;
+}
 
-bool* scalar::validity_data() { return _is_valid.data(); }
+bool* scalar::validity_data() { 
+  nvtxRangePush("scalar::validity_data");
+  bool* res = _is_valid.data();
+  nvtxRangePop();
+  return res;
+}
 
-bool const* scalar::validity_data() const { return _is_valid.data(); }
+bool const* scalar::validity_data() const { 
+  nvtxRangePush("scalar::validity_data");
+  bool const * res = _is_valid.data();
+  nvtxRangePop();
+  return res;
+}
 
 string_scalar::string_scalar(std::string const& string,
                              bool is_valid,

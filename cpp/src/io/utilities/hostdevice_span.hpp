@@ -177,8 +177,10 @@ class hostdevice_span {
 
   void host_to_device_async(rmm::cuda_stream_view stream)
   {
+    nvtxRangePush("hostdevice_span h2d");
     CUDF_CUDA_TRY(
       cudaMemcpyAsync(device_ptr(), host_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    nvtxRangePop();
   }
 
   void host_to_device_sync(rmm::cuda_stream_view stream)
@@ -189,8 +191,10 @@ class hostdevice_span {
 
   void device_to_host_async(rmm::cuda_stream_view stream)
   {
+    nvtxRangePush("hostdevice_span d2h");
     CUDF_CUDA_TRY(
       cudaMemcpyAsync(host_ptr(), device_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    nvtxRangePop();
   }
 
   void device_to_host_sync(rmm::cuda_stream_view stream)

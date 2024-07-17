@@ -22,6 +22,8 @@
 
 #include <rmm/exec_policy.hpp>
 
+#include <sstream>
+
 #include <thrust/copy.h>
 
 namespace cudf::detail {
@@ -38,14 +40,20 @@ void copy_pinned(void* dst, void const* src, std::size_t size, rmm::cuda_stream_
 {
   if (size == 0) return;
 
+  std::stringstream ss;
+  ss << "size: " << size << " " << get_kernel_pinned_copy_threshold() << std::endl;
+  nvtxRangePush(ss.str().c_str());
   if (size < get_kernel_pinned_copy_threshold()) {
     const int block_size = 256;
     auto const grid_size = cudf::util::div_rounding_up_safe<size_t>(size, block_size);
     copy_kernel<<<grid_size, block_size, 0, stream.value()>>>(
       static_cast<char const*>(src), static_cast<char*>(dst), size);
   } else {
+    nvtxRangePush("copy_pinned cudaMemcpyAsync");
     CUDF_CUDA_TRY(cudaMemcpyAsync(dst, src, size, cudaMemcpyDefault, stream));
+    nvtxRangePop();
   }
+  nvtxRangePop();
 }
 
 void copy_pageable(void* dst, void const* src, std::size_t size, rmm::cuda_stream_view stream)

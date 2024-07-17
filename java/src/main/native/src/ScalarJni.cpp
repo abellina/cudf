@@ -17,6 +17,7 @@
 #include "cudf_jni_apis.hpp"
 #include "dtype_utils.hpp"
 
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/binaryop.hpp>
 #include <cudf/column/column_factories.hpp>
 #include <cudf/fixed_point/fixed_point.hpp>
@@ -541,6 +542,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Scalar_makeDecimal128Scalar(
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Scalar_binaryOpSV(
   JNIEnv* env, jclass, jlong lhs_ptr, jlong rhs_view, jint int_op, jint out_dtype, jint scale)
 {
+  CUDF_FUNC_RANGE();
   JNI_NULL_CHECK(env, lhs_ptr, "lhs is null", 0);
   JNI_NULL_CHECK(env, rhs_view, "rhs is null", 0);
   try {

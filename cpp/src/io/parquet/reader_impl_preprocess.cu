@@ -285,10 +285,12 @@ void generate_depth_remappings(std::map<int, std::pair<std::vector<int>, std::ve
 [[nodiscard]] size_t count_page_headers(cudf::detail::hostdevice_vector<ColumnChunkDesc>& chunks,
                                         rmm::cuda_stream_view stream)
 {
+  nvtxRangePush("before DecodePageHeaders at count_page_headers");
   size_t total_pages = 0;
 
   kernel_error error_code(stream);
   chunks.host_to_device_async(stream);
+  nvtxRangePop();
   DecodePageHeaders(chunks.device_ptr(), nullptr, chunks.size(), error_code.data(), stream);
   chunks.device_to_host_sync(stream);
 
@@ -539,8 +541,12 @@ void decode_page_headers(pass_intermediate_data& pass,
 {
   CUDF_FUNC_RANGE();
 
+  nvtxRangePush("before DecodePageHeaders at decode_page_headers");
   auto iter = thrust::make_counting_iterator(0);
+  nvtxRangePush("create chunk_page_counts");
   rmm::device_uvector<size_t> chunk_page_counts(pass.chunks.size() + 1, stream);
+  nvtxRangePop();
+  nvtxRangePush("transform_exclusive_scan");
   thrust::transform_exclusive_scan(
     rmm::exec_policy_nosync(stream),
     iter,
@@ -553,7 +559,11 @@ void decode_page_headers(pass_intermediate_data& pass,
       }),
     0,
     thrust::plus<size_t>{});
+  nvtxRangePop();
+  nvtxRangePush("create d_chunk_page_info");
   rmm::device_uvector<chunk_page_info> d_chunk_page_info(pass.chunks.size(), stream);
+  nvtxRangePop();
+  nvtxRangePush("for_each");
   thrust::for_each(rmm::exec_policy_nosync(stream),
                    iter,
                    iter + pass.chunks.size(),
@@ -562,8 +572,11 @@ void decode_page_headers(pass_intermediate_data& pass,
                     unsorted_pages    = unsorted_pages.begin()] __device__(size_t i) {
                      cpi[i].pages = &unsorted_pages[chunk_page_counts[i]];
                    });
-
+  nvtxRangePop();
+  nvtxRangePush("kernel_error ctr");
   kernel_error error_code(stream);
+  nvtxRangePop();
+  nvtxRangePop();
   DecodePageHeaders(pass.chunks.d_begin(),
                     d_chunk_page_info.begin(),
                     pass.chunks.size(),

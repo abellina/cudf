@@ -931,7 +931,9 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
     stream.synchronize();
   }
 
+  nvtxRangePush("pages.host_to_device_async");
   pages.host_to_device_async(stream);
+  nvtxRangePop();
 
   stream.synchronize();
   return decomp_pages;

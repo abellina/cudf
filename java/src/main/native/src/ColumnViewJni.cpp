@@ -21,6 +21,7 @@
 #include "jni_utils.hpp"
 #include "maps_column_view.hpp"
 
+#include <cudf/detail/nvtx/ranges.hpp>
 #include <cudf/aggregation.hpp>
 #include <cudf/binaryop.hpp>
 #include <cudf/column/column_factories.hpp>
@@ -1589,6 +1590,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_like(
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_binaryOpVV(
   JNIEnv* env, jclass, jlong lhs_view, jlong rhs_view, jint int_op, jint out_dtype, jint scale)
 {
+  CUDF_FUNC_RANGE();
   JNI_NULL_CHECK(env, lhs_view, "lhs is null", 0);
   JNI_NULL_CHECK(env, rhs_view, "rhs is null", 0);
   try {
@@ -1622,6 +1624,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_binaryOpVV(
 JNIEXPORT jint JNICALL Java_ai_rapids_cudf_ColumnView_fixedPointOutputScale(
   JNIEnv* env, jclass, jint int_op, jint lhs_scale, jint rhs_scale)
 {
+  CUDF_FUNC_RANGE();
   try {
     // we just return the scale as the types will be the same as the lhs input
     return cudf::binary_operation_fixed_point_scale(
@@ -1633,6 +1636,7 @@ JNIEXPORT jint JNICALL Java_ai_rapids_cudf_ColumnView_fixedPointOutputScale(
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_binaryOpVS(
   JNIEnv* env, jclass, jlong lhs_view, jlong rhs_ptr, jint int_op, jint out_dtype, jint scale)
 {
+  CUDF_FUNC_RANGE();
   JNI_NULL_CHECK(env, lhs_view, "lhs is null", 0);
   JNI_NULL_CHECK(env, rhs_ptr, "rhs is null", 0);
   try {
@@ -1645,12 +1649,14 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_ColumnView_binaryOpVS(
     if (lhs->type().id() == cudf::type_id::STRUCT) {
       auto out = make_fixed_width_column(n_data_type, lhs->size(), cudf::mask_state::UNALLOCATED);
 
+      nvtxRangePush("setting null mask");
       if (op == cudf::binary_operator::NULL_EQUALS) {
         out->set_null_mask(rmm::device_buffer{}, 0);
       } else {
         auto [new_mask, new_null_count] = cudf::binops::scalar_col_valid_mask_and(*lhs, *rhs);
         out->set_null_mask(std::move(new_mask), new_null_count);
       }
+      nvtxRangePop();
 
       auto rhsv     = cudf::make_column_from_scalar(*rhs, 1);
       auto out_view = out->mutable_view();
