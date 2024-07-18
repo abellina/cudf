@@ -31,6 +31,7 @@
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -255,7 +256,7 @@ struct scatter_gather_functor {
 
     cudf::detail::grid_1d grid{input.size(), block_size, per_thread};
 
-    rmm::device_scalar<cudf::size_type> null_count{0, stream};
+    cudf::device_scalar<cudf::size_type> null_count{0, stream};
     if (output.nullable()) {
       // Have to initialize the output mask to all zeros because we may update
       // it with atomicOr().

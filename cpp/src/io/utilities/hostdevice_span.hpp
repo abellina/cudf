@@ -19,6 +19,9 @@
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
 
+#include <cudf/utilities/pinned_memory.hpp>
+#include <cudf/detail/utilities/cuda_memcpy.hpp>
+
 #include <rmm/cuda_stream_view.hpp>
 
 namespace cudf::detail {
@@ -177,9 +180,27 @@ class hostdevice_span {
 
   void host_to_device_async(rmm::cuda_stream_view stream)
   {
+    if (size_bytes() == 0) {
+      return;
+    }
+
     nvtxRangePush("hostdevice_span h2d");
-    CUDF_CUDA_TRY(
-      cudaMemcpyAsync(device_ptr(), host_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    //CUDF_CUDA_TRY(
+    //  cudaMemcpyAsync(device_ptr(), host_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    auto host_mr = cudf::get_pinned_memory_resource();
+    uint8_t* pinned_value = reinterpret_cast<uint8_t*>(host_mr.allocate(size_bytes()));
+    memcpy(pinned_value, host_ptr(), size_bytes());
+    cuda_memcpy_async(
+        device_ptr(),
+        pinned_value,
+        size_bytes(),
+        cudf::detail::host_memory_kind::PINNED,
+        stream);
+
+    // would deallocate_async work? 
+    // need this synchronize as written...
+    stream.synchronize();
+    host_mr.deallocate(pinned_value, size_bytes());
     nvtxRangePop();
   }
 
@@ -191,9 +212,21 @@ class hostdevice_span {
 
   void device_to_host_async(rmm::cuda_stream_view stream)
   {
+    if (size_bytes() == 0) {
+      return;
+    }
     nvtxRangePush("hostdevice_span d2h");
-    CUDF_CUDA_TRY(
-      cudaMemcpyAsync(host_ptr(), device_ptr(), size_bytes(), cudaMemcpyDefault, stream.value()));
+    auto host_mr = cudf::get_pinned_memory_resource();
+    uint8_t* pinned_value = reinterpret_cast<uint8_t*>(host_mr.allocate(size_bytes()));
+    cuda_memcpy_async(
+        pinned_value,
+        device_ptr(),
+        size_bytes(),
+        cudf::detail::host_memory_kind::PINNED,
+        stream);
+    stream.synchronize();
+    memcpy(host_ptr(), pinned_value, size_bytes());
+    host_mr.deallocate(pinned_value, size_bytes());
     nvtxRangePop();
   }
 

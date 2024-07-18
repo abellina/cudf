@@ -24,6 +24,7 @@
 #include <cudf/dictionary/dictionary_column_view.hpp>
 #include <cudf/utilities/span.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_scalar.hpp>
@@ -134,7 +135,7 @@ struct var_functor {
 
     // set nulls
     auto result_view  = mutable_column_device_view::create(*result, stream);
-    auto null_count   = rmm::device_scalar<cudf::size_type>(0, stream, mr);
+    auto null_count   = cudf::device_scalar<cudf::size_type>(0, stream, mr);
     auto d_null_count = null_count.data();
     thrust::for_each_n(
       rmm::exec_policy(stream),

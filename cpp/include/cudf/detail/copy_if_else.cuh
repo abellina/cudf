@@ -21,8 +21,8 @@
 #include <cudf/column/column_factories.hpp>
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/integer_utils.hpp>
+#include <cudf/device_scalar.hpp>
 
-#include <rmm/device_scalar.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <thrust/iterator/iterator_traits.h>
@@ -171,7 +171,7 @@ std::unique_ptr<column> copy_if_else(bool nullable,
 
   // if we have validity in the output
   if (nullable) {
-    rmm::device_scalar<size_type> valid_count{0, stream};
+    cudf::device_scalar<size_type> valid_count{0, stream};
 
     // call the kernel
     copy_if_else_kernel<block_size, Element, LeftIter, RightIter, FilterFn, true>

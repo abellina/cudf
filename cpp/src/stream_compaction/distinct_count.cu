@@ -133,11 +133,13 @@ cudf::size_type distinct_count(table_view const& keys,
   if (num_rows == 0) { return 0; }  // early exit for empty input
   auto const has_nulls = nullate::DYNAMIC{cudf::has_nested_nulls(keys)};
 
+  nvtxRangePush("make row_comparator");
   auto const preprocessed_input =
     cudf::experimental::row::hash::preprocessed_table::create(keys, stream);
   auto const row_hasher = cudf::experimental::row::hash::row_hasher(preprocessed_input);
   auto const hash_key   = row_hasher.device_hasher(has_nulls);
   auto const row_comp   = cudf::experimental::row::equality::self_comparator(preprocessed_input);
+  nvtxRangePop();
 
   auto const comparator_helper = [&](auto const row_equal) {
     using hasher_type = decltype(hash_key);

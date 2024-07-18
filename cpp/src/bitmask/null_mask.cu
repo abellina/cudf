@@ -28,6 +28,7 @@
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
@@ -329,7 +330,7 @@ cudf::size_type count_set_bits(bitmask_type const* bitmask,
 
   cudf::detail::grid_1d grid(num_words, block_size);
 
-  rmm::device_scalar<size_type> non_zero_count(0, stream);
+  cudf::device_scalar<size_type> non_zero_count(0, stream);
 
   count_set_bits_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(

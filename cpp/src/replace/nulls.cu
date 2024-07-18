@@ -40,6 +40,7 @@
 #include <cudf/utilities/traits.hpp>
 #include <cudf/utilities/type_checks.hpp>
 #include <cudf/utilities/type_dispatcher.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
@@ -137,7 +138,7 @@ struct replace_nulls_column_kernel_forwarder {
     auto device_out         = cudf::mutable_column_device_view::create(output_view, stream);
     auto device_replacement = cudf::column_device_view::create(replacement, stream);
 
-    rmm::device_scalar<cudf::size_type> valid_counter(0, stream);
+    cudf::device_scalar<cudf::size_type> valid_counter(0, stream);
     cudf::size_type* valid_count = valid_counter.data();
 
     replace<<<grid.num_blocks, BLOCK_SIZE, 0, stream.value()>>>(

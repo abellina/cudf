@@ -29,6 +29,7 @@
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
@@ -285,7 +286,7 @@ std::unique_ptr<column> replace_character_parallel(strings_column_view const& in
 
   // Count the number of targets in the entire column.
   // Note this may over-count in the case where a target spans adjacent strings.
-  rmm::device_scalar<int64_t> d_target_count(0, stream);
+  cudf::device_scalar<int64_t> d_target_count(0, stream);
   constexpr int64_t block_size         = 512;
   constexpr size_type bytes_per_thread = 4;
   auto const num_blocks                = util::div_rounding_up_safe(

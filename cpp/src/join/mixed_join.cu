@@ -29,6 +29,7 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -178,7 +179,7 @@ mixed_join(
     matches_per_row_span = output_size_data->second;
   } else {
     // Allocate storage for the counter used to get the size of the join output
-    rmm::device_scalar<std::size_t> size(0, stream, mr);
+    cudf::device_scalar<std::size_t> size(0, stream, mr);
 
     matches_per_row =
       rmm::device_uvector<size_type>{static_cast<std::size_t>(outer_num_rows), stream, mr};
@@ -422,7 +423,7 @@ compute_mixed_join_output_size(table_view const& left_equality,
   auto const shmem_size_per_block = parser.shmem_per_thread * config.num_threads_per_block;
 
   // Allocate storage for the counter used to get the size of the join output
-  rmm::device_scalar<std::size_t> size(0, stream, mr);
+  cudf::device_scalar<std::size_t> size(0, stream, mr);
 
   auto const preprocessed_probe =
     experimental::row::equality::preprocessed_table::create(probe, stream);

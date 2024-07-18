@@ -34,6 +34,7 @@
 #include <cudf/utilities/bit.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/device_uvector.hpp>
 #include <rmm/exec_policy.hpp>
@@ -1031,7 +1032,7 @@ std::unique_ptr<cudf::column> get_json_object(cudf::strings_column_view const& c
     cudf::detail::create_null_mask(col.size(), mask_state::UNINITIALIZED, stream, mr);
 
   // compute results
-  rmm::device_scalar<size_type> d_valid_count{0, stream};
+  cudf::device_scalar<size_type> d_valid_count{0, stream};
 
   get_json_object_kernel<block_size>
     <<<grid.num_blocks, grid.num_threads_per_block, 0, stream.value()>>>(

@@ -27,6 +27,7 @@
 #include <cudf/utilities/error.hpp>
 #include <cudf/utilities/traits.hpp>
 #include <cudf/wrappers/durations.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <nanoarrow/nanoarrow.hpp>
 
@@ -158,7 +159,7 @@ std::enable_if_t<std::is_same_v<T, cudf::string_view>, void> populate_from_col(
     ArrowArrayBuffer(arr, 2)->size_bytes = sview.chars_size(cudf::get_default_stream());
     ArrowArrayBuffer(arr, 2)->data       = const_cast<uint8_t*>(view.data<uint8_t>());
   } else {
-    auto zero          = rmm::device_scalar<int32_t>(0, cudf::get_default_stream());
+    auto zero          = cudf::device_scalar<int32_t>(0, cudf::get_default_stream());
     uint8_t const* ptr = reinterpret_cast<uint8_t*>(zero.data());
     nanoarrow::BufferInitWrapped(ArrowArrayBuffer(arr, 1), std::move(zero), ptr, 4);
   }

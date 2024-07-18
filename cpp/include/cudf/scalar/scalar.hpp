@@ -20,10 +20,11 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/traits.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
-#include <rmm/device_scalar.hpp>
+#include <cudf/device_scalar.hpp>
 #include <rmm/mr/device/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -95,7 +96,7 @@ class scalar {
 
  protected:
   data_type _type{type_id::EMPTY};     ///< Logical type of value in the scalar
-  rmm::device_scalar<bool> _is_valid;  ///< Device bool signifying validity
+  cudf::device_scalar<bool> _is_valid;  ///< Device bool signifying validity
 
   scalar() = delete;
 
@@ -202,7 +203,7 @@ class fixed_width_scalar : public scalar {
   [[nodiscard]] T const* data() const;
 
  protected:
-  rmm::device_scalar<T> _data;  ///< device memory containing the value
+  cudf::device_scalar<T> _data;  ///< device memory containing the value
 
   fixed_width_scalar() = delete;
 
@@ -227,7 +228,7 @@ class fixed_width_scalar : public scalar {
    * @param stream CUDA stream used for device memory operations.
    * @param mr Device memory resource to use for device memory allocation.
    */
-  fixed_width_scalar(rmm::device_scalar<T>&& data,
+  fixed_width_scalar(cudf::device_scalar<T>&& data,
                      bool is_valid                     = true,
                      rmm::cuda_stream_view stream      = cudf::get_default_stream(),
                      rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
@@ -289,7 +290,7 @@ class numeric_scalar : public detail::fixed_width_scalar<T> {
    * @param stream CUDA stream used for device memory operations.
    * @param mr Device memory resource to use for device memory allocation.
    */
-  numeric_scalar(rmm::device_scalar<T>&& data,
+  numeric_scalar(cudf::device_scalar<T>&& data,
                  bool is_valid                     = true,
                  rmm::cuda_stream_view stream      = cudf::get_default_stream(),
                  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
@@ -381,7 +382,7 @@ class fixed_point_scalar : public scalar {
    * @param stream CUDA stream used for device memory operations.
    * @param mr Device memory resource to use for device memory allocation.
    */
-  fixed_point_scalar(rmm::device_scalar<rep_type>&& data,
+  fixed_point_scalar(cudf::device_scalar<rep_type>&& data,
                      numeric::scale_type scale,
                      bool is_valid                     = true,
                      rmm::cuda_stream_view stream      = cudf::get_default_stream(),
@@ -422,7 +423,7 @@ class fixed_point_scalar : public scalar {
   [[nodiscard]] rep_type const* data() const;
 
  protected:
-  rmm::device_scalar<rep_type> _data;  ///< device memory containing the value
+  cudf::device_scalar<rep_type> _data;  ///< device memory containing the value
 };
 
 /**
@@ -496,7 +497,7 @@ class string_scalar : public scalar {
    * @param stream CUDA stream used for device memory operations.
    * @param mr Device memory resource to use for device memory allocation.
    */
-  string_scalar(rmm::device_scalar<value_type>& data,
+  string_scalar(cudf::device_scalar<value_type>& data,
                 bool is_valid                     = true,
                 rmm::cuda_stream_view stream      = cudf::get_default_stream(),
                 rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());
@@ -610,7 +611,7 @@ class chrono_scalar : public detail::fixed_width_scalar<T> {
    * @param stream CUDA stream used for device memory operations.
    * @param mr Device memory resource to use for device memory allocation.
    */
-  chrono_scalar(rmm::device_scalar<T>&& data,
+  chrono_scalar(cudf::device_scalar<T>&& data,
                 bool is_valid                     = true,
                 rmm::cuda_stream_view stream      = cudf::get_default_stream(),
                 rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource());

@@ -27,6 +27,7 @@
 #include <cudf/scalar/scalar_device_view.cuh>
 #include <cudf/scalar/scalar_factories.hpp>
 #include <cudf/utilities/default_stream.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
@@ -70,8 +71,8 @@ struct get_element_functor {
   {
     auto device_col = column_device_view::create(input, stream);
 
-    rmm::device_scalar<string_view> temp_data(stream, mr);
-    rmm::device_scalar<bool> temp_valid(stream, mr);
+    cudf::device_scalar<string_view> temp_data(stream, mr);
+    cudf::device_scalar<bool> temp_valid(stream, mr);
 
     device_single_thread(
       [buffer   = temp_data.data(),
@@ -155,8 +156,8 @@ struct get_element_functor {
 
     auto device_col = column_device_view::create(input, stream);
 
-    rmm::device_scalar<Type> temp_data(stream, mr);
-    rmm::device_scalar<bool> temp_valid(stream, mr);
+    cudf::device_scalar<Type> temp_data(stream, mr);
+    cudf::device_scalar<bool> temp_valid(stream, mr);
 
     device_single_thread(
       [buffer   = temp_data.data(),

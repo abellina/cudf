@@ -24,7 +24,7 @@
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
-#include <rmm/device_scalar.hpp>
+#include <cudf/device_scalar.hpp>
 #include <rmm/exec_policy.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -67,7 +67,7 @@ std::unique_ptr<scalar> reduce(InputIterator d_in,
 {
   auto const binary_op     = cudf::detail::cast_functor<OutputType>(op.get_binary_op());
   auto const initial_value = init.value_or(op.template get_identity<OutputType>());
-  auto dev_result          = rmm::device_scalar<OutputType>{initial_value, stream, mr};
+  auto dev_result          = cudf::device_scalar<OutputType>{initial_value, stream, mr};
 
   // Allocate temporary storage
   rmm::device_buffer d_temp_storage;
@@ -127,7 +127,7 @@ std::unique_ptr<scalar> reduce(InputIterator d_in,
 {
   auto const binary_op     = cudf::detail::cast_functor<OutputType>(op.get_binary_op());
   auto const initial_value = init.value_or(op.template get_identity<OutputType>());
-  auto dev_result          = rmm::device_scalar<OutputType>{initial_value, stream};
+  auto dev_result          = cudf::device_scalar<OutputType>{initial_value, stream};
 
   // Allocate temporary storage
   rmm::device_buffer d_temp_storage;
@@ -194,7 +194,7 @@ std::unique_ptr<scalar> reduce(InputIterator d_in,
   auto const binary_op     = cudf::detail::cast_functor<IntermediateType>(op.get_binary_op());
   auto const initial_value = op.template get_identity<IntermediateType>();
 
-  rmm::device_scalar<IntermediateType> intermediate_result{initial_value, stream};
+  cudf::device_scalar<IntermediateType> intermediate_result{initial_value, stream};
 
   // Allocate temporary storage
   rmm::device_buffer d_temp_storage;

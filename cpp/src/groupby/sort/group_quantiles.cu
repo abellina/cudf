@@ -25,6 +25,7 @@
 #include <cudf/dictionary/detail/iterator.cuh>
 #include <cudf/dictionary/dictionary_column_view.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_uvector.hpp>
@@ -108,7 +109,7 @@ struct quantiles_functor {
     auto values_view     = column_device_view::create(values, stream);
     auto group_size_view = column_device_view::create(group_sizes, stream);
     auto result_view     = mutable_column_device_view::create(result->mutable_view(), stream);
-    auto null_count      = rmm::device_scalar<cudf::size_type>(0, stream, mr);
+    auto null_count      = cudf::device_scalar<cudf::size_type>(0, stream, mr);
 
     // For each group, calculate quantile
     if (!cudf::is_dictionary(values.type())) {

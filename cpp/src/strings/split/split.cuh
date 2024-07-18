@@ -25,6 +25,7 @@
 #include <cudf/strings/string_view.cuh>
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/resource_ref.hpp>
@@ -361,7 +362,7 @@ std::pair<std::unique_ptr<column>, rmm::device_uvector<string_index_pair>> split
     cudf::detail::offsetalator_factory::make_input_iterator(input.offsets(), input.offset());
 
   // count the number of delimiters in the entire column
-  rmm::device_scalar<int64_t> d_count(0, stream);
+  cudf::device_scalar<int64_t> d_count(0, stream);
   constexpr int64_t block_size         = 512;
   constexpr size_type bytes_per_thread = 4;
   auto const num_blocks                = util::div_rounding_up_safe(

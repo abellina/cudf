@@ -29,6 +29,7 @@
 #include <cudf/strings/strings_column_view.hpp>
 #include <cudf/utilities/default_stream.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/device_scalar.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/exec_policy.hpp>
@@ -348,7 +349,7 @@ std::unique_ptr<column> convert_case(strings_column_view const& input,
   // This check incurs ~20% performance hit for smaller strings and so we only use it
   // after the threshold check above. The check makes very little impact for long strings
   // but results in a large performance gain when the input contains only single-byte characters.
-  rmm::device_scalar<int64_t> mb_count(0, stream);
+  cudf::device_scalar<int64_t> mb_count(0, stream);
   // cudf::detail::grid_1d is limited to size_type elements
   auto const num_blocks = util::div_rounding_up_safe(chars_size / bytes_per_thread, block_size);
   // we only need to check every other byte since either will contain high bit
