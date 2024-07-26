@@ -217,7 +217,8 @@ class hostdevice_span {
     }
     nvtxRangePush("hostdevice_span d2h");
     auto host_mr = cudf::get_pinned_memory_resource();
-    uint8_t* pinned_value = reinterpret_cast<uint8_t*>(host_mr.allocate(size_bytes()));
+    uint8_t* pinned_value = reinterpret_cast<uint8_t*>(
+      host_mr.allocate(size_bytes()));
     cuda_memcpy_async(
         pinned_value,
         device_ptr(),

@@ -238,7 +238,8 @@ class device_uvector {
     }
 
     auto host_mr = get_pinned_memory_resource();
-    value_type* pinned_value = reinterpret_cast<value_type*>(host_mr.allocate(sizeof(value)));
+    value_type* pinned_value = 
+      reinterpret_cast<value_type*>(host_mr.allocate_async(sizeof(value), stream));
     *pinned_value = value;
     cuda_memcpy_async(
         element_ptr(element_index),
@@ -246,7 +247,7 @@ class device_uvector {
         sizeof(value),
         cudf::detail::host_memory_kind::PINNED,
         stream);
-    host_mr.deallocate(pinned_value, sizeof(value)); 
+    host_mr.deallocate_async(pinned_value, sizeof(value), stream); 
   }
 
   // We delete the r-value reference overload to prevent asynchronously copying from a literal or
