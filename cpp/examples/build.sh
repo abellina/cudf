@@ -57,6 +57,7 @@ build_example() {
 }
 
 build_example basic
+build_example ast
 build_example tpch
 build_example strings
 build_example nested_types
