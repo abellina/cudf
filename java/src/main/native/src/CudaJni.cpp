@@ -433,4 +433,61 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_deviceSynchronize(JNIEnv* env, j
   CATCH_STD(env, );
 }
 
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_allocFabric(JNIEnv* env, jclass clazz, jlong jsize)
+{
+  cudf::jni::auto_set_device(env);
+  CUdevice cu_dev;
+  cuDeviceGet(&cu_dev, Thread_device);
+  size_t size = static_cast<size_t>(jsize);
+
+  size_t granularity = 0;
+  CUmemAllocationProp prop = {};
+  CUmemAccessDesc accessDesc = {};
+  CUmemGenericAllocationHandle handle;
+  int flag = 0;
+
+  prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_FABRIC;
+  prop.location.id = cu_dev;
+  prop.allocFlags.gpuDirectRDMACapable = 1;
+  CUdeviceptr ptr;
+
+  cuDeviceGetAttribute(&flag, CU_DEVICE_ATTRIBUTE_GPU_DIRECT_RDMA_SUPPORTED, cu_dev);
+  if (flag) prop.allocFlags.gpuDirectRDMACapable = 1;
+
+  cuMemGetAllocationGranularity(&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM);
+  //TODO: ALIGN_SIZE(size, granularity);
+
+  /* Allocate the physical memory on the device */
+  cuMemCreate(&handle, size, &prop, 0);
+
+  /* Reserve a virtual address range */
+  cuMemAddressReserve(&ptr, size, granularity, 0, 0);
+
+  /* Map the virtual address range to the physical allocation */
+  cuMemMap(ptr, size, 0, handle, 0);
+
+  /* Now allow RW access to the newly mapped memory */
+  accessDesc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  accessDesc.location.id = cu_dev;
+  accessDesc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  cuMemSetAccess(ptr, size, &accessDesc, 1);
+
+  //printf("created fabric memory at %p, size = %ld\n", *ptr, size);
+  return static_cast<jlong>(ptr);
+}
+
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_freeFabric(JNIEnv* env, jclass clazz, jlong jptr) {
+  size_t size = 0;
+  void* ptr = reinterpret_cast<void*>(jptr);
+  CUmemGenericAllocationHandle handle;
+  cuMemRetainAllocationHandle(&handle, ptr);
+  cuMemRelease(handle);
+  cuMemGetAddressRange(NULL, &size, (CUdeviceptr)ptr);
+  cuMemUnmap((CUdeviceptr)ptr, size);
+  cuMemRelease(handle);
+  cuMemAddressFree((CUdeviceptr)ptr, size);
+}
+
 }  // extern "C"
