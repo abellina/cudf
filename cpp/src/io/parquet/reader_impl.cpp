@@ -224,9 +224,9 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
   auto streams       = cudf::detail::fork_streams(_stream, nkernels);
 
   // launch string decoder
-  std::cout << "decode_page_data: start DecodeStringPageData" << std::endl;
   int s_idx = 0;
   if (BitAnd(kernel_mask, decode_kernel_mask::STRING) != 0) {
+    std::cout << "decode_page_data: start DecodeStringPageData" << std::endl;
     DecodeStringPageData(subpass.pages,
                          pass.chunks,
                          num_rows,
@@ -234,12 +234,14 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                          level_type_size,
                          error_code.data(),
                          streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodeStringPageData" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodeStringPageData" << std::endl;
+  
 
-  std::cout << "decode_page_data: start DecodeDeltaByteArray" << std::endl;
+  
   // launch delta byte array decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::DELTA_BYTE_ARRAY) != 0) {
+    std::cout << "decode_page_data: start DecodeDeltaByteArray" << std::endl;
     DecodeDeltaByteArray(subpass.pages,
                          pass.chunks,
                          num_rows,
@@ -247,12 +249,14 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                          level_type_size,
                          error_code.data(),
                          streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodeDeltaByteArray" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodeDeltaByteArray" << std::endl;
+  
 
-  std::cout << "decode_page_data: DecodeDeltaLengthByteArray" << std::endl;
+  
   // launch delta length byte array decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::DELTA_LENGTH_BA) != 0) {
+    std::cout << "decode_page_data: DecodeDeltaLengthByteArray" << std::endl;
     DecodeDeltaLengthByteArray(subpass.pages,
                                pass.chunks,
                                num_rows,
@@ -260,12 +264,12 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                                level_type_size,
                                error_code.data(),
                                streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodeDeltaLengthByteArray" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodeDeltaLengthByteArray" << std::endl;
 
-  std::cout << "decode_page_data: start DecodeDeltaBinary" << std::endl;
   // launch delta binary decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::DELTA_BINARY) != 0) {
+    std::cout << "decode_page_data: start DecodeDeltaBinary" << std::endl;
     DecodeDeltaBinary(subpass.pages,
                       pass.chunks,
                       num_rows,
@@ -273,12 +277,13 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                       level_type_size,
                       error_code.data(),
                       streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodeDeltaBinary" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodeDeltaBinary" << std::endl;
 
-  std::cout << "decode_page_data: start DecodeSplitPageFixedWidthData_FLAT" << std::endl;
+  
   // launch byte stream split decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::BYTE_STREAM_SPLIT_FIXED_WIDTH_FLAT) != 0) {
+    std::cout << "decode_page_data: start DecodeSplitPageFixedWidthData_FLAT" << std::endl;
     DecodeSplitPageFixedWidthData(subpass.pages,
                                   pass.chunks,
                                   num_rows,
@@ -287,12 +292,12 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                                   false,
                                   error_code.data(),
                                   streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodeSplitPageFixedWidthData_FLAT" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodeSplitPageFixedWidthData_FLAT" << std::endl;
 
-  std::cout << "decode_page_data: start DecodeSplitPageFixedWidthData_NESTED" << std::endl;
   // launch byte stream split decoder, for nested columns
   if (BitAnd(kernel_mask, decode_kernel_mask::BYTE_STREAM_SPLIT_FIXED_WIDTH_NESTED) != 0) {
+    std::cout << "decode_page_data: start DecodeSplitPageFixedWidthData_NESTED" << std::endl;
     DecodeSplitPageFixedWidthData(subpass.pages,
                                   pass.chunks,
                                   num_rows,
@@ -301,12 +306,12 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                                   true,
                                   error_code.data(),
                                   streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodeSplitPageFixedWidthData_NESTED" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodeSplitPageFixedWidthData_NESTED" << std::endl;
-
-  std::cout << "decode_page_data: start DecodeSplitPageData" << std::endl;
+  
   // launch byte stream split decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::BYTE_STREAM_SPLIT) != 0) {
+    std::cout << "decode_page_data: start DecodeSplitPageData" << std::endl;
     DecodeSplitPageData(subpass.pages,
                         pass.chunks,
                         num_rows,
@@ -314,12 +319,12 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                         level_type_size,
                         error_code.data(),
                         streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodeSplitPageData" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodeSplitPageData" << std::endl;
-
-  std::cout << "decode_page_data: start DecodePageDataFixed_NO_DICT" << std::endl;
+  
   // launch fixed width type decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT) != 0) {
+    std::cout << "decode_page_data: start DecodePageDataFixed_NO_DICT" << std::endl;
     DecodePageDataFixed(subpass.pages,
                         pass.chunks,
                         num_rows,
@@ -328,12 +333,12 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                         false,
                         error_code.data(),
                         streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodePageDataFixed_NO_DICT" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodePageDataFixed_NO_DICT" << std::endl;
-
-  std::cout << "decode_page_data: start DecodePageDataFixed_NESTED" << std::endl;
+  
   // launch fixed width type decoder, for nested columns
   if (BitAnd(kernel_mask, decode_kernel_mask::FIXED_WIDTH_NO_DICT_NESTED) != 0) {
+    std::cout << "decode_page_data: start DecodePageDataFixed_NESTED" << std::endl;
     DecodePageDataFixed(subpass.pages,
                         pass.chunks,
                         num_rows,
@@ -342,13 +347,12 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                         true,
                         error_code.data(),
                         streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodePageDataFixed_NO_DICT_NESTED" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodePageDataFixed_NO_DICT_NESTED" << std::endl;
-
-  std::cout << "decode_page_data: start DecodePageDataFixed_DICT" << std::endl;
-
+  
   // launch fixed width type decoder with dictionaries
   if (BitAnd(kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT) != 0) {
+    std::cout << "decode_page_data: start DecodePageDataFixed_DICT" << std::endl;
     DecodePageDataFixedDict(subpass.pages,
                             pass.chunks,
                             num_rows,
@@ -357,12 +361,12 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                             false,
                             error_code.data(),
                             streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodePageDataFixed_DICT" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodePageDataFixed_DICT" << std::endl;
-
-  std::cout << "decode_page_data: start DecodePageDataFixed_DICT_NESTED" << std::endl;
+  
   // launch fixed width type decoder with dictionaries, for nested columns
   if (BitAnd(kernel_mask, decode_kernel_mask::FIXED_WIDTH_DICT_NESTED) != 0) {
+    std::cout << "decode_page_data: start DecodePageDataFixed_DICT_NESTED" << std::endl;
     DecodePageDataFixedDict(subpass.pages,
                             pass.chunks,
                             num_rows,
@@ -371,12 +375,12 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                             true,
                             error_code.data(),
                             streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodePageDataFixed_DICT_NESTED" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodePageDataFixed_DICT_NESTED" << std::endl;
 
-  std::cout << "decode_page_data: start DecodePageDataFixed_GENERAL" << std::endl;
   // launch the catch-all page decoder
   if (BitAnd(kernel_mask, decode_kernel_mask::GENERAL) != 0) {
+    std::cout << "decode_page_data: start DecodePageDataFixed_GENERAL" << std::endl;
     DecodePageData(subpass.pages,
                    pass.chunks,
                    num_rows,
@@ -384,9 +388,9 @@ void reader::impl::decode_page_data(read_mode mode, size_t skip_rows, size_t num
                    level_type_size,
                    error_code.data(),
                    streams[s_idx++]);
+    std::cout << "decode_page_data: launched! DecodePageDataFixed_GENERAL" << std::endl;
   }
-  std::cout << "decode_page_data: launched! DecodePageDataFixed_GENERAL" << std::endl;
-
+  
   // synchronize the streams
   cudf::detail::join_streams(streams, _stream);
   std::cout << "decode_page_data: join_streams" << std::endl;
