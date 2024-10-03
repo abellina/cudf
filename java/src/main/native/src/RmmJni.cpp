@@ -24,6 +24,7 @@
 #include <rmm/mr/device/arena_memory_resource.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/limiting_resource_adaptor.hpp>
 #include <rmm/mr/device/logging_resource_adaptor.hpp>
 #include <rmm/mr/device/managed_memory_resource.hpp>
@@ -775,11 +776,16 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_releaseArenaMemoryResource(JNIEnv
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaAsyncMemoryResource(JNIEnv* env,
                                                                            jclass clazz,
                                                                            jlong init,
-                                                                           jlong release)
+                                                                           jlong release,
+                                                                           jboolean fabric)
 {
   try {
     cudf::jni::auto_set_device(env);
-    auto ret = new rmm::mr::cuda_async_memory_resource(init, release);
+    auto handle_type = !fabric ? 
+      rmm::mr::cuda_async_memory_resource::allocation_handle_type::none : 
+      rmm::mr::cuda_async_memory_resource::allocation_handle_type::fabric;
+    std::cout << "trying to allocate fabric? " << fabric << std::endl;
+    auto ret = new rmm::mr::cuda_async_memory_resource(init, release, handle_type);
     return reinterpret_cast<jlong>(ret);
   }
   CATCH_STD(env, 0)
@@ -934,8 +940,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_nativeResetScopedMaxTotalBytesAll
     auto mr = reinterpret_cast<tracking_resource_adaptor<rmm::mr::device_memory_resource>*>(ptr);
     mr->reset_scoped_max_total_allocated(init);
   }
-  CATCH_STD(env, )
-}
+  CATCH_STD(env, ) }
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_nativeGetScopedMaxTotalBytesAllocated(JNIEnv* env,
                                                                                       jclass clazz,
@@ -1062,6 +1067,42 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocFromPinnedPool(JNIEnv* env,
   } catch (std::exception const& unused) {
     return -1;
   }
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocFromResourceInternal(
+  JNIEnv* env,
+  jclass clazz,
+  jlong pool_ptr,
+  jlong size,
+  jlong stream)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto c_stream = rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(stream));
+    auto pool = reinterpret_cast<rmm::mr::device_memory_resource*>(pool_ptr);
+    void* ret = pool->allocate(size, c_stream);
+    return reinterpret_cast<jlong>(ret);
+  } catch (std::exception const& unused) {
+    return -1;
+  }
+}
+
+JNIEXPORT void JNICALL freeFromResource(
+  JNIEnv* env, 
+  jclass clazz, 
+  jlong pool_ptr, 
+  jlong ptr, 
+  jlong size, 
+  jlong stream) 
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto c_stream = rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(stream));
+    auto pool = reinterpret_cast<rmm::mr::device_memory_resource*>(pool_ptr);
+    auto cptr = reinterpret_cast<void*>(ptr);
+    pool->deallocate(cptr, size, c_stream);
+  } 
+  CATCH_STD(env, )
 }
 
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_freeFromPinnedPool(
