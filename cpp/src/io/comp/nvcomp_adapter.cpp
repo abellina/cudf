@@ -130,7 +130,7 @@ void batched_decompress(compression_type compression,
                                                       nvcomp_statuses.data(),
                                                       stream.value());
   CUDF_EXPECTS(nvcomp_status == nvcompStatus_t::nvcompSuccess, "unable to perform decompression");
-  stream.sync();
+  stream.synchronize();
   std::cout << "done! calling bached_decompress_async" << std::endl;
 
   update_compression_results(nvcomp_statuses, actual_uncompressed_data_sizes, results, stream);
