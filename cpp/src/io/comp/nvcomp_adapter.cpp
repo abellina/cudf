@@ -111,7 +111,13 @@ void batched_decompress(compression_type compression,
   // Temporary space required for decompression
   auto const temp_size = batched_decompress_temp_size(
     compression, num_chunks, max_uncomp_chunk_size, max_total_uncomp_size);
+
+  std::cout << "batched_decompress: batched_decompress_temp_size: num_pages: "<< num_chunks 
+          << " max_page_decompressed_size: " << max_uncomp_chunk_size
+          << " total_decompressed_size: " << max_total_uncomp_size
+          << " temp size: " << temp_size << std::endl;
   rmm::device_buffer scratch(temp_size, stream);
+  std::cout << "calling bached_decompress_async" << std::endl;
   auto const nvcomp_status = batched_decompress_async(compression,
                                                       nvcomp_args.input_data_ptrs.data(),
                                                       nvcomp_args.input_data_sizes.data(),
@@ -124,6 +130,7 @@ void batched_decompress(compression_type compression,
                                                       nvcomp_statuses.data(),
                                                       stream.value());
   CUDF_EXPECTS(nvcomp_status == nvcompStatus_t::nvcompSuccess, "unable to perform decompression");
+  std::cout << "done! calling bached_decompress_async" << std::endl;
 
   update_compression_results(nvcomp_statuses, actual_uncompressed_data_sizes, results, stream);
 }

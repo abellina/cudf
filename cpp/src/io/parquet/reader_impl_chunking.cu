@@ -39,6 +39,7 @@
 #include <thrust/unique.h>
 
 #include <numeric>
+#include <iostream>
 
 namespace cudf::io::parquet::detail {
 
@@ -892,6 +893,7 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
         }
         break;
       case ZSTD:
+        std::cout << "decompress_page_data: start batched_decompress(ZSTD)" << std::endl;
         nvcomp::batched_decompress(nvcomp::compression_type::ZSTD,
                                    d_comp_in_view,
                                    d_comp_out_view,
@@ -899,6 +901,7 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
                                    codec.max_decompressed_size,
                                    codec.total_decomp_size,
                                    stream);
+        std::cout << "decompress_page_data: after batched_decompess(ZSTD) launched" << std::endl;
         break;
       case BROTLI:
         gpu_debrotli(d_comp_in_view,
@@ -944,6 +947,7 @@ std::vector<row_range> compute_page_splits_by_row(device_span<cumulative_page_in
   pages.host_to_device_async(stream);
 
   stream.synchronize();
+  std::cout << "decompress_page_data: done!" << std::endl;
   return decomp_pages;
 }
 
@@ -1099,12 +1103,19 @@ struct get_decomp_scratch {
         }
         break;
 
-      case ZSTD:
-        return cudf::io::nvcomp::batched_decompress_temp_size(
+      case ZSTD: {
+        size_t result = 123;
+        result = cudf::io::nvcomp::batched_decompress_temp_size(
           cudf::io::nvcomp::compression_type::ZSTD,
           di.num_pages,
           di.max_page_decompressed_size,
           di.total_decompressed_size);
+        std::cout << "batched_decompress_temp_size: num_pages: "<< di.num_pages 
+                  << " max_page_decompressed_size: " << di.max_page_decompressed_size 
+                  << " total_decompressed_size: " << di.total_decompressed_size 
+                  << " temp size: " << result << std::endl;
+        return result;
+      }
       case LZ4_RAW:
         return cudf::io::nvcomp::batched_decompress_temp_size(
           cudf::io::nvcomp::compression_type::LZ4,
@@ -1210,6 +1221,7 @@ void reader::impl::handle_chunking(read_mode mode)
 
 void reader::impl::setup_next_pass(read_mode mode)
 {
+  std::cout << "starting setup_next_pass" << std::endl;
   auto const num_passes = _file_itm_data.num_passes();
 
   // always create the pass struct, even if we end up with no work.
@@ -1276,16 +1288,20 @@ void reader::impl::setup_next_pass(read_mode mode)
     //   is possible to load this by just capping the number of rows read, we cannot tell
     //   which rows are invalid so we may be returning bad data. in addition, this mismatch
     //   confuses the chunked reader
+    std::cout << "setup_next_pass: detect_malformed_pages" << std::endl;
     detect_malformed_pages(
       pass.pages,
       pass.chunks,
       uses_custom_row_bounds(mode) ? std::nullopt : std::make_optional(pass.num_rows),
       _stream);
+    std::cout << "setup_next_pass: done! detect_malformed_pages" << std::endl;
 
     // decompress dictionary data if applicable.
+    std::cout << "setup_next_pass: decompress dictionary data" << std::endl;
     if (pass.has_compressed_data) {
       pass.decomp_dict_data = decompress_page_data(pass.chunks, pass.pages, true, _stream);
     }
+    std::cout << "setup_next_pass: done! decompress dictionary data" << std::endl;
 
     // store off how much memory we've used so far. This includes the compressed page data and the
     // decompressed dictionary data. we will subtract this from the available total memory for the
@@ -1325,10 +1341,12 @@ void reader::impl::setup_next_pass(read_mode mode)
 
     _stream.synchronize();
   }
+  std::cout << "setup_next_pass: done! " << std::endl;
 }
 
 void reader::impl::setup_next_subpass(read_mode mode)
 {
+  std::cout << "starting setup_next_subpass" << std::endl;
   auto& pass    = *_pass_itm_data;
   pass.subpass  = std::make_unique<subpass_intermediate_data>();
   auto& subpass = *pass.subpass;
@@ -1445,10 +1463,12 @@ void reader::impl::setup_next_subpass(read_mode mode)
     h_spans.begin(), h_spans.end(), subpass.column_page_count.begin(), get_span_size{});
 
   // decompress the data for the pages in this subpass.
+  std::cout << "setup_next_subpass: decompressing page data" << std::endl;
   if (pass.has_compressed_data) {
     subpass.decomp_page_data = decompress_page_data(pass.chunks, subpass.pages, false, _stream);
   }
-
+  std::cout << "setup_next_subpass: done! decompressing page data" << std::endl;
+ 
   // buffers needed by the decode kernels
   {
     // nesting information (sizes, etc) stored -per page-
@@ -1462,7 +1482,9 @@ void reader::impl::setup_next_subpass(read_mode mode)
 
   // preprocess pages (computes row counts for lists, computes output chunks and computes
   // the actual row counts we will be able load out of this subpass)
+  std::cout << "setup_next_subpass: preprocess_subpass_pages" << std::endl;
   preprocess_subpass_pages(mode, _output_chunk_read_limit);
+  std::cout << "setup_next_subpass: done! preprocess_subpass_pages" << std::endl;
 
 #if defined(PARQUET_CHUNK_LOGGING)
   printf("\tSubpass: skip_rows(%'lu), num_rows(%'lu), remaining read limit(%'lu)\n",
@@ -1488,6 +1510,7 @@ void reader::impl::setup_next_subpass(read_mode mode)
            subpass.output_chunk_read_info[idx].num_rows);
   }
 #endif
+std::cout << "setup_next_subpass: done!" << std::endl;
 }
 
 void reader::impl::create_global_chunk_info()
