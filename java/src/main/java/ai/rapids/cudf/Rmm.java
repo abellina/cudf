@@ -508,6 +508,13 @@ public class Rmm {
     return alloc(size, null);
   }
 
+  public static DeviceMemoryBufferFromResource allocFromResource(RmmDeviceMemoryResource mr, long sz, Cuda.Stream stream) {
+    long s = stream == null ? 0 : stream.getStream();
+    return new DeviceMemoryBufferFromResource(
+      allocFromResourceInternal(mr.getHandle(), sz, s), 
+      sz, mr, stream);
+  }
+
   /**
    * Allocate device memory and return a pointer to device memory.
    * @param size   The size in bytes of the allocated memory region
@@ -520,6 +527,9 @@ public class Rmm {
   }
 
   private static native long allocInternal(long size, long stream) throws RmmException;
+
+  private static native long allocFromResourceInternal(long mrHandle, long size, long stream) throws RmmException;
+  static native long freeFromResource(long mrHandle, long address, long size, long stream) throws RmmException;
 
 
   static native void free(long ptr, long length, long stream) throws RmmException;
@@ -562,7 +572,7 @@ public class Rmm {
 
   static native void releaseArenaMemoryResource(long handle);
 
-  static native long newCudaAsyncMemoryResource(long size, long release) throws RmmException;
+  static native long newCudaAsyncMemoryResource(long size, long release, boolean fabric) throws RmmException;
 
   static native void releaseCudaAsyncMemoryResource(long handle);
 

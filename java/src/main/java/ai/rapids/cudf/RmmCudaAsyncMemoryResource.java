@@ -30,9 +30,13 @@ public class RmmCudaAsyncMemoryResource implements RmmDeviceMemoryResource {
    * @param releaseThreshold size in bytes for when memory is released back to cuda
    */
   public RmmCudaAsyncMemoryResource(long size, long releaseThreshold) {
+    this(size, releaseThreshold, false);
+  }
+
+  public RmmCudaAsyncMemoryResource(long size, long releaseThreshold, boolean fabric) {
     this.size = size;
     this.releaseThreshold = releaseThreshold;
-    handle = Rmm.newCudaAsyncMemoryResource(size, releaseThreshold);
+    handle = Rmm.newCudaAsyncMemoryResource(size, releaseThreshold, /*fabric*/ true);
   }
 
   @Override
