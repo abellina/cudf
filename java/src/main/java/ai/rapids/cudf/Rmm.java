@@ -529,7 +529,7 @@ public class Rmm {
   private static native long allocInternal(long size, long stream) throws RmmException;
 
   private static native long allocFromResourceInternal(long mrHandle, long size, long stream) throws RmmException;
-  static native long freeFromResource(long mrHandle, long address, long size, long stream) throws RmmException;
+  static native void freeFromResource(long mrHandle, long address, long size, long stream) throws RmmException;
 
 
   static native void free(long ptr, long length, long stream) throws RmmException;

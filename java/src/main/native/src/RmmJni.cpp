@@ -938,8 +938,7 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_nativeResetScopedMaxTotalBytesAll
     auto mr = reinterpret_cast<tracking_resource_adaptor<rmm::mr::device_memory_resource>*>(ptr);
     mr->reset_scoped_max_total_allocated(init);
   }
-  CATCH_STD(env, )
-}
+  CATCH_STD(env, ) }
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_nativeGetScopedMaxTotalBytesAllocated(JNIEnv* env,
                                                                                       jclass clazz,
@@ -1066,6 +1065,41 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocFromPinnedPool(JNIEnv* env,
   } catch (std::exception const& unused) {
     return -1;
   }
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocFromResourceInternal(
+  JNIEnv* env,
+  jclass clazz,
+  jlong pool_ptr,
+  jlong size,
+  jlong stream)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto c_stream = rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(stream));
+    auto pool = reinterpret_cast<rmm::mr::device::device_memory_resource*>(pool_ptr);
+    void* ret = pool->allocate(size, c_stream);
+    return reinterpret_cast<jlong>(ret);
+  } catch (std::exception const& unused) {
+    return -1;
+  }
+}
+
+JNIEXPORT void JNICALL freeFromResource(
+  JNIEnv* env, 
+  jclass clazz, 
+  jlong pool_ptr, 
+  jlong ptr, 
+  jlong size, 
+  jlong stream) 
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto c_stream = rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(stream));
+    auto pool = reinterpret_cast<rmm::mr::device::device_memory_resource*>(pool_ptr);
+    pool->deallocate(ptr, size, c_stream);
+  } 
+  CATCH_STD(env, )
 }
 
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_freeFromPinnedPool(
