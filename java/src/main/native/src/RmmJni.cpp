@@ -24,6 +24,7 @@
 #include <rmm/mr/device/arena_memory_resource.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/cuda_memory_resource.hpp>
+#include <rmm/mr/device/device_memory_resource.hpp>
 #include <rmm/mr/device/limiting_resource_adaptor.hpp>
 #include <rmm/mr/device/logging_resource_adaptor.hpp>
 #include <rmm/mr/device/managed_memory_resource.hpp>
@@ -1077,7 +1078,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocFromResourceInternal(
   try {
     cudf::jni::auto_set_device(env);
     auto c_stream = rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(stream));
-    auto pool = reinterpret_cast<rmm::mr::device::device_memory_resource*>(pool_ptr);
+    auto pool = reinterpret_cast<rmm::mr::device_memory_resource*>(pool_ptr);
     void* ret = pool->allocate(size, c_stream);
     return reinterpret_cast<jlong>(ret);
   } catch (std::exception const& unused) {
@@ -1096,8 +1097,9 @@ JNIEXPORT void JNICALL freeFromResource(
   try {
     cudf::jni::auto_set_device(env);
     auto c_stream = rmm::cuda_stream_view(reinterpret_cast<cudaStream_t>(stream));
-    auto pool = reinterpret_cast<rmm::mr::device::device_memory_resource*>(pool_ptr);
-    pool->deallocate(ptr, size, c_stream);
+    auto pool = reinterpret_cast<rmm::mr::device_memory_resource*>(pool_ptr);
+    auto cptr = reinterpret_cast<void*>(ptr);
+    pool->deallocate(cptr, size, c_stream);
   } 
   CATCH_STD(env, )
 }
