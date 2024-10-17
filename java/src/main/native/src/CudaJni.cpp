@@ -448,10 +448,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_allocFabric(JNIEnv* env, jclass
 
   prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
   prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
-  #ifdef CU_MEM_HANDLE_TYPE_FABRIC
-  // should really throw
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_FABRIC;
-  #endif
   prop.location.id = cu_dev;
   prop.allocFlags.gpuDirectRDMACapable = 1;
   CUdeviceptr ptr;
@@ -478,6 +475,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_allocFabric(JNIEnv* env, jclass
   cuMemSetAccess(ptr, size, &accessDesc, 1);
 
   //printf("created fabric memory at %p, size = %ld\n", *ptr, size);
+  std::cout << "allocated " << size << " fabric" << std::endl;
   return static_cast<jlong>(ptr);
 }
 

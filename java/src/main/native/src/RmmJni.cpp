@@ -784,6 +784,7 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaAsyncMemoryResource(JNIEn
     auto handle_type = !fabric ? 
       rmm::mr::cuda_async_memory_resource::allocation_handle_type::none : 
       rmm::mr::cuda_async_memory_resource::allocation_handle_type::fabric;
+    std::cout << "trying to allocate fabric? " << fabric << std::endl;
     auto ret = new rmm::mr::cuda_async_memory_resource(init, release, handle_type);
     return reinterpret_cast<jlong>(ret);
   }
