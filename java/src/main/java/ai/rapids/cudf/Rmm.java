@@ -244,8 +244,11 @@ public class Rmm {
           resource = new RmmArenaMemoryResource<>(new RmmCudaMemoryResource(), poolSize, false);
         }
       } else if (isAsync) {
+        System.out.println("setting cuda device!");
+        //initDefaultCudaDevice();
+        MemoryCleaner.setDefaultGpu(Cuda.getDevice());
         resource = new RmmLimitingResourceAdaptor<>(
-            new RmmCudaAsyncMemoryResource(poolSize, poolSize), poolSize, 512);
+            new RmmCudaAsyncMemoryResource(poolSize, poolSize, true), poolSize, 512);
       } else if (isManaged) {
         resource = new RmmManagedMemoryResource();
       } else {

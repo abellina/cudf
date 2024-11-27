@@ -50,6 +50,7 @@ void auto_set_device(JNIEnv* env)
       cudaError_t cuda_status = cudaSetDevice(Cudf_device);
       jni_cuda_check(env, cuda_status);
       Thread_device = Cudf_device;
+      std::cout << "thread device is " << Thread_device;
     }
   }
 }

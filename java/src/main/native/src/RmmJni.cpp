@@ -872,6 +872,12 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaFabricAsyncMemoryResource
   try {
     cudf::jni::auto_set_device(env);
     std::cout << "trying to allocate driver api fabric size " << init << std::endl;
+
+    CUdevice cu_dev;
+    cudf::jni::getCUdevice(&cu_dev);
+
+    std::cout << "CUdevice is: " << cu_dev << std::endl;
+
     auto ptr = new async_fabric_driver_pool(init);
     return reinterpret_cast<jlong>(ptr);
   }
