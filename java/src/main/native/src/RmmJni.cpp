@@ -38,6 +38,8 @@
 #include <iostream>
 #include <limits>
 #include <mutex>
+#include <inttypes.h>
+#include <stdio.h>
 
 using rmm::mr::device_memory_resource;
 using rmm::mr::logging_resource_adaptor;
@@ -150,6 +152,72 @@ class tracking_resource_adaptor final : public base_tracking_resource_adaptor {
     if (p) {
       total_allocated -= size;
       scoped_allocated -= size;
+    }
+  }
+};
+
+
+constexpr std::size_t align_up(std::size_t value) noexcept
+{
+  std::size_t alignment = 256; // from RMM
+  return (value + (alignment - 1)) & ~(alignment - 1);
+}
+
+class async_fabric_driver_pool : public device_memory_resource {
+  CUmemoryPool pool_;
+  CUmemAccessDesc desc;
+
+  public:
+  
+  async_fabric_driver_pool(std::size_t sz) {
+    try {
+      CUdevice cu_dev;
+      cudf::jni::getCUdevice(&cu_dev);
+      std::cout << "cu_dev is " << (int) cu_dev << std::endl;
+      CUmemPoolProps pool_props = {};
+      pool_props.allocType = CU_MEM_ALLOCATION_TYPE_PINNED;
+      pool_props.location.id = (int)cu_dev;
+      pool_props.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+      pool_props.maxSize = sz;
+      pool_props.handleTypes = CU_MEM_HANDLE_TYPE_FABRIC;
+      
+      CUDF_CU_TRY(cuMemPoolCreate(&pool_, &pool_props));
+
+      desc.location = pool_props.location;
+      desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+      CUDF_CU_TRY(cuMemPoolSetAccess(pool_, &desc, 1));
+    } catch (std::exception& e) {
+      std::cerr << e.what() << std::endl;
+      throw e;
+    }
+  }
+
+  virtual ~async_fabric_driver_pool() {
+    cuMemPoolDestroy(pool_);
+    pool_ = nullptr;
+  }
+
+  void* do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override {
+    CUstream custream = static_cast<CUstream>(stream.value());
+    CUdeviceptr dptr;
+    try {
+      CUDF_CU_TRY(cuMemAllocFromPoolAsync(&dptr, align_up(num_bytes), pool_, custream));
+      CUmemoryPool data;
+      CUDF_CU_TRY(cuPointerGetAttribute(&data, CU_POINTER_ATTRIBUTE_MEMPOOL_HANDLE, dptr));
+      std::cout << "allocation " << dptr << " size " << num_bytes << " from pool " << (data == 0 ? "not set": "Set") << std::endl;;
+    } catch (std::exception& e) {
+      std::cerr << e.what() << std::endl;
+      dptr = 0;
+    }
+    return reinterpret_cast<void*>(dptr);
+  }
+
+  void do_deallocate(void* ptr, std::size_t size, rmm::cuda_stream_view stream) override {
+    try {
+      CUstream custream = static_cast<CUstream>(stream.value());
+      CUDF_CU_TRY(cuMemFreeAsync(reinterpret_cast<CUdeviceptr>(ptr), custream));
+    } catch (std::exception& e) {
+      std::cerr << e.what() << std::endl;
     }
   }
 };
@@ -784,12 +852,32 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaAsyncMemoryResource(JNIEn
     auto handle_type = !fabric ? 
       rmm::mr::cuda_async_memory_resource::allocation_handle_type::none : 
       rmm::mr::cuda_async_memory_resource::allocation_handle_type::fabric;
-    std::cout << "trying to allocate fabric? " << fabric << std::endl;
+    std::cout << "trying to allocate fabric? " << (fabric ? "yes" : "no")<< std::endl;
     auto ret = new rmm::mr::cuda_async_memory_resource(init, release, handle_type);
+    auto ptr = ret->allocate(123);
+    printf("Fabric pool size: %" PRIu64 "\n", init);
+    ret->deallocate(ptr, 123);
     return reinterpret_cast<jlong>(ret);
   }
   CATCH_STD(env, 0)
 }
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaFabricAsyncMemoryResource(
+  JNIEnv* env,
+  jclass clazz,
+  jlong init,
+  jlong release,
+  jboolean fabric)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    std::cout << "trying to allocate driver api fabric size " << init << std::endl;
+    auto ptr = new async_fabric_driver_pool(init);
+    return reinterpret_cast<jlong>(ptr);
+  }
+  CATCH_STD(env, 0)
+}
+
 
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_releaseCudaAsyncMemoryResource(JNIEnv* env,
                                                                               jclass clazz,
@@ -798,6 +886,18 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_releaseCudaAsyncMemoryResource(JN
   try {
     cudf::jni::auto_set_device(env);
     auto mr = reinterpret_cast<rmm::mr::cuda_async_memory_resource*>(ptr);
+    delete mr;
+  }
+  CATCH_STD(env, )
+}
+
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_releaseCudaFabricAsyncMemoryResource(JNIEnv* env,
+                                                                              jclass clazz,
+                                                                              jlong ptr)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<async_fabric_driver_pool*>(ptr);
     delete mr;
   }
   CATCH_STD(env, )

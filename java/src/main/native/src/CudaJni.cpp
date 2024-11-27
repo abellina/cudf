@@ -54,6 +54,11 @@ void auto_set_device(JNIEnv* env)
   }
 }
 
+
+void getCUdevice(CUdevice* cu_dev) {
+  CUDF_CU_TRY(cuDeviceGet(cu_dev, Thread_device));
+}
+
 /** Fills all the bytes in the buffer 'buf' with 'value'. */
 void device_memset_async(JNIEnv* env, rmm::device_buffer& buf, char value)
 {
@@ -433,11 +438,20 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_deviceSynchronize(JNIEnv* env, j
   CATCH_STD(env, );
 }
 
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_cuInit(JNIEnv* env, jclass clazz)
+{
+  try {
+    CUDF_CU_TRY(cuInit(0));
+  }
+  CATCH_STD(env, );
+}
+
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_allocFabric(JNIEnv* env, jclass clazz, jlong jsize)
 {
+  try {
   cudf::jni::auto_set_device(env);
   CUdevice cu_dev;
-  cuDeviceGet(&cu_dev, Thread_device);
+  CUDF_CU_TRY(cuDeviceGet(&cu_dev, Thread_device));
   size_t size = static_cast<size_t>(jsize);
 
   size_t granularity = 0;
@@ -447,48 +461,54 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Cuda_allocFabric(JNIEnv* env, jclass
   int flag = 0;
 
   prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
-  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_FABRIC;
+  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   prop.location.id = cu_dev;
   prop.allocFlags.gpuDirectRDMACapable = 1;
   CUdeviceptr ptr;
 
-  cuDeviceGetAttribute(&flag, CU_DEVICE_ATTRIBUTE_GPU_DIRECT_RDMA_SUPPORTED, cu_dev);
+  CUDF_CU_TRY(cuDeviceGetAttribute(&flag, CU_DEVICE_ATTRIBUTE_GPU_DIRECT_RDMA_SUPPORTED, cu_dev));
   if (flag) prop.allocFlags.gpuDirectRDMACapable = 1;
 
-  cuMemGetAllocationGranularity(&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM);
+  CUDF_CU_TRY(cuMemGetAllocationGranularity(&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
   //TODO: ALIGN_SIZE(size, granularity);
 
   /* Allocate the physical memory on the device */
-  cuMemCreate(&handle, size, &prop, 0);
+  CUDF_CU_TRY(cuMemCreate(&handle, size, &prop, 0));
 
   /* Reserve a virtual address range */
-  cuMemAddressReserve(&ptr, size, granularity, 0, 0);
+  CUDF_CU_TRY(cuMemAddressReserve(&ptr, size, granularity, 0, 0));
 
   /* Map the virtual address range to the physical allocation */
-  cuMemMap(ptr, size, 0, handle, 0);
+  CUDF_CU_TRY(cuMemMap(ptr, size, 0, handle, 0));
 
   /* Now allow RW access to the newly mapped memory */
   accessDesc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   accessDesc.location.id = cu_dev;
   accessDesc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-  cuMemSetAccess(ptr, size, &accessDesc, 1);
+  CUDF_CU_TRY(cuMemSetAccess(ptr, size, &accessDesc, 1));
 
-  //printf("created fabric memory at %p, size = %ld\n", *ptr, size);
-  std::cout << "allocated " << size << " fabric" << std::endl;
+  printf("created fabric memory at %llu size = %ld\n", ptr, size);
   return static_cast<jlong>(ptr);
+  }
+  CATCH_STD(env, -1);
 }
 
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_freeFabric(JNIEnv* env, jclass clazz, jlong jptr) {
+  try {
+  cudf::jni::auto_set_device(env);
   size_t size = 0;
   void* ptr = reinterpret_cast<void*>(jptr);
   CUmemGenericAllocationHandle handle;
-  cuMemRetainAllocationHandle(&handle, ptr);
-  cuMemRelease(handle);
-  cuMemGetAddressRange(NULL, &size, (CUdeviceptr)ptr);
-  cuMemUnmap((CUdeviceptr)ptr, size);
-  cuMemRelease(handle);
-  cuMemAddressFree((CUdeviceptr)ptr, size);
+  CUDF_CU_TRY(cuMemRetainAllocationHandle(&handle, ptr));
+  CUDF_CU_TRY(cuMemRelease(handle));
+  CUDF_CU_TRY(cuMemGetAddressRange(NULL, &size, (CUdeviceptr)ptr));
+  CUDF_CU_TRY(cuMemUnmap((CUdeviceptr)ptr, size));
+  CUDF_CU_TRY(cuMemRelease(handle));
+  CUDF_CU_TRY(cuMemAddressFree((CUdeviceptr)ptr, size));
+  printf("freed fabric memory size %ld\n", size);
+  }
+  CATCH_STD(env, );
 }
 
 }  // extern "C"

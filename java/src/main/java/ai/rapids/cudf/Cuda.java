@@ -596,7 +596,8 @@ public class Cuda {
         asyncMemcpy(destAddrs[i], srcAddrs[i], copySizes[i], CudaMemcpyKind.DEVICE_TO_DEVICE, stream);
       }
     }
-  }
+  } 
+
   /**
    * Begins an Nsight profiling session, if a profiler is currently attached.
    * @note if a profiler session has a already started, `profilerStart` has
@@ -616,6 +617,8 @@ public class Cuda {
    * @note this is very expensive and should almost never be used
    */
   public static native void deviceSynchronize();
+
+  public static native void cuInit();
 
   public static native long allocFabric(long sz);
 

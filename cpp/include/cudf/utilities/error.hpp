@@ -113,6 +113,19 @@ struct cuda_error : public std::runtime_error, public stacktrace_recorder {
   cudaError_t _cudaError;  //!< CUDA error code
 };
 
+struct cu_error : public std::runtime_error, public stacktrace_recorder {
+  /**
+   * @brief Construct a new cuda error object with error message and code.
+   *
+   * @param message Error message
+   * @param error CUDA error code
+   */
+  cu_error(std::string const& message)
+    : std::runtime_error(message)
+  {
+  }
+};
+
 struct fatal_cuda_error : public cuda_error {
   using cuda_error::cuda_error;  // Inherit constructors
 };
@@ -250,6 +263,20 @@ inline void throw_cuda_error(cudaError_t error, char const* file, unsigned int l
     throw cuda_error{msg, error};
   }
 }
+
+inline void throw_cu_error(CUresult error, char const* file, unsigned int line)
+{
+  const char* errName;
+  const char* errString;
+  cuGetErrorName(error, &errName);
+  cuGetErrorString(error, &errString);
+  auto const msg  = std::string{"CUDA error encountered at: " + std::string{file} + ":" +
+                               std::to_string(line) + ": " + std::to_string(error) + " " +
+                               errName + " " + errString};
+  // Call cudaDeviceSynchronize to ensure `last` did not result from an asynchronous error.
+  // between two calls.
+  throw cu_error{msg};
+}
 // @endcond
 }  // namespace detail
 }  // namespace CUDF_EXPORT cudf
@@ -265,6 +292,13 @@ inline void throw_cuda_error(cudaError_t error, char const* file, unsigned int l
   do {                                                                                         \
     cudaError_t const status = (call);                                                         \
     if (cudaSuccess != status) { cudf::detail::throw_cuda_error(status, __FILE__, __LINE__); } \
+  } while (0);
+
+#define CUDF_CU_TRY(call)                                                                     \
+  do {                                                                                        \
+    CUresult const status = (call);                                                           \
+    printf("status is %i\n", status);                                                         \
+    if (CUDA_SUCCESS != status) { cudf::detail::throw_cu_error(status, __FILE__, __LINE__); } \
   } while (0);
 
 /**

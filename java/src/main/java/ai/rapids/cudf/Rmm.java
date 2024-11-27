@@ -574,7 +574,11 @@ public class Rmm {
 
   static native long newCudaAsyncMemoryResource(long size, long release, boolean fabric) throws RmmException;
 
+  static native long newCudaFabricAsyncMemoryResource(long size, long release) throws RmmException;
+
   static native void releaseCudaAsyncMemoryResource(long handle);
+
+  static native void releaseCudaFabricAsyncMemoryResource(long handle);
 
   static native long newLimitingResourceAdaptor(long handle, long limit, long align) throws RmmException;
 

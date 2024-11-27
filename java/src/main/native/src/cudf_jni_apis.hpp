@@ -132,6 +132,8 @@ void set_cudf_device(int device);
  */
 void auto_set_device(JNIEnv* env);
 
+void getCUdevice(CUdevice* cu_dev);
+
 /**
  * Fills all the bytes in the buffer 'buf' with 'value'.
  * The operation has not necessarily completed when this returns, but it could overlap with
