@@ -852,11 +852,13 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaAsyncMemoryResource(JNIEn
     auto handle_type = !fabric ? 
       rmm::mr::cuda_async_memory_resource::allocation_handle_type::none : 
       rmm::mr::cuda_async_memory_resource::allocation_handle_type::fabric;
-    std::cout << "trying to allocate fabric? " << (fabric ? "yes" : "no")<< std::endl;
-    auto ret = new rmm::mr::cuda_async_memory_resource(init, release, handle_type);
-    auto ptr = ret->allocate(123);
-    printf("Fabric pool size: %" PRIu64 "\n", init);
-    ret->deallocate(ptr, 123);
+    auto prot_flag = !fabric ? 
+      rmm::mr::cuda_async_memory_resource::access_flags::prot_none :
+      rmm::mr::cuda_async_memory_resource::access_flags::prot_read_write;
+    std::cout << "trying to allocate fabric and setting memory protection? " << 
+      (fabric ? "yes" : "no")<< std::endl;
+    auto ret = new rmm::mr::cuda_async_memory_resource(
+      init, release, handle_type, prot_flag);
     return reinterpret_cast<jlong>(ret);
   }
   CATCH_STD(env, 0)
