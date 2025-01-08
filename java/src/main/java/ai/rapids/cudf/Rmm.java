@@ -223,6 +223,7 @@ public class Rmm {
     boolean isArena = (allocationMode & RmmAllocationMode.ARENA) != 0;
     boolean isAsync = (allocationMode & RmmAllocationMode.CUDA_ASYNC) != 0;
     boolean isAsyncFabric = (allocationMode & RmmAllocationMode.CUDA_ASYNC_FABRIC) != 0;
+    boolean isArenaFabric = (allocationMode & RmmAllocationMode.CUDA_ARENA_FABRIC) != 0;
     boolean isManaged = (allocationMode & RmmAllocationMode.CUDA_MANAGED_MEMORY) != 0;
 
     if (isAsync && isManaged) {
@@ -251,6 +252,9 @@ public class Rmm {
       } else if (isAsyncFabric) {
         resource = new RmmLimitingResourceAdaptor<>(
             new RmmCudaAsyncMemoryResource(poolSize, poolSize, true), poolSize, 512);
+      } else if (isArenaFabric) {
+        resource = new RmmArenaMemoryResource<>(
+            new RmmCudaAsyncMemoryResource(poolSize, poolSize, true), poolSize, false);
       } else if (isManaged) {
         resource = new RmmManagedMemoryResource();
       } else {
