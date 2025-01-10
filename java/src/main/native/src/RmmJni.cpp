@@ -649,6 +649,21 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_freeDeviceBuffer(JNIEnv* env,
   CATCH_STD(env, );
 }
 
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_freeDeviceBufferFromResource(JNIEnv* env,
+                                                                jclass clazz,
+                                                                jlong jmr,
+                                                                jlong ptr,
+                                                                jlong sz)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto cptr = reinterpret_cast<void*>(ptr);
+    auto mr = reinterpret_cast<rmm::mr::device_memory_resource*>(jmr);
+    mr->deallocate(cptr, sz);
+  }
+  CATCH_STD(env, );
+}
+
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocCudaInternal(JNIEnv* env,
                                                                   jclass clazz,
                                                                   jlong size,
@@ -659,6 +674,20 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocCudaInternal(JNIEnv* env,
     void* ptr{nullptr};
     RMM_CUDA_TRY_ALLOC(cudaMalloc(&ptr, size));
     return reinterpret_cast<jlong>(ptr);
+  }
+  CATCH_STD(env, 0)
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_allocFromResourceInternal(JNIEnv* env,
+                                                                  jclass clazz,
+                                                                  jlong resource,
+                                                                  jlong size,
+                                                                  jlong stream)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr = reinterpret_cast<rmm::mr::device_memory_resource*>(resource);
+    return reinterpret_cast<uint64_t>(mr->allocate(size));
   }
   CATCH_STD(env, 0)
 }
@@ -772,8 +801,34 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_releaseArenaMemoryResource(JNIEnv
   CATCH_STD(env, )
 }
 
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_arenaGetRootAllocationPointer(JNIEnv* env,
+                                                                              jclass clazz,
+                                                                              jlong ptr)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr =
+      reinterpret_cast<rmm::mr::arena_memory_resource<rmm::mr::device_memory_resource>*>(ptr);
+    return reinterpret_cast<uint64_t>(mr->get_upstream_allocation().first);
+  }
+  CATCH_STD(env, 0)
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_arenaGetRootAllocationSize(JNIEnv* env,
+                                                                           jclass clazz,
+                                                                           jlong ptr)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto mr =
+      reinterpret_cast<rmm::mr::arena_memory_resource<rmm::mr::device_memory_resource>*>(ptr);
+    return mr->get_upstream_allocation().second;
+  }
+  CATCH_STD(env, 0)
+}
+
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaAsyncMemoryResource(
-  JNIEnv* env, jclass clazz, jlong init, jlong release, jboolean fabric)
+  JNIEnv* env, jclass clazz, jlong init, jlong release, jboolean fabric, jboolean egm)
 {
   try {
     cudf::jni::auto_set_device(env);
@@ -782,7 +837,11 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaAsyncMemoryResource(
       fabric ? std::optional{rmm::mr::cuda_async_memory_resource::allocation_handle_type::fabric}
              : std::nullopt;
 
-    auto ret = new rmm::mr::cuda_async_memory_resource(init, release, handle_type);
+    auto mem_location_type =
+      egm ? std::optional{rmm::mr::cuda_async_memory_resource::mem_location_type::host_numa}
+             : std::nullopt;
+
+    auto ret = new rmm::mr::cuda_async_memory_resource(init, release, handle_type, mem_location_type);
 
     return reinterpret_cast<jlong>(ret);
   }

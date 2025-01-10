@@ -71,6 +71,38 @@ public class DeviceMemoryBuffer extends BaseDeviceMemoryBuffer {
     }
   }
 
+  public static final class FromResourceDeviceBufferCleaner extends MemoryBufferCleaner {
+    private long rmmBufferAddress;
+    private RmmDeviceMemoryResource resource;
+    private long sz;
+
+    FromResourceDeviceBufferCleaner(long rmmBufferAddress, RmmDeviceMemoryResource resource, long sz) {
+      this.rmmBufferAddress = rmmBufferAddress;
+      this.resource = resource;
+      this.sz = sz;
+    }
+
+    @Override
+    protected synchronized boolean cleanImpl(boolean logErrorIfNotClean) {
+      boolean neededCleanup = false;
+      if (rmmBufferAddress != 0) {
+        Rmm.freeDeviceBufferFromResource(resource.getHandle(), rmmBufferAddress, sz);
+        rmmBufferAddress = 0;
+        neededCleanup = true;
+      }
+      if (neededCleanup && logErrorIfNotClean) {
+        log.error("WE LEAKED A DEVICE BUFFER!!!!");
+        logRefCountDebug("Leaked device buffer");
+      }
+      return neededCleanup;
+    }
+
+    @Override
+    public boolean isClean() {
+      return rmmBufferAddress == 0;
+    }
+  }
+
   private static final class RmmDeviceBufferCleaner extends MemoryBufferCleaner {
     private long rmmBufferAddress;
 

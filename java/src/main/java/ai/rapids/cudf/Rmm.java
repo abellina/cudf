@@ -528,6 +528,16 @@ public class Rmm {
     return new DeviceMemoryBuffer(allocInternal(size, s), size, stream);
   }
 
+  public static DeviceMemoryBuffer allocFromResource(
+      RmmDeviceMemoryResource resource, long size, Cuda.Stream stream) {
+    long s = stream == null ? 0 : stream.getStream();
+    long ptr = allocFromResourceInternal(resource.getHandle(), size, s);
+    return new DeviceMemoryBuffer(
+      ptr, size, 
+      new DeviceMemoryBuffer.FromResourceDeviceBufferCleaner(ptr, resource, size));
+  }
+
+  
   private static native long allocInternal(long size, long stream) throws RmmException;
 
   static native void free(long ptr, long length, long stream) throws RmmException;
@@ -536,6 +546,7 @@ public class Rmm {
    * Delete an rmm::device_buffer.
    */
   static native void freeDeviceBuffer(long rmmBufferAddress) throws RmmException;
+  static native void freeDeviceBufferFromResource(long resource, long rmmBufferAddress, long sz) throws RmmException;
 
   /**
    * Allocate device memory using `cudaMalloc` and return a pointer to device memory.
@@ -549,6 +560,7 @@ public class Rmm {
   }
 
   private static native long allocCudaInternal(long size, long stream) throws RmmException;
+  private static native long allocFromResourceInternal(long resource, long size, long stream) throws RmmException;
 
   static native void freeCuda(long ptr, long length, long stream) throws RmmException;
 
@@ -568,9 +580,12 @@ public class Rmm {
   static native long newArenaMemoryResource(long childHandle,
       long size, boolean dumpOnOOM) throws RmmException;
 
+  public static native long arenaGetRootAllocationPointer(long handle);
+  public static native long arenaGetRootAllocationSize(long handle);
+
   static native void releaseArenaMemoryResource(long handle);
 
-  static native long newCudaAsyncMemoryResource(long size, long release, boolean fabric) throws RmmException;
+  static native long newCudaAsyncMemoryResource(long size, long release, boolean fabric, boolean egm) throws RmmException;
 
   static native void releaseCudaAsyncMemoryResource(long handle);
 
