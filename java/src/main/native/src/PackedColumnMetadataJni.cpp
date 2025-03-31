@@ -29,6 +29,21 @@ JNIEXPORT jobject JNICALL Java_ai_rapids_cudf_PackedColumnMetadata_createMetadat
   CATCH_STD(env, nullptr);
 }
 
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_PackedColumnMetadata_createMetadataHandle(
+  JNIEnv* env, jclass, jobject j_metadata)
+{
+  try {
+    auto vec_ptr = new std::vector<uint8_t>();
+    size_t size = env->GetDirectBufferCapacity(j_metadata);
+    vec_ptr->reserve(size);
+    auto data = reinterpret_cast<uint8_t*>(env->GetDirectBufferAddress(j_metadata));
+    std::copy(data, data + size, std::back_inserter(*vec_ptr));
+    return reinterpret_cast<uint64_t>(vec_ptr);
+  }
+  CATCH_STD(env, 0);
+}
+
+
 JNIEXPORT void JNICALL Java_ai_rapids_cudf_PackedColumnMetadata_closeMetadata(JNIEnv* env,
                                                                               jclass,
                                                                               jlong j_metadata_ptr)

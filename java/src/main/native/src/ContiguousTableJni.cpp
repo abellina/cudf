@@ -21,8 +21,13 @@ namespace {
 #define CONTIGUOUS_TABLE_CLASS                  "ai/rapids/cudf/ContiguousTable"
 #define CONTIGUOUS_TABLE_FACTORY_SIG(param_sig) "(" param_sig ")L" CONTIGUOUS_TABLE_CLASS ";"
 
+#define CONTIGUOUS_TABLES_CLASS                  "ai/rapids/cudf/ContiguousTables"
+#define CONTIGUOUS_TABLES_FACTORY_SIG(param_sig) "(" param_sig ")L" CONTIGUOUS_TABLES_CLASS ";"
+
 jclass Contiguous_table_jclass;
 jmethodID From_packed_table_method;
+jclass Contiguous_tables_jclass;
+jmethodID From_packed_tables_method;
 
 #define GROUP_BY_RESULT_CLASS "ai/rapids/cudf/ContigSplitGroupByResult"
 jclass Contig_split_group_by_result_jclass;
@@ -36,22 +41,39 @@ namespace jni {
 
 bool cache_contiguous_table_jni(JNIEnv* env)
 {
-  jclass cls = env->FindClass(CONTIGUOUS_TABLE_CLASS);
-  if (cls == nullptr) { return false; }
+  {
+    jclass cls = env->FindClass(CONTIGUOUS_TABLE_CLASS);
+    if (cls == nullptr) { return false; }
 
-  From_packed_table_method =
-    env->GetStaticMethodID(cls, "fromPackedTable", CONTIGUOUS_TABLE_FACTORY_SIG("JJJJJ"));
-  if (From_packed_table_method == nullptr) { return false; }
+    From_packed_table_method =
+      env->GetStaticMethodID(cls, "fromPackedTable", CONTIGUOUS_TABLE_FACTORY_SIG("JJJJJ"));
+    if (From_packed_table_method == nullptr) { return false; }
 
-  // Convert local reference to global so it cannot be garbage collected.
-  Contiguous_table_jclass = static_cast<jclass>(env->NewGlobalRef(cls));
-  if (Contiguous_table_jclass == nullptr) { return false; }
+    // Convert local reference to global so it cannot be garbage collected.
+    Contiguous_table_jclass = static_cast<jclass>(env->NewGlobalRef(cls));
+    if (Contiguous_table_jclass == nullptr) { return false; }
+  }
+
+  {
+    jclass cls = env->FindClass(CONTIGUOUS_TABLES_CLASS);
+    if (cls == nullptr) { return false; }
+
+    From_packed_tables_method =
+      env->GetStaticMethodID(cls, "fromPackedTables", CONTIGUOUS_TABLES_FACTORY_SIG("[J[J[J[JJJJ"));
+    if (From_packed_tables_method == nullptr) { return false; }
+
+    // Convert local reference to global so it cannot be garbage collected.
+    Contiguous_tables_jclass = static_cast<jclass>(env->NewGlobalRef(cls));
+    if (Contiguous_tables_jclass == nullptr) { return false; }
+  }
+
   return true;
 }
 
 void release_contiguous_table_jni(JNIEnv* env)
 {
   Contiguous_table_jclass = cudf::jni::del_global_ref(env, Contiguous_table_jclass);
+  Contiguous_tables_jclass = cudf::jni::del_global_ref(env, Contiguous_tables_jclass);
 }
 
 bool cache_contig_split_group_by_result_jni(JNIEnv* env)
@@ -92,6 +114,54 @@ jobject contig_split_group_by_result_from(JNIEnv* env,
   env->SetObjectField(gbr, Contig_split_group_by_result_groups_field, groups);
   env->SetObjectField(gbr, Contig_split_group_by_result_uniq_key_columns_field, uniq_key_columns);
   return gbr;
+}
+
+
+
+jobject contiguous_tables_contiguously(
+  JNIEnv* env, 
+  std::vector<cudf::packed_table>& result, 
+  rmm::device_buffer* buff
+)
+{
+  auto base_addr = reinterpret_cast<uint64_t>(buff->data());
+  auto data_length = buff->size();
+  jlong rmm_buffer_address = reinterpret_cast<jlong>(buff);
+
+  auto num_splits = result.size();
+  cudf::jni::native_jlongArray jmetadata_addresses(env, num_splits);
+  cudf::jni::native_jlongArray jdata_offsets(env, num_splits);
+  cudf::jni::native_jlongArray jdata_sizes(env, num_splits);
+  cudf::jni::native_jlongArray jrow_counts(env, num_splits);
+
+  for (size_t i = 0; i < result.size(); i++) {
+    auto& split = result[i].data;
+    jmetadata_addresses[i] = reinterpret_cast<jlong>(split.metadata.get());
+    jdata_offsets[i] = reinterpret_cast<jlong>(split.gpu_data->data()) - base_addr;
+    jdata_sizes[i] = static_cast<jlong>(split.gpu_data->size());
+    jrow_counts[i] = result[i].table.num_rows();
+  }
+
+  jmetadata_addresses.commit();
+  jdata_offsets.commit();
+  jdata_sizes.commit();
+  jrow_counts.commit();
+
+  jobject res = env->CallStaticObjectMethod(Contiguous_tables_jclass,
+                                     From_packed_tables_method,
+                                     jmetadata_addresses.get_jArray(),
+                                     jdata_offsets.get_jArray(),
+                                     jdata_sizes.get_jArray(),
+                                     jrow_counts.get_jArray(),
+                                     base_addr,
+                                     data_length,
+                                     rmm_buffer_address);
+  for (size_t i = 0; i < result.size(); i++) {
+    auto& split = result[i].data;
+    split.metadata.release();
+    split.gpu_data.release();
+  }
+  return res;
 }
 
 jobject contiguous_table_from(JNIEnv* env, cudf::packed_columns& split, long row_count)

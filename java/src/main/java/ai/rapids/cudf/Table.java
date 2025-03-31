@@ -184,6 +184,8 @@ public final class Table implements AutoCloseable {
 
   private static native ContiguousTable[] contiguousSplit(long inputTable, int[] indices);
 
+  private static native ContiguousTables contiguousSplitContiguously(long inputTable, int[] indices);
+
   private static native long makeChunkedPack(long inputTable, long bounceBufferSize, long tempMemoryResource);
 
   private static native long[] partition(long inputTable, long partitionView,
@@ -810,6 +812,8 @@ public final class Table implements AutoCloseable {
   private static native long createCudfTableView(long[] nativeColumnViewHandles);
 
   private static native long[] columnViewsFromPacked(ByteBuffer metadata, long dataAddress);
+
+  private static native long[] unpackAndConcat(long[] metadata, long[] data, int numBuffs);
 
   private static native ContigSplitGroupByResult contiguousSplitGroups(long inputTable,
                                                                 int[] keyIndices,
@@ -2578,6 +2582,10 @@ public final class Table implements AutoCloseable {
     return contiguousSplit(nativeHandle, indices);
   }
 
+  public ContiguousTables contiguousSplitContiguously(int... indices) {
+    return contiguousSplitContiguously(nativeHandle, indices);
+  }
+
   /**
    * Create an instance of `ChunkedPack` which can be used to pack this table
    * contiguously in memory utilizing a bounce buffer of size `bounceBufferSize`.
@@ -3856,6 +3864,15 @@ public final class Table implements AutoCloseable {
     return result;
   }
 
+  public static Table unpackAndConcat(PackedColumnMetadata[] metas, DeviceMemoryBuffer[] datas) {
+    long[] metaAddresses = new long[metas.length];
+    long[] dataAddresses = new long[metas.length];
+    for (int i = 0; i < metas.length; i++) {
+      dataAddresses[i] = datas[i].getAddress();
+      metaAddresses[i] = metas[i].getMetadataHandle();
+    }
+    return new Table(unpackAndConcat(metaAddresses, dataAddresses, metas.length));
+  }
 
   /**
    * Gather `n` samples from table randomly

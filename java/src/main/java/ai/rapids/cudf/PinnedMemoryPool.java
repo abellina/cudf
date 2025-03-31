@@ -239,7 +239,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
    * This makes an attempt to allocate pinned memory, and if the pinned memory allocation fails
    * it will return null, instead of throw.
    */
-  private synchronized HostMemoryBuffer tryAllocateInternal(long bytes) {
+  private HostMemoryBuffer tryAllocateInternal(long bytes) {
     long allocated = Rmm.allocFromPinnedPool(this.poolHandle, bytes);
     if (allocated == -1) {
       return null;
@@ -249,7 +249,7 @@ public final class PinnedMemoryPool implements AutoCloseable {
     }
   }
 
-  private synchronized void free(long address, long size) {
+  private void free(long address, long size) {
     Rmm.freeFromPinnedPool(this.poolHandle, address, size);
   }
 

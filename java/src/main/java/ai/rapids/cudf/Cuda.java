@@ -591,16 +591,24 @@ public class Cuda {
     // Temporary sub-par stand-in for a multi-buffer copy CUDA kernel
     assert(destAddrs.length == srcAddrs.length);
     assert(copySizes.length == destAddrs.length);
-    try (NvtxRange copyRange = new NvtxRange("multiBufferCopyAsync", NvtxColor.CYAN)){
-      for (int i = 0; i < destAddrs.length; i++) {
-        asyncMemcpy(destAddrs[i], srcAddrs[i], copySizes[i], CudaMemcpyKind.DEVICE_TO_DEVICE, stream);
-      }
-    }
+    batchedMemcpyOnStream(srcAddrs, destAddrs, copySizes, stream.getStream());
+    //try (NvtxRange copyRange = new NvtxRange("multiBufferCopyAsync", NvtxColor.CYAN)){
+    //  for (int i = 0; i < destAddrs.length; i++) {
+    //    asyncMemcpy(destAddrs[i], srcAddrs[i], copySizes[i], CudaMemcpyKind.DEVICE_TO_DEVICE, stream);
+    //  }
+    //}
   }
-  /**
-   * Begins an Nsight profiling session, if a profiler is currently attached.
-   * @note if a profiler session has a already started, `profilerStart` has
-   * no effect.
+
+  public static native void batchedMemcpyOnStream(
+    long[] srcAddrs, 
+    long[] dstAddrs, 
+    long[] copySizes, 
+    long stream); 
+
+  /**             
+   * Begins an Ns ight profiling session, if a profiler is currently attached.
+   * @note if a p rofiler session has a already started, `profilerStart` has
+   * no effect.   
    */
   public static native void profilerStart();
 

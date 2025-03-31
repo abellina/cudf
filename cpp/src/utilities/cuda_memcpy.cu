@@ -19,6 +19,7 @@
 #include <cudf/detail/utilities/cuda.cuh>
 #include <cudf/detail/utilities/cuda_memcpy.hpp>
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/utilities/batched_memcpy.hpp>
 #include <cudf/utilities/pinned_memory.hpp>
 
 #include <rmm/exec_policy.hpp>
@@ -71,6 +72,21 @@ void cuda_memcpy_async_impl(
   } else {
     CUDF_FAIL("Unsupported host memory kind");
   }
+}
+
+void batched_memcpy_async_api(
+  cudf::detail::host_vector<void*>& src,
+  cudf::detail::host_vector<void*>& dst,
+  cudf::detail::host_vector<uint64_t>& sizes,
+  size_t num_buffs,
+  rmm::cuda_stream_view stream)
+{
+  auto const d_srcs = cudf::detail::make_device_uvector_async(src, stream, cudf::get_current_device_resource_ref());
+  auto const d_dsts = cudf::detail::make_device_uvector_async(dst, stream, cudf::get_current_device_resource_ref());
+  auto const d_lens = cudf::detail::make_device_uvector_async(sizes, stream, cudf::get_current_device_resource_ref());
+  stream.synchronize();
+  return cudf::detail::batched_memcpy_async(
+    d_srcs.begin(), d_dsts.begin(), d_lens.begin(), num_buffs, stream);
 }
 
 }  // namespace cudf::detail

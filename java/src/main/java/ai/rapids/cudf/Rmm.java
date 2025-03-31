@@ -224,6 +224,7 @@ public class Rmm {
     boolean isAsync = (allocationMode & RmmAllocationMode.CUDA_ASYNC) != 0;
     boolean isAsyncFabric = (allocationMode & RmmAllocationMode.CUDA_ASYNC_FABRIC) != 0;
     boolean isArenaFabric = (allocationMode & RmmAllocationMode.CUDA_ARENA_FABRIC) != 0;
+    boolean isPoolFabric = (allocationMode & RmmAllocationMode.CUDA_POOL_FABRIC) != 0;
     boolean isManaged = (allocationMode & RmmAllocationMode.CUDA_MANAGED_MEMORY) != 0;
 
     if (isAsync && isManaged) {
@@ -255,6 +256,9 @@ public class Rmm {
       } else if (isArenaFabric) {
         resource = new RmmArenaMemoryResource<>(
             new RmmCudaAsyncMemoryResource(poolSize, poolSize, true), poolSize, false);
+      } else if (isPoolFabric) {
+        resource = new RmmPoolMemoryResource<>(
+            new RmmCudaAsyncMemoryResource(poolSize, poolSize, true), poolSize, poolSize);
       } else if (isManaged) {
         resource = new RmmManagedMemoryResource();
       } else {
@@ -582,6 +586,9 @@ public class Rmm {
 
   public static native long arenaGetRootAllocationPointer(long handle);
   public static native long arenaGetRootAllocationSize(long handle);
+
+  public static native long poolGetRootAllocationPointer(long handle);
+  public static native long poolGetRootAllocationSize(long handle);
 
   static native void releaseArenaMemoryResource(long handle);
 

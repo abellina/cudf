@@ -56,7 +56,7 @@ public final class ContiguousTable implements AutoCloseable {
    * @param buffer buffer containing the packed table data
    * @param rowCount number of rows in the table
    */
-  ContiguousTable(long metadataHandle, DeviceMemoryBuffer buffer, long rowCount) {
+  public ContiguousTable(long metadataHandle, DeviceMemoryBuffer buffer, long rowCount) {
     this.meta = new PackedColumnMetadata(metadataHandle);
     this.buffer = buffer;
     this.rowCount = rowCount;
@@ -97,6 +97,12 @@ public final class ContiguousTable implements AutoCloseable {
     return meta.getMetadataDirectBuffer();
   }
 
+  public PackedColumnMetadata releaseMeta() {
+    PackedColumnMetadata ret = meta;
+    meta = null;
+    return ret;
+  }
+  
   /** Close the contiguous table instance and its underlying resources. */
   @Override
   public void close() {

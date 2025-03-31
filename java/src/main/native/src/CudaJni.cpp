@@ -15,8 +15,10 @@
  */
 
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/utilities/cuda_memcpy.hpp>
 
 #include <rmm/device_buffer.hpp>
+#include <sstream>
 
 #ifdef CUDF_JNI_ENABLE_PROFILING
 #include <cuda_profiler_api.h>
@@ -394,6 +396,56 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_asyncMemcpyOnStream(
     auto kind   = static_cast<cudaMemcpyKind>(jkind);
     auto stream = reinterpret_cast<cudaStream_t>(jstream);
     CUDF_CUDA_TRY(cudaMemcpyAsync(dst, src, count, kind, stream));
+  }
+  CATCH_STD(env, );
+}
+
+JNIEXPORT void JNICALL Java_ai_rapids_cudf_Cuda_batchedMemcpyOnStream(
+  JNIEnv* env, jclass, jlongArray srcPtrs, jlongArray dstPtrs, jlongArray jsizes, jlong jstream)
+{
+  try {
+    cudf::jni::auto_set_device(env);
+    auto stream = cudf::get_default_stream();
+    cudf::jni::native_jlongArray src_ptrs(env, srcPtrs);
+    cudf::jni::native_jlongArray dst_ptrs(env, dstPtrs);
+    cudf::jni::native_jlongArray sizes(env, jsizes);
+    auto src_ptrs_v = src_ptrs.to_ptr_vector();
+    auto dst_ptrs_v = dst_ptrs.to_ptr_vector();
+    auto sizes_v = sizes.to_vector<size_t>();
+    size_t numBuffs = sizes_v.size();
+    size_t failIdx;
+    std::vector<size_t> attrsIxs;
+    attrsIxs.push_back(0);
+
+    cudaMemcpyAttributes attrs;
+    attrs.dstLocHint = {};
+    attrs.flags = cudaMemcpyFlagDefault;
+    attrs.srcAccessOrder = cudaMemcpySrcAccessOrderStream;
+    attrs.srcLocHint = {};
+
+    CUDF_CUDA_TRY(cudaMemcpyBatchAsync(
+      dst_ptrs_v.data(), 
+      src_ptrs_v.data(),
+      sizes_v.data(),
+      numBuffs,
+      &attrs,
+      attrsIxs.data(),
+      1,
+      &failIdx,
+      stream.value()));
+    stream.synchronize();
+    if (failIdx != std::numeric_limits<size_t>::max()) {
+      std::stringstream ss;
+      ss << "batched memcpy error at " << failIdx;
+      throw std::runtime_error(ss.str().c_str());
+    }
+
+    //cudf::detail::batched_memcpy_async_api(
+    //  src_ptrs_v, 
+    //  dst_ptrs_v,
+    //  sizes_v,
+    //  src_ptrs.size(), 
+    //  stream);
   }
   CATCH_STD(env, );
 }

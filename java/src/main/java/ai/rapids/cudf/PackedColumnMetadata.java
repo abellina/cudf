@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 public final class PackedColumnMetadata implements AutoCloseable {
   private long metadataHandle = 0;
   private ByteBuffer metadataBuffer = null;
+  private boolean doClose = true;
 
   // This method is invoked by JNI
   static PackedColumnMetadata fromPackedColumnMeta(long metadataHandle) {
@@ -36,8 +37,20 @@ public final class PackedColumnMetadata implements AutoCloseable {
    * Construct the PackedColumnMetadata instance given a metadata handle.
    * @param metadataHandle address of the cudf packed_table host-based metadata instance
    */
-  PackedColumnMetadata(long metadataHandle) {
+  public PackedColumnMetadata(long metadataHandle) {
     this.metadataHandle = metadataHandle;
+  }
+
+  public PackedColumnMetadata(ByteBuffer byteBuff) {
+    ByteBuffer directBuffer = byteBuff;
+    if (!directBuffer.isDirect()) {
+      directBuffer = ByteBuffer.allocateDirect(byteBuff.remaining());
+      directBuffer.put(byteBuff);
+      directBuffer.flip();
+    }
+    this.metadataBuffer = directBuffer;
+    this.metadataHandle = createMetadataHandle(this.metadataBuffer);
+    doClose = false;
   }
 
   /**
@@ -60,7 +73,7 @@ public final class PackedColumnMetadata implements AutoCloseable {
   /** Close the PackedColumnMetadata instance and its underlying resources. */
   @Override
   public void close() {
-    if (metadataHandle != 0) {
+    if (doClose && metadataHandle != 0) {
       closeMetadata(metadataHandle);
       metadataHandle = 0;
     }
@@ -68,7 +81,10 @@ public final class PackedColumnMetadata implements AutoCloseable {
 
   // create a DirectByteBuffer for the packed metadata
   private static native ByteBuffer createMetadataDirectBuffer(long metadataHandle);
+  private static native long createMetadataHandle(ByteBuffer buff);
 
   // release the native metadata resources for a packed table
   private static native void closeMetadata(long metadataHandle);
+
+  public long getMetadataHandle() {return metadataHandle; }
 }

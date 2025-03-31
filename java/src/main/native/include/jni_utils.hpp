@@ -16,6 +16,8 @@
 #pragma once
 
 #include <cudf/utilities/error.hpp>
+#include <cudf/detail/utilities/host_vector.hpp>
+#include <cudf/detail/utilities/vector_factories.hpp>
 
 #include <rmm/detail/error.hpp>
 
@@ -318,6 +320,18 @@ class native_jArray {
     std::vector<target_t> ret;
     ret.reserve(size());
     std::copy(begin(), end(), std::back_inserter(ret));
+    return ret;
+  }
+
+  std::vector<void*> to_ptr_vector() const 
+  {
+    std::vector<void*> ret;
+    ret.reserve(size());
+    auto it = begin();
+    while (it != end()) {
+      ret.push_back(reinterpret_cast<void*>(*it));
+      it++;
+    }
     return ret;
   }
 

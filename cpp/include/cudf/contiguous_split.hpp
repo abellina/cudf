@@ -276,6 +276,25 @@ class chunked_pack {
   std::unique_ptr<detail::contiguous_split_state> state;
 };
 
+
+class contiguous_split_contiguously {
+ public:
+  explicit contiguous_split_contiguously(
+    cudf::table_view const& input,
+    std::vector<size_type> const& splits,
+    rmm::device_async_resource_ref temp_mr = cudf::get_current_device_resource_ref());
+
+  ~contiguous_split_contiguously();
+
+  [[nodiscard]] std::size_t get_total_contiguous_size() const;
+
+  std::vector<packed_table> complete(rmm::device_async_resource_ref cmr);
+
+ private:
+  // internal state of contiguous split
+  std::unique_ptr<detail::contiguous_split_state> state;
+};
+
 /**
  * @brief Deep-copy a `table_view` into a serialized contiguous memory format.
  *

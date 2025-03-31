@@ -242,7 +242,6 @@ mixed_join(
                          matches_per_row_span.begin(),
                          matches_per_row_span.end(),
                          join_result_offsets.begin());
-
   auto left_indices  = std::make_unique<rmm::device_uvector<size_type>>(join_size, stream, mr);
   auto right_indices = std::make_unique<rmm::device_uvector<size_type>>(join_size, stream, mr);
 
@@ -471,7 +470,6 @@ compute_mixed_join_output_size(table_view const& left_equality,
                                                         stream,
                                                         mr);
   }
-
   return {size, std::move(matches_per_row)};
 }
 

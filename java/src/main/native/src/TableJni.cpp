@@ -50,6 +50,7 @@
 #include <cudf/types.hpp>
 #include <cudf/utilities/memory_resource.hpp>
 #include <cudf/utilities/span.hpp>
+#include <cudf/detail/nvtx/ranges.hpp>
 
 #include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/device/device_memory_resource.hpp>
@@ -65,6 +66,28 @@
 
 namespace cudf {
 namespace jni {
+
+class buff_mr final : public rmm::mr::device_memory_resource {
+ public:
+  buff_mr(rmm::device_buffer* buff)
+    : offset{0}, buff{buff}
+  {
+  }
+
+ private:
+  std::size_t offset;
+  rmm::device_buffer* buff;
+  void* do_allocate(std::size_t num_bytes, rmm::cuda_stream_view stream) override
+  {
+    auto allocated = reinterpret_cast<void*>(reinterpret_cast<std::size_t>(buff->data()) + offset);
+    offset += num_bytes;
+    return allocated;
+  }
+
+  void do_deallocate(void* p, std::size_t size, rmm::cuda_stream_view stream) override
+  {
+  }
+};
 
 /**
  * @brief The base class for table writer.
@@ -1142,10 +1165,11 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Table_deleteCudfTable(JNIEnv* env,
   CATCH_STD(env, );
 }
 
-JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_columnViewsFromPacked(JNIEnv* env,
-                                                                             jclass,
-                                                                             jobject buffer_obj,
-                                                                             jlong j_data_address)
+JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_columnViewsFromPacked(
+  JNIEnv* env,
+  jclass,
+  jobject buffer_obj,
+  jlong j_data_address)
 {
   // The GPU data address can be null when the table is empty, so it is not null-checked here.
   JNI_NULL_CHECK(env, buffer_obj, "metadata is null", nullptr);
@@ -1173,6 +1197,35 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_columnViewsFromPacked(JNI
     return views.get_jArray();
   }
   CATCH_STD(env, nullptr);
+}
+
+JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_unpackAndConcat(
+  JNIEnv* env,
+  jclass,
+  jlongArray jmetas,
+  jlongArray jdatas,
+  jint numTbls)
+{
+  CUDF_FUNC_RANGE();
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::jni::native_jlongArray metas(env, jmetas);
+    long int * metaPtrArray = metas.data();
+
+    cudf::jni::native_jlongArray datas(env, jdatas);
+    long int * dataPtrArray = datas.data();
+
+    std::vector<cudf::table_view> tvs;
+    tvs.reserve(numTbls);
+    for (int i = 0; i < numTbls; ++i) {
+      auto data_ptr = reinterpret_cast<uint8_t*>(dataPtrArray[i]);
+      auto meta_ptr = reinterpret_cast<std::vector<uint8_t>*>(metaPtrArray[i]);
+      tvs.push_back(cudf::unpack(meta_ptr->data(), data_ptr));
+    }
+    auto table = cudf::concatenate(tvs);
+    return convert_table_for_return(env, table);
+  }
+  CATCH_STD(env, NULL);
 }
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_sortOrder(JNIEnv* env,
@@ -4170,6 +4223,37 @@ JNIEXPORT jobjectArray JNICALL Java_ai_rapids_cudf_Table_contiguousSplit(JNIEnv*
   }
   CATCH_STD(env, NULL);
 }
+
+JNIEXPORT jobject JNICALL Java_ai_rapids_cudf_Table_contiguousSplitContiguously(
+  JNIEnv* env,
+  jclass,
+  jlong input_table,
+  jintArray split_indices)
+{
+  JNI_NULL_CHECK(env, input_table, "native handle is null", 0);
+  JNI_NULL_CHECK(env, split_indices, "split indices are null", 0);
+
+  try {
+    cudf::jni::auto_set_device(env);
+    cudf::table_view* n_table = reinterpret_cast<cudf::table_view*>(input_table);
+    cudf::jni::native_jintArray n_split_indices(env, split_indices);
+
+    std::vector<cudf::size_type> indices(n_split_indices.data(),
+                                         n_split_indices.data() + n_split_indices.size());
+
+    auto cs = cudf::contiguous_split_contiguously(*n_table, indices);
+    auto total = cs.get_total_contiguous_size();
+    auto default_mr = cudf::get_current_device_resource_ref();
+    auto total_buff = new rmm::device_buffer(total, cudf::get_default_stream(), default_mr);
+    auto cmr = cudf::jni::buff_mr(total_buff);
+
+    std::vector<cudf::packed_table> result = cs.complete(cmr);
+    jobject x = cudf::jni::contiguous_tables_contiguously(env, result, total_buff);
+    return x;
+  }
+  CATCH_STD(env, NULL);
+}
+
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_makeChunkedPack(
   JNIEnv* env, jclass, jlong input_table, jlong bounce_buffer_size, jlong memoryResourceHandle)

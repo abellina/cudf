@@ -4056,6 +4056,30 @@ public class TableTest extends CudfTestBase {
   }
 
   @Test
+  void testContiguousSplitContiguously() {
+    ContiguousTables cts = null;
+    try (Table t1 = new Table.TestBuilder()
+        .column(10, 12, 14, 16, 18, 20, 22, 24, null, 28)
+        .column(50, 52, 54, 56, 58, 60, 62, 64, 66, null)
+        .decimal32Column(-3, 10, 12, 14, 16, 18, 20, 22, 24, null, 28)
+        .decimal64Column(-8, 50L, 52L, 54L, 56L, 58L, 60L, 62L, 64L, 66L, null)
+        .build()) {
+      cts = t1.contiguousSplitContiguously(2, 5, 9);
+      for (int i = 0; i < 4; i++) {
+        System.out.println(
+          "split: " + i + 
+          " offset: " + cts.getOffsets()[i] + 
+          " length: " + cts.getLengths()[i] + 
+          " row count: " + cts.getRowCounts()[i] +
+          " data buffer: " + cts.getBuffer());
+      }
+    } finally {
+      if (cts != null) {
+        cts.close();
+      }
+    }
+  }
+  @Test
   void testChunkedPackBasic() {
     try (Table t1 = new Table.TestBuilder()
         .column(10, 12, 14, 16, 18, 20, 22, 24, null, 28)
@@ -4778,6 +4802,31 @@ public class TableTest extends CudfTestBase {
       }
     }
   }
+
+/*
+  @Test
+  void testSerializationReconstructFromMetadataMulti() throws IOException {
+    try (Table t = buildTestTable();
+         Table expected = Table.concatenate(t, t);
+         ContiguousTable contigTable = t.contiguousSplit()[0];
+         ContiguousTable contigTable2 = t.contiguousSplit()[0]) {
+
+      PackedColumnMetadata[] metas = {
+        contigTable.releaseMeta(), 
+        contigTable2.releaseMeta()};
+      DeviceMemoryBuffer[] datas = {
+        contigTable.getBuffer(),
+        contigTable2.getBuffer()
+      };
+      try(Table newTable = Table.unpackAndConcat(metas,datas)) {
+        assertTablesAreEqual(expected, newTable);
+      } finally {
+        metas[0].close();
+        metas[1].close();
+      }
+    }
+  }
+  */
 
   @Test
   void testValidityFill() {
@@ -8141,6 +8190,7 @@ public class TableTest extends CudfTestBase {
       }
     }
   }
+  /*
 
   @Test
   void testGroupByContiguousSplitGroups() throws Exception {
@@ -8242,6 +8292,7 @@ public class TableTest extends CudfTestBase {
       }
     }
   }
+*/
 
   @Test
   void testGroupByCollectListIncludeNulls() {

@@ -18,6 +18,7 @@
 
 #include <cudf/utilities/export.hpp>
 #include <cudf/utilities/span.hpp>
+#include <vector>
 
 #include <rmm/cuda_stream_view.hpp>
 
@@ -28,6 +29,13 @@ enum class host_memory_kind : uint8_t { PINNED, PAGEABLE };
 
 void cuda_memcpy_async_impl(
   void* dst, void const* src, size_t size, host_memory_kind kind, rmm::cuda_stream_view stream);
+
+void batched_memcpy_async_api(
+  cudf::detail::host_vector<void*>& src,
+  cudf::detail::host_vector<void*>& dst,
+  cudf::detail::host_vector<uint64_t>& sizes,
+  size_t num_buffs,
+  rmm::cuda_stream_view stream);
 
 /**
  * @brief Asynchronously copies data from host to device memory.

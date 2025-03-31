@@ -43,4 +43,6 @@ public class RmmAllocationMode {
   public static final int CUDA_ASYNC_FABRIC = 0x00000010;
 
   public static final int CUDA_ARENA_FABRIC = 0x00000020;
+
+  public static final int CUDA_POOL_FABRIC = 0x00000040;
 }
