@@ -38,6 +38,7 @@
 #include <cudf/io/parquet.hpp>
 #include <cudf/join/conditional_join.hpp>
 #include <cudf/join/distinct_hash_join.hpp>
+#include <cudf/join/sort_merge_join.hpp>
 #include <cudf/join/hash_join.hpp>
 #include <cudf/join/join.hpp>
 #include <cudf/join/mixed_join.hpp>
@@ -3106,15 +3107,25 @@ Java_ai_rapids_cudf_Table_mixedLeftJoinGatherMapsWithSize(JNIEnv* env,
 }
 
 JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_innerJoinGatherMaps(
-  JNIEnv* env, jclass, jlong j_left_keys, jlong j_right_keys, jboolean compare_nulls_equal)
+  JNIEnv* env, jclass, jlong j_left_keys, jlong j_right_keys, jboolean compare_nulls_equal, jboolean use_smj, jboolean smj_presorted)
 {
   return cudf::jni::join_gather_maps(
     env,
     j_left_keys,
     j_right_keys,
     compare_nulls_equal,
-    [](cudf::table_view const& left, cudf::table_view const& right, cudf::null_equality nulleq) {
-      return cudf::inner_join(left, right, nulleq);
+    [use_smj, smj_presorted](cudf::table_view const& left, cudf::table_view const& right, cudf::null_equality nulleq) {
+      if (use_smj) {
+        if (smj_presorted) {
+          cudf::sort_merge_join smj(right, cudf::sorted::YES, nulleq);
+          return smj.inner_join(left, cudf::sorted::YES);
+        } else {
+          cudf::sort_merge_join smj(right, cudf::sorted::NO, nulleq);
+          return smj.inner_join(left, cudf::sorted::NO);
+        }
+      } else {
+        return cudf::inner_join(left, right, nulleq);
+      }
     });
 }
 
@@ -4594,7 +4605,7 @@ Java_ai_rapids_cudf_Table_contiguousSplitGroups(JNIEnv* env,
     if (!split_indices.empty()) { split_indices.erase(split_indices.begin()); }
 
     // 2) Splits the groups.
-    std::vector<cudf::packed_table> result = cudf::contiguous_split(grouped_view, split_indices);
+    std::vector<cudf::table_view> result = cudf::split(grouped_view, split_indices);
     // Release the grouped table right away after split done.
     groups.keys.reset(nullptr);
     groups.values.reset(nullptr);

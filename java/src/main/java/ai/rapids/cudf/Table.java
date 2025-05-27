@@ -665,7 +665,7 @@ public final class Table implements AutoCloseable {
                                                                long outputRowCount) throws CudfException;
 
   private static native long[] innerJoinGatherMaps(long leftKeys, long rightKeys,
-                                                   boolean compareNullsEqual) throws CudfException;
+                                                   boolean compareNullsEqual, boolean useSmj, boolean smjPresorted) throws CudfException;
 
   private static native long[] innerDistinctJoinGatherMaps(long leftKeys, long rightKeys,
                                                            boolean compareNullsEqual) throws CudfException;
@@ -3205,7 +3205,19 @@ public final class Table implements AutoCloseable {
           "rightKeys: " + rightKeys.getNumberOfColumns());
     }
     long[] gatherMapData =
-        innerJoinGatherMaps(getNativeView(), rightKeys.getNativeView(), compareNullsEqual);
+        innerJoinGatherMaps(
+          getNativeView(), rightKeys.getNativeView(), compareNullsEqual, false, false);
+    return buildJoinGatherMaps(gatherMapData);
+  }
+
+  public GatherMap[] innerJoinGatherMaps(Table rightKeys, boolean compareNullsEqual, boolean useSmj, boolean smjPresorted) {
+    if (getNumberOfColumns() != rightKeys.getNumberOfColumns()) {
+      throw new IllegalArgumentException("Column count mismatch, this: " + getNumberOfColumns() +
+          "rightKeys: " + rightKeys.getNumberOfColumns());
+    }
+    long[] gatherMapData =
+        innerJoinGatherMaps(
+          getNativeView(), rightKeys.getNativeView(), compareNullsEqual, useSmj, smjPresorted);
     return buildJoinGatherMaps(gatherMapData);
   }
 
