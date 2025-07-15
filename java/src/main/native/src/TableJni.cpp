@@ -40,6 +40,7 @@
 #include <cudf/join/distinct_hash_join.hpp>
 #include <cudf/join/hash_join.hpp>
 #include <cudf/join/join.hpp>
+#include <cudf/join/sort_merge_join.hpp>
 #include <cudf/join/mixed_join.hpp>
 #include <cudf/lists/explode.hpp>
 #include <cudf/merge.hpp>
@@ -3184,6 +3185,68 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_innerJoinRowCount(JNIEnv* env,
   }
   CATCH_STD(env, 0);
 }
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinCtr(
+  JNIEnv* env, jclass, jlong j_build_table, jboolean j_build_table_sorted)
+{
+  auto build_table = reinterpret_cast<cudf::table_view const*>(j_build_table);
+  auto join_obj = new cudf::sort_merge_join(
+      *build_table, 
+      j_build_table_sorted ? cudf::sorted::YES : cudf::sorted::NO);
+  return reinterpret_cast<jlong>(join_obj);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinMakeContext(
+  JNIEnv* env, jclass, jlong j_join_obj, jlong j_stream_table, jboolean j_stream_table_sorted)
+{
+  auto stream_table = reinterpret_cast<cudf::table_view const*>(j_stream_table);
+  auto join_obj = reinterpret_cast<cudf::sort_merge_join*>(j_join_obj);
+  auto context = join_obj->inner_join_match_context(*stream_table, 
+      j_stream_table_sorted ? cudf::sorted::YES : cudf::sorted::NO);
+
+  // Shruti: it would be nice if we didn't have to recreate match_context and std::move this here.
+  auto context_cpy = new cudf::sort_merge_join::match_context {
+    std::move(context._left_table),
+    std::move(context._match_counts)
+  };
+  return reinterpret_cast<jlong>(context_cpy);
+}
+
+// Shruti: this is what we would do iteratively
+JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinPartitionedJoin(
+  JNIEnv* env, jclass, jlong j_join_obj, jlong j_context, jlong start_row, jlong num_rows)
+{
+  auto join_obj = reinterpret_cast<cudf::sort_merge_join*>(j_join_obj);
+  auto context = reinterpret_cast<cudf::sort_merge_join::match_context*>(j_context);
+  // looks like I need to std::move context here, but that means I can't reuse it.. unless I std::move it back or something
+  auto partition_ctx = cudf::sort_merge_join::partition_context{
+    std::move(*context),  // Shruti: we want to prevent the std::move here.
+    static_cast<cudf::size_type>(start_row), 
+    static_cast<cudf::size_type>(num_rows)
+  };
+  auto left_right_indices =  join_obj->partitioned_inner_join(partition_ctx);
+  return cudf::jni::gather_maps_to_java(env, std::move(left_right_indices));
+}
+
+// Shruti: do not look at this
+JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinPartitionedJoinPartitionCtxWorkAround(
+  JNIEnv* env, jclass, jlong j_join_obj, 
+  jlong j_stream_table, jboolean j_stream_table_sorted, jlong start_row, jlong num_rows)
+{
+  auto join_obj = reinterpret_cast<cudf::sort_merge_join*>(j_join_obj);
+  auto stream_table = reinterpret_cast<cudf::table_view const*>(j_stream_table);
+  auto context = join_obj->inner_join_match_context(*stream_table, 
+      j_stream_table_sorted ? cudf::sorted::YES : cudf::sorted::NO);
+  auto partition_ctx = cudf::sort_merge_join::partition_context{
+    std::move(context), 
+    static_cast<cudf::size_type>(start_row), 
+    static_cast<cudf::size_type>(num_rows)
+  };
+  auto left_right_indices =  join_obj->partitioned_inner_join(partition_ctx);
+  return cudf::jni::gather_maps_to_java(env, std::move(left_right_indices));
+}
+
+// TODO: dont' forget JNI destructors for smj object and context.
 
 JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_innerHashJoinGatherMaps(
   JNIEnv* env, jclass, jlong j_left_table, jlong j_right_hash_join)
