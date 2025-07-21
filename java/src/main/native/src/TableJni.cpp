@@ -30,6 +30,7 @@
 #include <cudf/filling.hpp>
 #include <cudf/groupby.hpp>
 #include <cudf/interop.hpp>
+#include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/io/avro.hpp>
 #include <cudf/io/csv.hpp>
 #include <cudf/io/data_sink.hpp>
@@ -3211,7 +3212,18 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinMakePartitio
   return reinterpret_cast<jlong>(partition_ctx);
 }
 
-// Shruti: this is what we would do iteratively
+JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinNumRows(
+  JNIEnv* env, jclass, jlong j_partition_context)
+{
+  auto context = reinterpret_cast<cudf::sort_merge_join::partition_context*>(j_partition_context);
+  auto host_vec = cudf::detail::make_std_vector(*context->left_table_context._match_counts, cudf::get_default_stream());
+  cudf::jni::native_jlongArray ret(env, host_vec.size());
+  for (size_t i = 0; i < host_vec.size(); ++i) {
+    ret[i] = static_cast<jlong>(host_vec[i]);
+  }
+  return ret.get_jArray();
+}
+
 JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinPartitionedJoin(
   JNIEnv* env, jclass, jlong j_join_obj, jlong j_partition_context, jlong start_row, jlong num_rows)
 {

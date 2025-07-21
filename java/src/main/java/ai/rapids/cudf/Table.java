@@ -179,6 +179,14 @@ public final class Table implements AutoCloseable {
   /////////////////////////////////////////////////////////////////////////////
   // NATIVE APIs
   /////////////////////////////////////////////////////////////////////////////
+  public static native long sortMergeInnerJoinCtr(
+    long buildTableView, long buildTableSorted);
+  public static native long sortMergeInnerJoinMakePartitionContext(
+    long joinObj, long streamTableView, long streamTableSorted);
+  public static native long sortMergeInnerJoinPartitionedJoin(
+    long joinObj, long partitionCtx, long startRow, long numRows);
+  public static native long[] sortMergeInnerJoinNumRows(
+    long partitionCtx);
 
   private static native long[] removeNullMasksIfNeeded(long tableView) throws CudfException;
 
