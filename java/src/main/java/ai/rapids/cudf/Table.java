@@ -176,7 +176,7 @@ public final class Table implements AutoCloseable {
     return new Table(removeNullMasksIfNeeded(table.nativeHandle));
   }
 
-  public static SortMergeJoin sortMergeInnerJoinCtr(Table buildTable, boolean buildTableSorted) {
+  public static SortMergeJoin sortMergeInnerJoin(Table buildTable, boolean buildTableSorted) {
     return new SortMergeJoin(buildTable, buildTableSorted);
   }
 
