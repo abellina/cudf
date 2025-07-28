@@ -32,7 +32,7 @@ public class SortMergeJoin implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(SortMergeJoin.class);
 
-  private int refCount = 1;
+  private boolean isClosed = false;
   private long handle = 0;
 
   public SortMergeJoin(Table buildTable, boolean buildTableSorted) {
@@ -41,12 +41,10 @@ public class SortMergeJoin implements AutoCloseable {
 
   @Override
   public synchronized void close() {
-    refCount--;
-    if (refCount < 0) {
-      throw new IllegalStateException("Close called too many times " + this);
-    }
-    if (refCount == 0) {
+    if (!isClosed) {
       destroy(handle);
+      isClosed = true;
+      handle = 0;
     }
   }
 
@@ -82,6 +80,7 @@ public class SortMergeJoin implements AutoCloseable {
       if (!isClosed) {
         destroyPartitionContext(contextHandle);
         isClosed = true;
+        contextHandle = 0;
       }
     }
 
