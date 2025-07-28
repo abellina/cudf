@@ -184,6 +184,7 @@ add_library(
   src/check_nvcomp_output_sizes.cu
   src/maps_column_view.cu
   src/multi_host_buffer_source.cpp
+  src/SortMergeJoinJni.cpp
 )
 
 # Disable NVTX if necessary

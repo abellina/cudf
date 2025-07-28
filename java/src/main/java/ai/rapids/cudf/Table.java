@@ -176,30 +176,14 @@ public final class Table implements AutoCloseable {
     return new Table(removeNullMasksIfNeeded(table.nativeHandle));
   }
 
-  public static long sortMergeInnerJoinCtr(Table buildTable, boolean buildTableSorted) {
-    return sortMergeInnerJoinCtr(buildTable.nativeHandle, buildTableSorted);
-  }
-
-  public static long sortMergeInnerJoinMakePartitionContext(
-      long joinObj, Table streamTable, boolean streamTableSorted) {
-    return sortMergeInnerJoinMakePartitionContext(joinObj, streamTable.nativeHandle, streamTableSorted);
-  }
-
-  public static long sortMergeInnerJoinMakePartitionedJoin(
-      long joinObj, long partitionCtx, long startRow, long numRows) {
-    return sortMergeInnerJoinPartitionedJoin(joinObj, partitionCtx, startRow, numRows);
+  public static SortMergeJoin sortMergeInnerJoinCtr(Table buildTable, boolean buildTableSorted) {
+    return new SortMergeJoin(buildTable, buildTableSorted);
   }
 
   /////////////////////////////////////////////////////////////////////////////
   // NATIVE APIs
   /////////////////////////////////////////////////////////////////////////////
-  public static native long sortMergeInnerJoinCtr(
-    long buildTableView, boolean buildTableSorted);
-  public static native long sortMergeInnerJoinMakePartitionContext(
-    long joinObj, long streamTableView, boolean streamTableSorted);
-  public static native long sortMergeInnerJoinPartitionedJoin(
-    long joinObj, long partitionCtx, long startRow, long numRows);
-  public static native long[] sortMergeInnerJoinNumRows(long partitionCtx);
+
 
   private static native long[] removeNullMasksIfNeeded(long tableView) throws CudfException;
 

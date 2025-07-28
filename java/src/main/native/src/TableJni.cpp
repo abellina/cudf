@@ -41,7 +41,6 @@
 #include <cudf/join/distinct_hash_join.hpp>
 #include <cudf/join/hash_join.hpp>
 #include <cudf/join/join.hpp>
-#include <cudf/join/sort_merge_join.hpp>
 #include <cudf/join/mixed_join.hpp>
 #include <cudf/lists/explode.hpp>
 #include <cudf/merge.hpp>
@@ -3186,56 +3185,6 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_innerJoinRowCount(JNIEnv* env,
   }
   CATCH_STD(env, 0);
 }
-
-JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinCtr(
-  JNIEnv* env, jclass, jlong j_build_table, jboolean j_build_table_sorted)
-{
-  auto build_table = reinterpret_cast<cudf::table_view const*>(j_build_table);
-  auto join_obj = new cudf::sort_merge_join(
-      *build_table, 
-      j_build_table_sorted ? cudf::sorted::YES : cudf::sorted::NO);
-  return reinterpret_cast<jlong>(join_obj);
-}
-
-JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinMakePartitionContext(
-  JNIEnv* env, jclass, jlong j_join_obj, jlong j_stream_table, jboolean j_stream_table_sorted)
-{
-  auto stream_table = reinterpret_cast<cudf::table_view const*>(j_stream_table);
-  auto join_obj = reinterpret_cast<cudf::sort_merge_join*>(j_join_obj);
-  auto context = join_obj->inner_join_match_context(*stream_table, 
-      j_stream_table_sorted ? cudf::sorted::YES : cudf::sorted::NO);
-  auto partition_ctx = new cudf::sort_merge_join::partition_context{
-    std::move(context), 
-    0, 
-    0
-  };
-  return reinterpret_cast<jlong>(partition_ctx);
-}
-
-JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinNumRows(
-  JNIEnv* env, jclass, jlong j_partition_context)
-{
-  auto context = reinterpret_cast<cudf::sort_merge_join::partition_context*>(j_partition_context);
-  auto host_vec = cudf::detail::make_std_vector(*context->left_table_context._match_counts, cudf::get_default_stream());
-  cudf::jni::native_jlongArray ret(env, host_vec.size());
-  for (size_t i = 0; i < host_vec.size(); ++i) {
-    ret[i] = static_cast<jlong>(host_vec[i]);
-  }
-  return ret.get_jArray();
-}
-
-JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_sortMergeInnerJoinPartitionedJoin(
-  JNIEnv* env, jclass, jlong j_join_obj, jlong j_partition_context, jlong start_row, jlong num_rows)
-{
-  auto join_obj = reinterpret_cast<cudf::sort_merge_join*>(j_join_obj);
-  auto context = reinterpret_cast<cudf::sort_merge_join::partition_context*>(j_partition_context);
-  context->left_start_idx = static_cast<cudf::size_type>(start_row);
-  context->left_end_idx = context->left_start_idx + static_cast<cudf::size_type>(num_rows);
-  auto left_right_indices =  join_obj->partitioned_inner_join(*context);
-  return cudf::jni::gather_maps_to_java(env, std::move(left_right_indices));
-}
-
-// TODO: dont' forget JNI destructors for smj object and context.
 
 JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_Table_innerHashJoinGatherMaps(
   JNIEnv* env, jclass, jlong j_left_table, jlong j_right_hash_join)
