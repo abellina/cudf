@@ -15,7 +15,9 @@
  */
 
 #include "cudf_jni_apis.hpp"
+#include "join_utils.hpp"
 
+#include <cudf/detail/utilities/vector_factories.hpp>
 #include <cudf/join/sort_merge_join.hpp>
 
 extern "C" {
