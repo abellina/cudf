@@ -176,8 +176,12 @@ public final class Table implements AutoCloseable {
     return new Table(removeNullMasksIfNeeded(table.nativeHandle));
   }
 
-  public static SortMergeJoin sortMergeInnerJoin(Table buildTable, boolean buildTableSorted) {
-    return new SortMergeJoin(buildTable, buildTableSorted);
+  public SortMergeJoin sortMergeInnerJoin(boolean buildTableSorted) {
+    return new SortMergeJoin(this, buildTableSorted, NullEquality.EQUAL);
+  }
+
+  public SortMergeJoin sortMergeInnerJoin(boolean buildTableSorted, boolean compareNullsEqual) {
+    return new SortMergeJoin(this, buildTableSorted, compareNullsEqual ? NullEquality.EQUAL : NullEquality.UNEQUAL);
   }
 
   /////////////////////////////////////////////////////////////////////////////

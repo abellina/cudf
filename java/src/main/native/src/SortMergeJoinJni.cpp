@@ -25,15 +25,18 @@ extern "C" {
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_SortMergeJoin_create(JNIEnv* env,
                                                                  jclass,
                                                                  jlong j_build_table,
-                                                                 jboolean j_build_table_sorted)
+                                                                 jboolean j_build_table_sorted,
+                                                                 jboolean j_compare_nulls_equal)
 {
   JNI_NULL_CHECK(env, j_build_table, "build table handle is null", 0);
   try {
     cudf::jni::auto_set_device(env);
     auto build_table = reinterpret_cast<cudf::table_view const*>(j_build_table);
+    auto null_equality = j_compare_nulls_equal ? cudf::null_equality::EQUAL : cudf::null_equality::UNEQUAL;
     auto join_obj = new cudf::sort_merge_join(
         *build_table, 
-        j_build_table_sorted ? cudf::sorted::YES : cudf::sorted::NO);
+        j_build_table_sorted ? cudf::sorted::YES : cudf::sorted::NO,
+        null_equality);
     return reinterpret_cast<jlong>(join_obj);
   }
   CATCH_STD(env, 0);

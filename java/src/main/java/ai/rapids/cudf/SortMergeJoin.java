@@ -36,7 +36,11 @@ public class SortMergeJoin implements AutoCloseable {
   private long handle = 0;
 
   public SortMergeJoin(Table buildTable, boolean buildTableSorted) {
-    handle = create(buildTable.getNativeView(), buildTableSorted);
+    this(buildTable, buildTableSorted, NullEquality.EQUAL);
+  }
+
+  public SortMergeJoin(Table buildTable, boolean buildTableSorted, NullEquality compareNullsEqual) {
+    handle = create(buildTable.getNativeView(), buildTableSorted, compareNullsEqual.nullsEqual);
   }
 
   @Override
@@ -97,10 +101,28 @@ public class SortMergeJoin implements AutoCloseable {
      * @param joinObj the sort merge join object
      * @param startRow the starting row index
      * @param numRows the number of rows to process
-     * @return gather maps for the join result
+     * @return gather maps for the join result as an array containing left and right gather maps
      */
-    public long[] partitionedJoin(SortMergeJoin joinObj, long startRow, long numRows) {
-      return SortMergeJoin.partitionedJoin(joinObj.getNativeHandle(), contextHandle, startRow, numRows);
+    public GatherMap[] partitionedJoin(SortMergeJoin joinObj, long startRow, long numRows) {
+      long[] gatherMapData = SortMergeJoin.partitionedJoin(joinObj.getNativeHandle(), contextHandle, startRow, numRows);
+      return buildJoinGatherMaps(gatherMapData);
+    }
+
+    /**
+     * Build GatherMap objects from raw gather map data returned by native join methods.
+     * @param gatherMapData array containing gather map addresses and handles
+     * @return array of left and right GatherMap objects
+     */
+    private static GatherMap[] buildJoinGatherMaps(long[] gatherMapData) {
+      long bufferSize = gatherMapData[0];
+      long leftAddr = gatherMapData[1];
+      long leftHandle = gatherMapData[2];
+      long rightAddr = gatherMapData[3];
+      long rightHandle = gatherMapData[4];
+      GatherMap[] maps = new GatherMap[2];
+      maps[0] = new GatherMap(DeviceMemoryBuffer.fromRmm(leftAddr, bufferSize, leftHandle));
+      maps[1] = new GatherMap(DeviceMemoryBuffer.fromRmm(rightAddr, bufferSize, rightHandle));
+      return maps;
     }
 
     long getContextHandle() {
@@ -108,7 +130,7 @@ public class SortMergeJoin implements AutoCloseable {
     }
   }
 
-  private static native long create(long buildTableView, boolean buildTableSorted);
+  private static native long create(long buildTableView, boolean buildTableSorted, boolean compareNullsEqual);
   private static native void destroy(long handle);
   private static native long makePartitionContext(long joinObj, long streamTableView, boolean streamTableSorted);
   private static native void destroyPartitionContext(long partitionContext);

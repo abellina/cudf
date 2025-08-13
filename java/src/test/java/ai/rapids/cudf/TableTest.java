@@ -10154,7 +10154,7 @@ public class TableTest extends CudfTestBase {
             .column(2, 2, 3, 5, 6, 6)
             .build()) {
       
-      try (SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(buildTable, false)) {
+      try (SortMergeJoin sortMergeJoin = buildTable.sortMergeInnerJoin(false)) {
         
         // Create a partition context for the stream table
         try (SortMergeJoin.PartitionContext partitionContext = 
@@ -10176,12 +10176,20 @@ public class TableTest extends CudfTestBase {
           assertTrue(totalRows == 9, "Should have 9 matches due to duplicates");
           
           // Perform the partitioned join for all rows
-          long[] gatherMaps = 
+          GatherMap[] gatherMaps = 
             partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
-          assertNotNull(gatherMaps);
-          assertEquals(2, gatherMaps.length); // Should return left and right gather maps
+          try {
+            assertNotNull(gatherMaps);
+            assertEquals(2, gatherMaps.length); // Should return left and right gather maps
 
-          // TODO: actually gather the gather maps and check the results
+            // TODO: actually gather the gather maps and check the results
+          } finally {
+            for (GatherMap map : gatherMaps) {
+              if (map != null) {
+                map.close();
+              }
+            }
+          }
         }
       }
     }
@@ -10198,7 +10206,7 @@ public class TableTest extends CudfTestBase {
             .build()) {
       
       // Create a SortMergeJoin object with the build table
-      try (SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(buildTable, false)) {
+      try (SortMergeJoin sortMergeJoin = buildTable.sortMergeInnerJoin(false)) {
         
         // Create a partition context for the stream table
         try (SortMergeJoin.PartitionContext partitionContext = 
@@ -10220,11 +10228,64 @@ public class TableTest extends CudfTestBase {
           assertTrue(totalRows == 2, "Should have 2 matches for non-null values");
           
           // Perform the partitioned join for all rows
-          long[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
-          assertNotNull(gatherMaps);
-          assertEquals(2, gatherMaps.length);
+          GatherMap[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
+          try {
+            assertNotNull(gatherMaps);
+            assertEquals(2, gatherMaps.length);
 
-          // TODO: actually gather the gather maps and check the results
+            // TODO: actually gather the gather maps and check the results
+          } finally {
+            for (GatherMap map : gatherMaps) {
+              if (map != null) {
+                map.close();
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void testSortMergeInnerJoinWithNullEqualityParameter() {
+    // Test the compareNullsEqual parameter functionality
+    try (Table buildTable = new Table.TestBuilder()
+            .column(1, 2, null, 3, 4, null, 5)
+            .build();
+         Table streamTable = new Table.TestBuilder()
+            .column(2, null, 5, null, 6)
+            .build()) {
+      
+      // Test with nulls treated as UNEQUAL (default behavior)
+      try (SortMergeJoin sortMergeJoin = buildTable.sortMergeInnerJoin(false, false)) {
+        try (SortMergeJoin.PartitionContext partitionContext = 
+             sortMergeJoin.makePartitionContext(streamTable, false)) {
+          
+          long[] numRows = partitionContext.getNumRows();
+          long totalRows = 0;
+          for (long count : numRows) {
+            totalRows += count;
+          }
+          
+          // With UNEQUAL, nulls don't match - should have 2 matches (for values 2 and 5)
+          assertEquals(2, totalRows, "With UNEQUAL nulls should have 2 matches for non-null values");
+        }
+      }
+      
+      // Test with nulls treated as EQUAL
+      try (SortMergeJoin sortMergeJoin = buildTable.sortMergeInnerJoin(false, true)) {
+        try (SortMergeJoin.PartitionContext partitionContext = 
+             sortMergeJoin.makePartitionContext(streamTable, false)) {
+          
+          long[] numRows = partitionContext.getNumRows();
+          long totalRows = 0;
+          for (long count : numRows) {
+            totalRows += count;
+          }
+          
+          // With EQUAL, nulls match - should have more matches
+          // buildTable has 2 nulls, streamTable has 2 nulls = 2*2=4 null matches + 2 non-null matches = 6 total
+          assertEquals(6, totalRows, "With EQUAL nulls should have 6 matches (4 null matches + 2 non-null matches)");
         }
       }
     }
@@ -10241,7 +10302,7 @@ public class TableTest extends CudfTestBase {
             .build()) {
       
       // Create a SortMergeJoin object with the build table
-      try (SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(buildTable, false)) {
+      try (SortMergeJoin sortMergeJoin = buildTable.sortMergeInnerJoin(false)) {
         assertNotNull(sortMergeJoin);
         
         // Create a partition context for the stream table
@@ -10263,9 +10324,17 @@ public class TableTest extends CudfTestBase {
           assertEquals(0, totalRows, "Should have no matches when ranges don't overlap");
           
           // Even with no matches, we should be able to call partitionedJoin
-          long[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
-          assertNotNull(gatherMaps);
-          assertEquals(2, gatherMaps.length); // Should still return 2 arrays even if empty
+          GatherMap[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
+          try {
+            assertNotNull(gatherMaps);
+            assertEquals(2, gatherMaps.length); // Should still return 2 arrays even if empty
+          } finally {
+            for (GatherMap map : gatherMaps) {
+              if (map != null) {
+                map.close();
+              }
+            }
+          }
         }
       }
     }
@@ -10282,7 +10351,7 @@ public class TableTest extends CudfTestBase {
             .build()) {
       
       // Create a SortMergeJoin object indicating tables are sorted
-      try (SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(buildTable, true)) {
+      try (SortMergeJoin sortMergeJoin = buildTable.sortMergeInnerJoin(true)) {
         
         // Create a partition context for the sorted stream table
         try (SortMergeJoin.PartitionContext partitionContext = 
@@ -10310,16 +10379,32 @@ public class TableTest extends CudfTestBase {
             
             // First half
             if (halfRows > 0) {
-              long[] gatherMaps1 = partitionContext.partitionedJoin(sortMergeJoin, 0, halfRows);
-              assertNotNull(gatherMaps1);
-              assertEquals(2, gatherMaps1.length);
+              GatherMap[] gatherMaps1 = partitionContext.partitionedJoin(sortMergeJoin, 0, halfRows);
+              try {
+                assertNotNull(gatherMaps1);
+                assertEquals(2, gatherMaps1.length);
+              } finally {
+                for (GatherMap map : gatherMaps1) {
+                  if (map != null) {
+                    map.close();
+                  }
+                }
+              }
             }
             
             // Second half
             if (streamRows - halfRows > 0) {
-              long[] gatherMaps2 = partitionContext.partitionedJoin(sortMergeJoin, halfRows, streamRows - halfRows);
-              assertNotNull(gatherMaps2);
-              assertEquals(2, gatherMaps2.length);
+              GatherMap[] gatherMaps2 = partitionContext.partitionedJoin(sortMergeJoin, halfRows, streamRows - halfRows);
+              try {
+                assertNotNull(gatherMaps2);
+                assertEquals(2, gatherMaps2.length);
+              } finally {
+                for (GatherMap map : gatherMaps2) {
+                  if (map != null) {
+                    map.close();
+                  }
+                }
+              }
             }
           }
         }
@@ -10338,7 +10423,7 @@ public class TableTest extends CudfTestBase {
             .build()) {
       
       // Create a SortMergeJoin object indicating tables are sorted
-      try (SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(buildTable, true)) {
+      try (SortMergeJoin sortMergeJoin = buildTable.sortMergeInnerJoin(true)) {
         
         // Create a partition context for the sorted stream table
         try (SortMergeJoin.PartitionContext partitionContext = 
@@ -10358,9 +10443,17 @@ public class TableTest extends CudfTestBase {
           assertEquals(0, totalRows, "Sorted tables with no overlap should have no matches");
           
           // Should still be able to perform join operations even with no matches
-          long[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
-          assertNotNull(gatherMaps);
-          assertEquals(2, gatherMaps.length);
+          GatherMap[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
+          try {
+            assertNotNull(gatherMaps);
+            assertEquals(2, gatherMaps.length);
+          } finally {
+            for (GatherMap map : gatherMaps) {
+              if (map != null) {
+                map.close();
+              }
+            }
+          }
         }
       }
     }
@@ -10377,7 +10470,7 @@ public class TableTest extends CudfTestBase {
         .build();
     
     try {
-      SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(buildTable, false);
+      SortMergeJoin sortMergeJoin = buildTable.sortMergeInnerJoin(false);
       SortMergeJoin.PartitionContext partitionContext = sortMergeJoin.makePartitionContext(streamTable, false);
       
       // Use the objects with complex data
@@ -10391,9 +10484,17 @@ public class TableTest extends CudfTestBase {
       }
       
       if (totalRows > 0) {
-        long[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
-        assertNotNull(gatherMaps);
-        assertEquals(2, gatherMaps.length);
+        GatherMap[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, streamTable.getRowCount());
+        try {
+          assertNotNull(gatherMaps);
+          assertEquals(2, gatherMaps.length);
+        } finally {
+          for (GatherMap map : gatherMaps) {
+            if (map != null) {
+              map.close();
+            }
+          }
+        }
       }
       
       // Close manually
@@ -10424,7 +10525,7 @@ public class TableTest extends CudfTestBase {
             .column(42)  // Same single value
             .build()) {
       
-      try (SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(singleBuildTable, true);
+      try (SortMergeJoin sortMergeJoin = singleBuildTable.sortMergeInnerJoin(true);
            SortMergeJoin.PartitionContext partitionContext = 
                sortMergeJoin.makePartitionContext(singleStreamTable, true)) {
         
@@ -10437,11 +10538,19 @@ public class TableTest extends CudfTestBase {
         }
         assertEquals(1, totalRows, "Single matching values should produce 1 match");
         
-        long[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, 1);
-        assertNotNull(gatherMaps);
-        assertEquals(2, gatherMaps.length);
+        GatherMap[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, 1);
+        try {
+          assertNotNull(gatherMaps);
+          assertEquals(2, gatherMaps.length);
 
-        // TODO: actually gather the gather maps and check the results
+          // TODO: actually gather the gather maps and check the results
+        } finally {
+          for (GatherMap map : gatherMaps) {
+            if (map != null) {
+              map.close();
+            }
+          }
+        }
       }
     }
     
@@ -10453,7 +10562,7 @@ public class TableTest extends CudfTestBase {
             .column((Integer) null, (Integer) null)  // All nulls, explicit cast
             .build()) {
       
-      try (SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(nullBuildTable, true);
+      try (SortMergeJoin sortMergeJoin = nullBuildTable.sortMergeInnerJoin(true);
            SortMergeJoin.PartitionContext partitionContext = 
                sortMergeJoin.makePartitionContext(nullStreamTable, true)) {
         
@@ -10461,11 +10570,19 @@ public class TableTest extends CudfTestBase {
         assertNotNull(numRows);
         
         // Nulls typically don't match in inner joins, but test should still work
-        long[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, nullStreamTable.getRowCount());
-        assertNotNull(gatherMaps);
-        assertEquals(2, gatherMaps.length);
+        GatherMap[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, nullStreamTable.getRowCount());
+        try {
+          assertNotNull(gatherMaps);
+          assertEquals(2, gatherMaps.length);
 
-        // TODO: make sure gather maps are correct
+          // TODO: make sure gather maps are correct
+        } finally {
+          for (GatherMap map : gatherMaps) {
+            if (map != null) {
+              map.close();
+            }
+          }
+        }
       }
     }
     
@@ -10477,7 +10594,7 @@ public class TableTest extends CudfTestBase {
             .column(0, Integer.MAX_VALUE, -500000)
             .build()) {
       
-      try (SortMergeJoin sortMergeJoin = Table.sortMergeInnerJoin(largeBuildTable, false);
+      try (SortMergeJoin sortMergeJoin = largeBuildTable.sortMergeInnerJoin(false);
            SortMergeJoin.PartitionContext partitionContext = 
                sortMergeJoin.makePartitionContext(largeStreamTable, false)) {
         
@@ -10492,11 +10609,19 @@ public class TableTest extends CudfTestBase {
         // Should have matches for 0 and Integer.MAX_VALUE
         assertTrue(totalRows == 2, "Should have 2 matches for extreme values");
         
-        long[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, largeStreamTable.getRowCount());
-        assertNotNull(gatherMaps);
-        assertEquals(2, gatherMaps.length);
+        GatherMap[] gatherMaps = partitionContext.partitionedJoin(sortMergeJoin, 0, largeStreamTable.getRowCount());
+        try {
+          assertNotNull(gatherMaps);
+          assertEquals(2, gatherMaps.length);
 
-        // TODO: actually gather the gather maps and check the results
+          // TODO: actually gather the gather maps and check the results
+        } finally {
+          for (GatherMap map : gatherMaps) {
+            if (map != null) {
+              map.close();
+            }
+          }
+        }
       }
     }
   }
