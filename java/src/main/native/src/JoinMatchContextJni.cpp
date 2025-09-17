@@ -32,9 +32,7 @@
 
 namespace {
 struct JoinMatchContextHolder {
-  // Own the match counts device vector so we can export it later
   std::unique_ptr<rmm::device_uvector<cudf::size_type>> match_counts;
-  // Keep a copy of the left table_view for reference (non-owning)
   cudf::table_view left_view;
 };
 } // anonymous namespace
@@ -51,8 +49,47 @@ JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_JoinMatchContext_createFromHashJoinI
     auto* hash_join = reinterpret_cast<cudf::hash_join const*>(hash_join_handle);
     auto const& left_view = *reinterpret_cast<cudf::table_view const*>(left_table_view_handle);
 
-    // Ask hash_join for inner match context (counts per left row)
     auto ctx = hash_join->inner_join_match_context(left_view);
+
+    auto holder = std::make_unique<JoinMatchContextHolder>();
+    holder->left_view = ctx._left_table;
+    holder->match_counts = std::move(ctx._match_counts);
+
+    return reinterpret_cast<jlong>(holder.release());
+  } CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_JoinMatchContext_createFromHashJoinLeft(
+  JNIEnv* env, jclass, jlong hash_join_handle, jlong left_table_view_handle)
+{
+  JNI_ARG_CHECK(env, hash_join_handle != 0, "hash_join handle is null", 0);
+  JNI_ARG_CHECK(env, left_table_view_handle != 0, "left table_view handle is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto* hash_join = reinterpret_cast<cudf::hash_join const*>(hash_join_handle);
+    auto const& left_view = *reinterpret_cast<cudf::table_view const*>(left_table_view_handle);
+
+    auto ctx = hash_join->left_join_match_context(left_view);
+
+    auto holder = std::make_unique<JoinMatchContextHolder>();
+    holder->left_view = ctx._left_table;
+    holder->match_counts = std::move(ctx._match_counts);
+
+    return reinterpret_cast<jlong>(holder.release());
+  } CATCH_STD(env, 0);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_JoinMatchContext_createFromHashJoinFull(
+  JNIEnv* env, jclass, jlong hash_join_handle, jlong left_table_view_handle)
+{
+  JNI_ARG_CHECK(env, hash_join_handle != 0, "hash_join handle is null", 0);
+  JNI_ARG_CHECK(env, left_table_view_handle != 0, "left table_view handle is null", 0);
+  try {
+    cudf::jni::auto_set_device(env);
+    auto* hash_join = reinterpret_cast<cudf::hash_join const*>(hash_join_handle);
+    auto const& left_view = *reinterpret_cast<cudf::table_view const*>(left_table_view_handle);
+
+    auto ctx = hash_join->full_join_match_context(left_view);
 
     auto holder = std::make_unique<JoinMatchContextHolder>();
     holder->left_view = ctx._left_table;
@@ -82,7 +119,6 @@ JNIEXPORT jlongArray JNICALL Java_ai_rapids_cudf_JoinMatchContext_exportMatchCou
       std::transform(host_counts.begin(), host_counts.end(), out.begin(),
                      [](int32_t v) { return static_cast<jlong>(v); });
 
-      // Free device storage now that we've exported counts
       holder->match_counts.reset();
     }
 

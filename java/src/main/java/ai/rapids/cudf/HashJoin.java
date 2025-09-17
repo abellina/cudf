@@ -108,18 +108,25 @@ public class HashJoin implements AutoCloseable {
     isClosed = true;
   }
 
-  long getNativeView() {
-    return cleaner.nativeHandle;
+  long getNativeView() { return cleaner.nativeHandle; }
+
+  public long getNumberOfColumns() { return cleaner.buildKeys.getNumberOfColumns(); }
+
+  public boolean getCompareNulls() { return compareNulls; }
+
+  /** Compute inner-join match counts for a probe table. */
+  public JoinMatchContext innerJoinMatchContext(Table probe) {
+    return JoinMatchContext.fromHashJoinInner(getNativeView(), probe);
   }
 
-  /** Get the number of join key columns for the table that was used to generate the has table. */
-  public long getNumberOfColumns() {
-    return cleaner.buildKeys.getNumberOfColumns();
+  /** Compute left-join match counts for a probe table. */
+  public JoinMatchContext leftJoinMatchContext(Table probe) {
+    return JoinMatchContext.fromHashJoinLeft(getNativeView(), probe);
   }
 
-  /** Returns true if the hash table was built to match on nulls otherwise false. */
-  public boolean getCompareNulls() {
-    return compareNulls;
+  /** Compute full-join match counts for a probe table. */
+  public JoinMatchContext fullJoinMatchContext(Table probe) {
+    return JoinMatchContext.fromHashJoinFull(getNativeView(), probe);
   }
 
   private static native long create(long tableView, boolean nullEqual);
