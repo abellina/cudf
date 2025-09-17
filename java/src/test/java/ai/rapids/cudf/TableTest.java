@@ -18,21 +18,50 @@
 
 package ai.rapids.cudf;
 
-import ai.rapids.cudf.HostColumnVector.BasicType;
-import ai.rapids.cudf.HostColumnVector.Builder;
-import ai.rapids.cudf.HostColumnVector.DataType;
-import ai.rapids.cudf.HostColumnVector.ListType;
-import ai.rapids.cudf.HostColumnVector.StructData;
-import ai.rapids.cudf.HostColumnVector.StructType;
+import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
+import static ai.rapids.cudf.AssertUtils.assertPartialColumnsAreEqual;
+import static ai.rapids.cudf.AssertUtils.assertPartialTablesAreEqual;
+import static ai.rapids.cudf.AssertUtils.assertTableTypes;
+import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
+import static ai.rapids.cudf.ColumnWriterOptions.listBuilder;
+import static ai.rapids.cudf.ColumnWriterOptions.mapColumn;
+import static ai.rapids.cudf.ColumnWriterOptions.structBuilder;
+import static ai.rapids.cudf.Table.removeNullMasksIfNeeded;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.rapids.cudf.ast.BinaryOperation;
-import ai.rapids.cudf.ast.BinaryOperator;
-import ai.rapids.cudf.ast.ColumnReference;
-import ai.rapids.cudf.ast.CompiledExpression;
-import ai.rapids.cudf.ast.TableReference;
-import com.google.common.base.Charsets;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.EOFException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.RoundingMode;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.parquet.hadoop.ParquetFileReader;
@@ -43,38 +72,22 @@ import org.apache.parquet.schema.OriginalType;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.io.*;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.math.RoundingMode;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.channels.SeekableByteChannel;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import com.google.common.base.Charsets;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
-import static ai.rapids.cudf.AssertUtils.assertColumnsAreEqual;
-import static ai.rapids.cudf.AssertUtils.assertPartialColumnsAreEqual;
-import static ai.rapids.cudf.AssertUtils.assertPartialTablesAreEqual;
-import static ai.rapids.cudf.AssertUtils.assertTableTypes;
-import static ai.rapids.cudf.AssertUtils.assertTablesAreEqual;
-import static ai.rapids.cudf.ColumnWriterOptions.mapColumn;
-import static ai.rapids.cudf.ParquetWriterOptions.listBuilder;
-import static ai.rapids.cudf.ParquetWriterOptions.structBuilder;
-import static ai.rapids.cudf.Table.TestBuilder;
-import static ai.rapids.cudf.Table.removeNullMasksIfNeeded;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import ai.rapids.cudf.HostColumnVector.BasicType;
+import ai.rapids.cudf.HostColumnVector.Builder;
+import ai.rapids.cudf.HostColumnVector.DataType;
+import ai.rapids.cudf.HostColumnVector.ListType;
+import ai.rapids.cudf.HostColumnVector.StructData;
+import ai.rapids.cudf.HostColumnVector.StructType;
+import ai.rapids.cudf.Table.TestBuilder;
+import ai.rapids.cudf.ast.BinaryOperation;
+import ai.rapids.cudf.ast.BinaryOperator;
+import ai.rapids.cudf.ast.ColumnReference;
+import ai.rapids.cudf.ast.CompiledExpression;
+import ai.rapids.cudf.ast.TableReference;
 
 public class TableTest extends CudfTestBase {
 
@@ -10143,6 +10156,69 @@ public class TableTest extends CudfTestBase {
 
       try (Table ret = t.sample(8, true, 0)) {
         assertEquals(ret.getRowCount(), 8);
+      }
+    }
+  }
+
+  @Test
+  void testJoinMatchContextPartitionLargeInnerJoin() {
+    final int NUM_KEYS = 4;
+    final int BUILD_REPEATS_PER_KEY = 4096; // matches per probe row
+    final int PROBE_REPEATS_PER_KEY = 16384; // rows per key in probe
+
+    // Expected totals
+    final long probeRows = (long) NUM_KEYS * PROBE_REPEATS_PER_KEY;
+    final long matchesTotal = probeRows * BUILD_REPEATS_PER_KEY; // each probe row matches BUILD_REPEATS_PER_KEY
+    final long bytesPerMatchPair = 8L; // two int32 gather maps
+
+    try (Table buildBase = new Table.TestBuilder()
+        .column(0, 1, 2, 3)
+        .build();
+        Table build = buildBase.repeat(BUILD_REPEATS_PER_KEY);
+        Table probeBase = new Table.TestBuilder()
+            .column(0, 1, 2, 3)
+            .build();
+        Table probe = probeBase.repeat(PROBE_REPEATS_PER_KEY);
+        HashJoin hj = new HashJoin(build, false);
+        JoinMatchContext ctx = hj.innerJoinMatchContext(probe)) {
+      long[] counts = ctx.getMatchCounts();
+      long sum = 0;
+      for (long c : counts) {
+        sum += c;
+      }
+      long estimatedBytes = sum * bytesPerMatchPair;
+
+      // Sanity checks: overall inner-join estimate > 2GB
+      assertEquals(probeRows, counts.length);
+      assertEquals(matchesTotal, sum);
+      assertTrue(estimatedBytes >= (1L << 31)); // >= 2GB
+
+      // Split probe in half so each partition is ~1GB at most
+      int splitIndex = (int) (probe.getRowCount() / 2);
+      ContiguousTable[] parts = probe.contiguousSplit(splitIndex);
+      try (ContiguousTable p0 = parts[0];
+          ContiguousTable p1 = parts[1];
+          Table probe1 = p0.getTable();
+          Table probe2 = p1.getTable();
+          JoinMatchContext c1 = hj.innerJoinMatchContext(probe1);
+          JoinMatchContext c2 = hj.innerJoinMatchContext(probe2)) {
+
+        long sum1 = 0;
+        for (long c : c1.getMatchCounts()) {
+          sum1 += c;
+        }
+        long sum2 = 0;
+        for (long c : c2.getMatchCounts()) {
+          sum2 += c;
+        }
+
+        assertEquals(matchesTotal, sum1 + sum2);
+        long est1 = sum1 * bytesPerMatchPair;
+        long est2 = sum2 * bytesPerMatchPair;
+
+        // Each half ~1GB (allow small slack)
+        assertTrue(est1 <= (1L << 30) + (64L << 20));
+        assertTrue(est2 <= (1L << 30) + (64L << 20));
       }
     }
   }
