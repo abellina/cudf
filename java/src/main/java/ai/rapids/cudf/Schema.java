@@ -20,7 +20,9 @@ package ai.rapids.cudf;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
+
 
 /**
  * The schema of data to be read in.
@@ -354,7 +356,7 @@ public class Schema {
   public static class Builder {
     private final DType topLevelType;
     private final int topLevelPrecision;
-    private final List<String> names;
+    private final TreeSet<String> names;
     private final List<Builder> types;
 
     private Builder(DType topLevelType, int topLevelPrecision) {
@@ -362,7 +364,7 @@ public class Schema {
       this.topLevelPrecision = topLevelPrecision;
       if (topLevelType == DType.STRUCT || topLevelType == DType.LIST) {
         // There can be children
-        names = new ArrayList<>();
+        names = new TreeSet<>();
         types = new ArrayList<>();
       } else {
         names = null;
@@ -429,7 +431,11 @@ public class Schema {
           children.add(b.build());
         }
       }
-      return new Schema(topLevelType, topLevelPrecision, names, children);
+      return new Schema(
+        topLevelType, 
+        topLevelPrecision, 
+        new ArrayList<>(names),
+        children);
     }
   }
 }
