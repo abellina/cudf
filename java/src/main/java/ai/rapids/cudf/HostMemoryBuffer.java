@@ -68,7 +68,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
       long origAddress = address;
       if (address != 0) {
         try {
-          UnsafeMemoryAccessor.free(address);
+          JniMemoryAccessor.free(address);
         } finally {
           // Always mark the resource as freed even if an exception is thrown.
           // We cannot know how far it progressed before the exception, and
@@ -156,7 +156,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
    * @return the newly created buffer
    */
   public static HostMemoryBuffer allocateRaw(long bytes) {
-    return new HostMemoryBuffer(UnsafeMemoryAccessor.allocate(bytes), bytes);
+    return new HostMemoryBuffer(JniMemoryAccessor.allocate(bytes), bytes);
   }
 
   /**
@@ -170,7 +170,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public static HostMemoryBuffer mapFile(File path, MapMode mode,
       long offset, long length) throws IOException {
     // mapping offset must be a multiple of the system page size
-    long offsetDelta = offset & (UnsafeMemoryAccessor.pageSize() - 1);
+    long offsetDelta = offset & (JniMemoryAccessor.pageSize() - 1);
     long address;
     try {
       address = HostMemoryBufferNativeUtils.mmap(path.getPath(),
@@ -240,7 +240,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
                                        long length) {
     addressOutOfBoundsCheck(address + destOffset, length, "copy from dest");
     srcData.addressOutOfBoundsCheck(srcData.address + srcOffset, length, "copy from source");
-    UnsafeMemoryAccessor.copyMemory(null, srcData.address + srcOffset, null,
+    JniMemoryAccessor.copyMemory(null, srcData.address + srcOffset, null,
         address + destOffset, length);
   }
 
@@ -276,7 +276,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final byte getByte(long offset) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 1, "getByte");
-    return UnsafeMemoryAccessor.getByte(requestedAddress);
+    return JniMemoryAccessor.getByte(requestedAddress);
   }
 
   /**
@@ -287,7 +287,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final void setByte(long offset, byte value) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 1, "setByte");
-    UnsafeMemoryAccessor.setByte(requestedAddress, value);
+    JniMemoryAccessor.setByte(requestedAddress, value);
   }
 
   /**
@@ -303,7 +303,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert srcOffset >= 0;
     long requestedAddress = this.address + srcOffset;
     addressOutOfBoundsCheck(requestedAddress, len, "getBytes");
-    UnsafeMemoryAccessor.getBytes(dst, dstOffset, requestedAddress, len);
+    JniMemoryAccessor.getBytes(dst, dstOffset, requestedAddress, len);
   }
 
   /**
@@ -317,7 +317,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert srcOffset >= 0;
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, len, "setBytes");
-    UnsafeMemoryAccessor.setBytes(requestedAddress, data, srcOffset, len);
+    JniMemoryAccessor.setBytes(requestedAddress, data, srcOffset, len);
   }
 
   /**
@@ -328,7 +328,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final short getShort(long offset) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 2, "getShort");
-    return UnsafeMemoryAccessor.getShort(requestedAddress);
+    return JniMemoryAccessor.getShort(requestedAddress);
   }
 
   /**
@@ -339,7 +339,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final void setShort(long offset, short value) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 2, "setShort");
-    UnsafeMemoryAccessor.setShort(requestedAddress, value);
+    JniMemoryAccessor.setShort(requestedAddress, value);
   }
 
   /**
@@ -353,7 +353,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert len <= data.length - srcOffset;
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, len * 2, "setShorts");
-    UnsafeMemoryAccessor.setShorts(requestedAddress, data, srcOffset, len);
+    JniMemoryAccessor.setShorts(requestedAddress, data, srcOffset, len);
   }
 
   /**
@@ -364,7 +364,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final int getInt(long offset) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 4, "getInt");
-    return UnsafeMemoryAccessor.getInt(requestedAddress);
+    return JniMemoryAccessor.getInt(requestedAddress);
   }
 
   /**
@@ -380,7 +380,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert srcOffset >= 0;
     long requestedAddress = this.address + srcOffset;
     addressOutOfBoundsCheck(requestedAddress, count * 4L, "getInts");
-    UnsafeMemoryAccessor.getInts(dst, dstIndex, requestedAddress, count);
+    JniMemoryAccessor.getInts(dst, dstIndex, requestedAddress, count);
   }
 
 
@@ -392,7 +392,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final void setInt(long offset, int value) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 4, "setInt");
-    UnsafeMemoryAccessor.setInt(requestedAddress, value);
+    JniMemoryAccessor.setInt(requestedAddress, value);
   }
 
   /**
@@ -406,7 +406,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert len <= data.length - srcOffset;
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, len * 4, "setInts");
-    UnsafeMemoryAccessor.setInts(requestedAddress, data, srcOffset, len);
+    JniMemoryAccessor.setInts(requestedAddress, data, srcOffset, len);
   }
 
   /**
@@ -417,7 +417,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final long getLong(long offset) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 8, "getLong");
-    return UnsafeMemoryAccessor.getLong(requestedAddress);
+    return JniMemoryAccessor.getLong(requestedAddress);
   }
 
   /**
@@ -428,7 +428,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final void setLong(long offset, long value) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 8, "setLong");
-    UnsafeMemoryAccessor.setLong(requestedAddress, value);
+    JniMemoryAccessor.setLong(requestedAddress, value);
   }
 
   /**
@@ -444,7 +444,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert srcOffset >= 0;
     long requestedAddress = this.address + srcOffset;
     addressOutOfBoundsCheck(requestedAddress, count * 8L, "getLongs");
-    UnsafeMemoryAccessor.getLongs(dst, dstIndex, requestedAddress, count);
+    JniMemoryAccessor.getLongs(dst, dstIndex, requestedAddress, count);
   }
 
   /**
@@ -458,7 +458,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert len <= data.length - srcOffset;
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, len * 8, "setLongs");
-    UnsafeMemoryAccessor.setLongs(requestedAddress, data, srcOffset, len);
+    JniMemoryAccessor.setLongs(requestedAddress, data, srcOffset, len);
   }
 
   /**
@@ -469,7 +469,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final float getFloat(long offset) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 4, "getFloat");
-    return UnsafeMemoryAccessor.getFloat(requestedAddress);
+    return JniMemoryAccessor.getFloat(requestedAddress);
   }
 
   /**
@@ -480,7 +480,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final void setFloat(long offset, float value) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 4, "setFloat");
-    UnsafeMemoryAccessor.setFloat(requestedAddress, value);
+    JniMemoryAccessor.setFloat(requestedAddress, value);
   }
 
   /**
@@ -494,7 +494,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert len <= data.length - srcOffset;
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, len * 4, "setFloats");
-    UnsafeMemoryAccessor.setFloats(requestedAddress, data, srcOffset, len);
+    JniMemoryAccessor.setFloats(requestedAddress, data, srcOffset, len);
   }
 
   /**
@@ -505,7 +505,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final double getDouble(long offset) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 8, "getDouble");
-    return UnsafeMemoryAccessor.getDouble(requestedAddress);
+    return JniMemoryAccessor.getDouble(requestedAddress);
   }
 
   /**
@@ -516,7 +516,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final void setDouble(long offset, double value) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 8, "setDouble");
-    UnsafeMemoryAccessor.setDouble(requestedAddress, value);
+    JniMemoryAccessor.setDouble(requestedAddress, value);
   }
 
   /**
@@ -530,7 +530,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     assert len <= data.length - srcOffset;
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, len * 8, "setDoubles");
-    UnsafeMemoryAccessor.setDoubles(requestedAddress, data, srcOffset, len);
+    JniMemoryAccessor.setDoubles(requestedAddress, data, srcOffset, len);
   }
 
   /**
@@ -541,7 +541,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final boolean getBoolean(long offset) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 1, "getBoolean");
-    return UnsafeMemoryAccessor.getBoolean(requestedAddress);
+    return JniMemoryAccessor.getBoolean(requestedAddress);
   }
 
   /**
@@ -552,7 +552,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
   public final void setBoolean(long offset, boolean value) {
     long requestedAddress = this.address + offset;
     addressOutOfBoundsCheck(requestedAddress, 1, "setBoolean");
-    UnsafeMemoryAccessor.setBoolean(requestedAddress, value);
+    JniMemoryAccessor.setBoolean(requestedAddress, value);
   }
 
   /**
@@ -563,12 +563,12 @@ public class HostMemoryBuffer extends MemoryBuffer {
    */
   public final void setMemory(long offset, long length, byte value) {
     addressOutOfBoundsCheck(address + offset, length, "set memory");
-    UnsafeMemoryAccessor.setMemory(address + offset, length, value);
+    JniMemoryAccessor.setMemory(address + offset, length, value);
   }
 
   final void copyFromMemory(long fromAddress, long len) {
     addressOutOfBoundsCheck(address, len, "copy from memory");
-    UnsafeMemoryAccessor.copyMemory(null, fromAddress, null, address, len);
+    JniMemoryAccessor.copyMemory(null, fromAddress, null, address, len);
   }
 
   /**
@@ -578,7 +578,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
    */
   final void copyToMemory(long toAddress, long len) {
     addressOutOfBoundsCheck(address, len, "copy to memory");
-    UnsafeMemoryAccessor.copyMemory(null, address, null, toAddress, len);
+    JniMemoryAccessor.copyMemory(null, address, null, toAddress, len);
   }
 
   /**
@@ -648,7 +648,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     boolean success = false;
     try {
       ret = allocate(len);
-      UnsafeMemoryAccessor.copyMemory(null, address + offset, null, ret.getAddress(), len);
+      JniMemoryAccessor.copyMemory(null, address + offset, null, ret.getAddress(), len);
       success = true;
       return ret;
     } finally {

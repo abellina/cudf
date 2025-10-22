@@ -46,7 +46,7 @@ public class DefaultHostMemoryAllocator implements HostMemoryAllocator {
         return pinnedBuffer;
       }
     }
-    return new HostMemoryBuffer(UnsafeMemoryAccessor.allocate(bytes), bytes);
+    return new HostMemoryBuffer(JniMemoryAccessor.allocate(bytes), bytes);
   }
 
   @Override

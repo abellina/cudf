@@ -220,7 +220,7 @@ public class HostColumnVectorCore implements AutoCloseable {
 
     assert srcOffset + length <= srcBuffer.length : "would copy off end of buffer "
         + srcOffset + " + " + length + " > " + srcBuffer.length;
-    UnsafeMemoryAccessor.getBytes(dst, dstOffset,
+    JniMemoryAccessor.getBytes(dst, dstOffset,
         srcBuffer.getAddress() + srcOffset, length);
   }
   /**

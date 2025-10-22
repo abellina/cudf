@@ -149,6 +149,7 @@ add_library(
   src/HashJoinJni.cpp
   src/HostMemoryBufferNativeUtilsJni.cpp
   src/HostUDFWrapperJni.cpp
+  src/JniMemoryAccessor.cpp
   src/NvcompJni.cpp
   src/NvtxRangeJni.cpp
   src/NvtxUniqueRangeJni.cpp
