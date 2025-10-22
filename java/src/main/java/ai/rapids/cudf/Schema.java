@@ -434,7 +434,7 @@ public class Schema {
       return new Schema(
         topLevelType, 
         topLevelPrecision, 
-        new ArrayList<>(names),
+        names == null ? null : new ArrayList<>(names),
         children);
     }
   }
