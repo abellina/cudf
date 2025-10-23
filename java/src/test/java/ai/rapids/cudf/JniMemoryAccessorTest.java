@@ -325,8 +325,7 @@ public class JniMemoryAccessorTest {
       byte[] data = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
       
       // Copy from array to native memory
-      JniMemoryAccessor.copyMemory(data, JniMemoryAccessor.BYTE_ARRAY_OFFSET, 
-                                   null, address, 10);
+      JniMemoryAccessor.copyMemoryJN(data, 0, address, 10);
       
       // Verify
       for (int i = 0; i < 10; i++) {
@@ -350,8 +349,7 @@ public class JniMemoryAccessorTest {
       byte[] result = new byte[10];
       
       // Copy from native memory to array
-      JniMemoryAccessor.copyMemory(null, address, 
-                                   result, JniMemoryAccessor.BYTE_ARRAY_OFFSET, 10);
+      JniMemoryAccessor.copyMemoryNJ(address, result, 0, 10);
       
       // Verify
       for (int i = 0; i < 10; i++) {

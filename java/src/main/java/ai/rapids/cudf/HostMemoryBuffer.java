@@ -240,7 +240,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
                                        long length) {
     addressOutOfBoundsCheck(address + destOffset, length, "copy from dest");
     srcData.addressOutOfBoundsCheck(srcData.address + srcOffset, length, "copy from source");
-    JniMemoryAccessor.copyMemory(null, srcData.address + srcOffset, null,
+    JniMemoryAccessor.copyMemoryNN(srcData.address + srcOffset, 
         address + destOffset, length);
   }
 
@@ -568,7 +568,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
 
   final void copyFromMemory(long fromAddress, long len) {
     addressOutOfBoundsCheck(address, len, "copy from memory");
-    JniMemoryAccessor.copyMemory(null, fromAddress, null, address, len);
+    JniMemoryAccessor.copyMemoryNN(fromAddress, address, len);
   }
 
   /**
@@ -578,7 +578,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
    */
   final void copyToMemory(long toAddress, long len) {
     addressOutOfBoundsCheck(address, len, "copy to memory");
-    JniMemoryAccessor.copyMemory(null, address, null, toAddress, len);
+    JniMemoryAccessor.copyMemoryNN(address, toAddress, len);
   }
 
   /**
@@ -648,7 +648,7 @@ public class HostMemoryBuffer extends MemoryBuffer {
     boolean success = false;
     try {
       ret = allocate(len);
-      JniMemoryAccessor.copyMemory(null, address + offset, null, ret.getAddress(), len);
+      JniMemoryAccessor.copyMemoryNN(address + offset, ret.getAddress(), len);
       success = true;
       return ret;
     } finally {

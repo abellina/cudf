@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <jni.h>
+#include "cudf_jni_apis.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
@@ -90,123 +90,75 @@ Java_ai_rapids_cudf_JniMemoryAccessor_setMemory(JNIEnv* env, jclass,
 // Byte operations
 JNIEXPORT void JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_setByte(JNIEnv* env, jclass, jlong address, jbyte value) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return;
-  }
   *reinterpret_cast<jbyte*>(address) = value;
 }
 
 JNIEXPORT jbyte JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_getByte(JNIEnv* env, jclass, jlong address) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return 0;
-  }
   return *reinterpret_cast<jbyte*>(address);
 }
 
 // Int operations
 JNIEXPORT void JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_setInt(JNIEnv* env, jclass, jlong address, jint value) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return;
-  }
   *reinterpret_cast<jint*>(address) = value;
 }
 
 JNIEXPORT jint JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_getInt(JNIEnv* env, jclass, jlong address) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return 0;
-  }
   return *reinterpret_cast<jint*>(address);
 }
 
 // Long operations
 JNIEXPORT void JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_setLong(JNIEnv* env, jclass, jlong address, jlong value) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return;
-  }
   *reinterpret_cast<jlong*>(address) = value;
 }
 
 JNIEXPORT jlong JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_getLong(JNIEnv* env, jclass, jlong address) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return 0;
-  }
   return *reinterpret_cast<jlong*>(address);
 }
 
 // Short operations
 JNIEXPORT void JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_setShort(JNIEnv* env, jclass, jlong address, jshort value) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return;
-  }
   *reinterpret_cast<jshort*>(address) = value;
 }
 
 JNIEXPORT jshort JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_getShort(JNIEnv* env, jclass, jlong address) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return 0;
-  }
   return *reinterpret_cast<jshort*>(address);
 }
 
 // Double operations
 JNIEXPORT void JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_setDouble(JNIEnv* env, jclass, jlong address, jdouble value) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return;
-  }
   *reinterpret_cast<jdouble*>(address) = value;
 }
 
 JNIEXPORT jdouble JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_getDouble(JNIEnv* env, jclass, jlong address) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return 0.0;
-  }
   return *reinterpret_cast<jdouble*>(address);
 }
 
 // Float operations
 JNIEXPORT void JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_setFloat(JNIEnv* env, jclass, jlong address, jfloat value) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return;
-  }
   *reinterpret_cast<jfloat*>(address) = value;
 }
 
 JNIEXPORT jfloat JNICALL
 Java_ai_rapids_cudf_JniMemoryAccessor_getFloat(JNIEnv* env, jclass, jlong address) {
-  if (address == 0) {
-    throw_index_out_of_bounds(env, "Null pointer access");
-    return 0.0f;
-  }
   return *reinterpret_cast<jfloat*>(address);
 }
 
 // Copy memory - the most complex operation
 JNIEXPORT void JNICALL
-Java_ai_rapids_cudf_JniMemoryAccessor_copyMemoryNative(JNIEnv* env, jclass,
-                                                       jobject src, jlong srcOffset,
-                                                       jobject dst, jlong dstOffset,
-                                                       jlong length) {
+Java_ai_rapids_cudf_JniMemoryAccessor_copyMemoryJJ(JNIEnv* env, jclass,
+                                                   jobject src, jlong srcOffset,
+                                                   jobject dst, jlong dstOffset,
+                                                   jlong length) {
   if (length <= 0) {
     return; // Nothing to copy
   }
@@ -217,60 +169,39 @@ Java_ai_rapids_cudf_JniMemoryAccessor_copyMemoryNative(JNIEnv* env, jclass,
   void* dst_array_critical = nullptr;
   
   try {
-    // Handle source
-    if (src != nullptr) {
-      // Source is a Java array
-      src_array_critical = env->GetPrimitiveArrayCritical(static_cast<jarray>(src), nullptr);
-      if (src_array_critical == nullptr) {
-        throw_out_of_memory(env, "Failed to get source array critical");
-        return;
-      }
-      src_ptr = static_cast<char*>(src_array_critical) + srcOffset;
-    } else {
-      // Source is native memory
-      if (srcOffset == 0) {
-        throw_index_out_of_bounds(env, "Null source pointer");
-        return;
-      }
-      src_ptr = reinterpret_cast<void*>(srcOffset);
+    // Source is a Java array
+    src_array_critical = env->GetPrimitiveArrayCritical(static_cast<jarray>(src), nullptr);
+    if (src_array_critical == nullptr) {
+      throw_out_of_memory(env, "Failed to get source array critical");
+      return;
     }
+    src_ptr = static_cast<char*>(src_array_critical) + srcOffset;
     
-    // Handle destination
-    if (dst != nullptr) {
-      // Destination is a Java array
-      dst_array_critical = env->GetPrimitiveArrayCritical(static_cast<jarray>(dst), nullptr);
-      if (dst_array_critical == nullptr) {
-        if (src_array_critical != nullptr) {
-          env->ReleasePrimitiveArrayCritical(static_cast<jarray>(src), src_array_critical, JNI_ABORT);
-        }
-        throw_out_of_memory(env, "Failed to get destination array critical");
-        return;
+    // Destination is a Java array
+    dst_array_critical = env->GetPrimitiveArrayCritical(static_cast<jarray>(dst), nullptr);
+    if (dst_array_critical == nullptr) {
+      if (src_array_critical != nullptr) {
+        env->ReleasePrimitiveArrayCritical(static_cast<jarray>(src), src_array_critical, JNI_ABORT);
       }
-      dst_ptr = static_cast<char*>(dst_array_critical) + dstOffset;
-    } else {
-      // Destination is native memory
-      if (dstOffset == 0) {
-        if (src_array_critical != nullptr) {
-          env->ReleasePrimitiveArrayCritical(static_cast<jarray>(src), src_array_critical, JNI_ABORT);
-        }
-        throw_index_out_of_bounds(env, "Null destination pointer");
-        return;
-      }
-      dst_ptr = reinterpret_cast<void*>(dstOffset);
+      throw_out_of_memory(env, "Failed to get destination array critical");
+      return;
     }
-    
+    dst_ptr = static_cast<char*>(dst_array_critical) + dstOffset;
+
     // Perform the copy
     std::memmove(dst_ptr, src_ptr, static_cast<size_t>(length));
     
     // Release array critical sections
     if (src_array_critical != nullptr) {
+      // Use JNI_ABORT for source array since we only read from it
       env->ReleasePrimitiveArrayCritical(static_cast<jarray>(src), src_array_critical, JNI_ABORT);
     }
     if (dst_array_critical != nullptr) {
+      // Use 0 to commit changes to destination array
       env->ReleasePrimitiveArrayCritical(static_cast<jarray>(dst), dst_array_critical, 0);
     }
     
-  } catch (const std::exception& e) {
+  } catch (const std::exception& e) {   
     // Clean up on exception
     if (src_array_critical != nullptr) {
       env->ReleasePrimitiveArrayCritical(static_cast<jarray>(src), src_array_critical, JNI_ABORT);
@@ -279,6 +210,145 @@ Java_ai_rapids_cudf_JniMemoryAccessor_copyMemoryNative(JNIEnv* env, jclass,
       env->ReleasePrimitiveArrayCritical(static_cast<jarray>(dst), dst_array_critical, JNI_ABORT);
     }
     
+    jclass exception_class = env->FindClass("java/lang/RuntimeException");
+    if (exception_class != nullptr) {
+      env->ThrowNew(exception_class, e.what());
+    }
+  }
+}
+
+JNIEXPORT void JNICALL
+Java_ai_rapids_cudf_JniMemoryAccessor_copyMemoryNJ(JNIEnv* env, jclass,
+                                                   jlong srcOffset,
+                                                   jobject dst, jlong dstOffset,
+                                                   jlong length) {
+  if (length <= 0) {
+    return; // Nothing to copy
+  }
+  
+  void* src_ptr = nullptr;
+  void* dst_ptr = nullptr;
+  void* dst_array_critical = nullptr;
+  
+  try {
+    // Source is native memory
+    if (srcOffset == 0) {
+      throw_index_out_of_bounds(env, "Null source pointer");
+      return;
+    }
+    src_ptr = reinterpret_cast<void*>(srcOffset);
+    
+    // Destination is a Java array
+    dst_array_critical = env->GetPrimitiveArrayCritical(static_cast<jarray>(dst), nullptr);
+    if (dst_array_critical == nullptr) {
+      throw_out_of_memory(env, "Failed to get destination array critical");
+      return;
+    }
+    dst_ptr = static_cast<char*>(dst_array_critical) + dstOffset;
+
+    // Perform the copy
+    std::memmove(dst_ptr, src_ptr, static_cast<size_t>(length));
+    
+    if (dst_array_critical != nullptr) {
+      // Use 0 to commit changes to destination array
+      env->ReleasePrimitiveArrayCritical(static_cast<jarray>(dst), dst_array_critical, 0);
+    }
+  } catch (const std::exception& e) {   
+    // Clean up on exception
+    if (dst_array_critical != nullptr) {
+      env->ReleasePrimitiveArrayCritical(static_cast<jarray>(dst), dst_array_critical, JNI_ABORT);
+    }
+    jclass exception_class = env->FindClass("java/lang/RuntimeException");
+    if (exception_class != nullptr) {
+      env->ThrowNew(exception_class, e.what());
+    }
+  }
+}
+
+JNIEXPORT void JNICALL
+Java_ai_rapids_cudf_JniMemoryAccessor_copyMemoryJN(JNIEnv* env, jclass,
+                                                   jobject src, jlong srcOffset,
+                                                   jlong dstOffset,
+                                                   jlong length) {
+  if (length <= 0) {
+    return; // Nothing to copy
+  }
+  
+  void* src_ptr = nullptr;
+  void* dst_ptr = nullptr;
+  void* src_array_critical = nullptr;
+  
+  try {
+    // Source is a Java array
+    src_array_critical = env->GetPrimitiveArrayCritical(static_cast<jarray>(src), nullptr);
+    if (src_array_critical == nullptr) {
+      throw_out_of_memory(env, "Failed to get source array critical");
+      return;
+    }
+    src_ptr = static_cast<char*>(src_array_critical) + srcOffset;
+
+    // Destination is native memory
+    if (dstOffset == 0) {
+      if (src_array_critical != nullptr) {
+        env->ReleasePrimitiveArrayCritical(static_cast<jarray>(src), src_array_critical, JNI_ABORT);
+      }
+      throw_index_out_of_bounds(env, "Null destination pointer");
+      return;
+    }
+    dst_ptr = reinterpret_cast<void*>(dstOffset);
+
+    // Perform the copy
+    std::memmove(dst_ptr, src_ptr, static_cast<size_t>(length));
+    
+    // Release array critical sections
+    if (src_array_critical != nullptr) {
+      // Use JNI_ABORT for source array since we only read from it
+      env->ReleasePrimitiveArrayCritical(static_cast<jarray>(src), src_array_critical, JNI_ABORT);
+    }
+    
+  } catch (const std::exception& e) {   
+    // Clean up on exception
+    if (src_array_critical != nullptr) {
+      env->ReleasePrimitiveArrayCritical(static_cast<jarray>(src), src_array_critical, JNI_ABORT);
+    }
+    
+    jclass exception_class = env->FindClass("java/lang/RuntimeException");
+    if (exception_class != nullptr) {
+      env->ThrowNew(exception_class, e.what());
+    }
+  }
+}
+
+JNIEXPORT void JNICALL
+Java_ai_rapids_cudf_JniMemoryAccessor_copyMemoryNN(JNIEnv* env, jclass,
+                                                   jlong srcOffset,
+                                                   jlong dstOffset,
+                                                   jlong length) {
+  if (length <= 0) {
+    return; // Nothing to copy
+  }
+  
+  void* src_ptr = nullptr;
+  void* dst_ptr = nullptr;
+  
+  try {
+    // Source is native memory
+    if (srcOffset == 0) {
+      throw_index_out_of_bounds(env, "Null source pointer");
+      return;
+    }
+    src_ptr = reinterpret_cast<void*>(srcOffset);
+    
+    // Destination is native memory
+    if (dstOffset == 0) {
+      throw_index_out_of_bounds(env, "Null destination pointer");
+      return;
+    }
+    dst_ptr = reinterpret_cast<void*>(dstOffset);
+
+    // Perform the copy
+    std::memmove(dst_ptr, src_ptr, static_cast<size_t>(length));
+  } catch (const std::exception& e) {   
     jclass exception_class = env->FindClass("java/lang/RuntimeException");
     if (exception_class != nullptr) {
       env->ThrowNew(exception_class, e.what());

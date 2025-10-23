@@ -28,33 +28,16 @@ import org.slf4j.LoggerFactory;
  * This class provides all the functionality of UnsafeMemoryAccessor but implemented
  * through native JNI calls for better compatibility and safety.
  */
-class JniMemoryAccessor {
-
-  /**
-   * Array base offsets for different primitive types.
-   * These are computed in native code to match the JVM's internal layout.
-   */
-  public static final long BYTE_ARRAY_OFFSET;
-  public static final long SHORT_ARRAY_OFFSET;
-  public static final long INT_ARRAY_OFFSET;
-  public static final long LONG_ARRAY_OFFSET;
-  public static final long FLOAT_ARRAY_OFFSET;
-  public static final long DOUBLE_ARRAY_OFFSET;
-
+public class JniMemoryAccessor {
   private static final Logger log = LoggerFactory.getLogger(JniMemoryAccessor.class);
 
   static {
+    NativeDepsLoader.loadNativeDeps();
     sun.misc.Unsafe unsafe = null;
     try {
       Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
       unsafeField.setAccessible(true);
       unsafe = (sun.misc.Unsafe) unsafeField.get(null);
-      BYTE_ARRAY_OFFSET = unsafe.arrayBaseOffset(byte[].class);
-      SHORT_ARRAY_OFFSET = unsafe.arrayBaseOffset(short[].class);
-      INT_ARRAY_OFFSET = unsafe.arrayBaseOffset(int[].class);
-      LONG_ARRAY_OFFSET = unsafe.arrayBaseOffset(long[].class);
-      FLOAT_ARRAY_OFFSET = unsafe.arrayBaseOffset(float[].class);
-      DOUBLE_ARRAY_OFFSET = unsafe.arrayBaseOffset(double[].class);
     } catch (Throwable t) {
       log.error("Failed to get unsafe object, got this error: ", t);
       throw new NullPointerException("Failed to get unsafe object, got this error: " + t.getMessage());
@@ -106,7 +89,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void setBytes(long address, byte[] values, long offset, long len) {
-    copyMemory(values, BYTE_ARRAY_OFFSET + offset, null, address, len);
+    copyMemoryJN(values, offset, address, len);
   }
 
   /**
@@ -126,7 +109,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void getBytes(byte[] dst, long dstOffset, long address, long len) {
-    copyMemory(null, address, dst, BYTE_ARRAY_OFFSET + dstOffset, len);
+    copyMemoryNJ(address, dst, dstOffset, len);
   }
 
   /**
@@ -146,7 +129,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void getInts(int[] dst, long dstIndex, long address, int count) {
-    copyMemory(null, address, dst, INT_ARRAY_OFFSET + (dstIndex * 4), count * 4L);
+    copyMemoryNJ(address, dst, (dstIndex * 4), count * 4L);
   }
 
   /**
@@ -166,7 +149,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void setInts(long address, int[] values, long offset, long len) {
-    copyMemory(values, INT_ARRAY_OFFSET + (offset * 4), null, address, len * 4);
+    copyMemoryJN(values, (offset * 4), address, len * 4);
   }
 
   /**
@@ -186,7 +169,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void setLongs(long address, long[] values, long offset, long len) {
-    copyMemory(values, LONG_ARRAY_OFFSET + (offset * 8), null, address, len * 8);
+    copyMemoryJN(values, (offset * 8), address, len * 8);
   }
 
   /**
@@ -206,7 +189,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void getLongs(long[] dst, long dstIndex, long address, int count) {
-    copyMemory(null, address, dst, LONG_ARRAY_OFFSET + (dstIndex * 8), count * 8L);
+    copyMemoryNJ(address, dst, (dstIndex * 8), count * 8L);
   }
 
   /**
@@ -234,7 +217,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void setShorts(long address, short[] values, long offset, long len) {
-    copyMemory(values, SHORT_ARRAY_OFFSET + (offset * 2), null, address, len * 2);
+    copyMemoryJN(values, (offset * 2), address, len * 2);
   }
 
   /**
@@ -254,7 +237,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void setDoubles(long address, double[] values, long offset, long len) {
-    copyMemory(values, DOUBLE_ARRAY_OFFSET + (offset * 8), null, address, len * 8);
+    copyMemoryJN(values, (offset * 8), address, len * 8);
   }
 
   /**
@@ -290,7 +273,7 @@ class JniMemoryAccessor {
    * @throws IndexOutOfBoundsException
    */
   public static void setFloats(long address, float[] values, long offset, long len) {
-    copyMemory(values, FLOAT_ARRAY_OFFSET + (offset * 4), null, address, len * 4);
+    copyMemoryJN(values, (offset * 4), address, len * 4);
   }
 
   /**
@@ -313,19 +296,14 @@ class JniMemoryAccessor {
     setByte(address, (byte) (value ? 1 : 0));
   }
 
-  /**
-   * Copy memory from one address to another, or between arrays and native memory.
-   * Handles overlapping regions correctly by choosing forward or backward copy direction.
-   * 
-   * @param src source object (array) or null for native memory
-   * @param srcOffset offset in source (array index offset or native address)
-   * @param dst destination object (array) or null for native memory
-   * @param dstOffset offset in destination (array index offset or native address)
-   * @param length number of bytes to copy
-   */
-  public static void copyMemory(Object src, long srcOffset, Object dst, long dstOffset,
-                                long length) {
-    copyMemoryNative(src, srcOffset, dst, dstOffset, length);
+  static void copyMemory(Object src, long srcOffset, 
+                         Object dst, long dstOffset, long length) {
+    copyMemoryJJ(src, srcOffset, dst, dstOffset, length);
+  }
+
+  static void copyMemory(long srcOffset, 
+                         long dstOffset, long length) {
+    copyMemoryNN(srcOffset, dstOffset, length);
   }
 
   /**
@@ -336,7 +314,13 @@ class JniMemoryAccessor {
    * @param dstOffset offset in destination
    * @param length number of bytes to copy
    */
-  private static native void copyMemoryNative(Object src, long srcOffset, 
-                                              Object dst, long dstOffset, long length);
+  public static native void copyMemoryJJ(Object src, long srcOffset, 
+                                  Object dst, long dstOffset, long length);
+  public static native void copyMemoryNJ(long srcOffset, 
+                                  Object dst, long dstOffset, long length);
+  public static native void copyMemoryJN(Object src, long srcOffset, 
+                                  long dstOffset, long length);
+  public static native void copyMemoryNN(long srcOffset, 
+                                  long dstOffset, long length);
 }
 
