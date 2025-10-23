@@ -392,12 +392,11 @@ public class Schema {
       if (topLevelType == DType.LIST && names.size() > 0) {
         throw new IllegalStateException("A LIST column can only have one child");
       }
-      if (names.contains(name)) {
+      if (!names.add(name)) {
         throw new IllegalStateException("Cannot add duplicate names to a schema");
       }
       Builder ret = new Builder(type, precision);
       types.add(ret);
-      names.add(name);
       return ret;
     }
 
