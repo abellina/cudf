@@ -47,6 +47,13 @@ class compiled_expr {
     return static_cast<cudf::ast::column_reference&>(*expressions.back());
   }
 
+  cudf::ast::column_name_reference& add_column_name_ref(
+    std::unique_ptr<cudf::ast::column_name_reference> ref_ptr)
+  {
+    expressions.push_back(std::move(ref_ptr));
+    return static_cast<cudf::ast::column_name_reference&>(*expressions.back());
+  }
+
   cudf::ast::operation& add_operation(std::unique_ptr<cudf::ast::operation> expr_ptr)
   {
     expressions.push_back(std::move(expr_ptr));

@@ -168,6 +168,7 @@ add_library(
   src/HostMemoryBufferNativeUtilsJni.cpp
   src/KeyRemappingJni.cpp
   src/HostUDFWrapperJni.cpp
+  src/HybridScanReaderJni.cpp
   src/NvcompJni.cpp
   src/NvtxRangeJni.cpp
   src/NvtxUniqueRangeJni.cpp

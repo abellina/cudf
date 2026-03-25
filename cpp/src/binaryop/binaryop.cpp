@@ -50,6 +50,53 @@
 namespace cudf {
 namespace binops {
 
+namespace {
+/**
+ * @brief Returns a string representation of a binary_operator
+ */
+char const* binary_operator_name(binary_operator op)
+{
+  switch (op) {
+    case binary_operator::ADD: return "ADD";
+    case binary_operator::SUB: return "SUB";
+    case binary_operator::MUL: return "MUL";
+    case binary_operator::DIV: return "DIV";
+    case binary_operator::TRUE_DIV: return "TRUE_DIV";
+    case binary_operator::FLOOR_DIV: return "FLOOR_DIV";
+    case binary_operator::MOD: return "MOD";
+    case binary_operator::PMOD: return "PMOD";
+    case binary_operator::PYMOD: return "PYMOD";
+    case binary_operator::POW: return "POW";
+    case binary_operator::INT_POW: return "INT_POW";
+    case binary_operator::LOG_BASE: return "LOG_BASE";
+    case binary_operator::ATAN2: return "ATAN2";
+    case binary_operator::SHIFT_LEFT: return "SHIFT_LEFT";
+    case binary_operator::SHIFT_RIGHT: return "SHIFT_RIGHT";
+    case binary_operator::SHIFT_RIGHT_UNSIGNED: return "SHIFT_RIGHT_UNSIGNED";
+    case binary_operator::BITWISE_AND: return "BITWISE_AND";
+    case binary_operator::BITWISE_OR: return "BITWISE_OR";
+    case binary_operator::BITWISE_XOR: return "BITWISE_XOR";
+    case binary_operator::LOGICAL_AND: return "LOGICAL_AND";
+    case binary_operator::LOGICAL_OR: return "LOGICAL_OR";
+    case binary_operator::EQUAL: return "EQUAL";
+    case binary_operator::NOT_EQUAL: return "NOT_EQUAL";
+    case binary_operator::LESS: return "LESS";
+    case binary_operator::GREATER: return "GREATER";
+    case binary_operator::LESS_EQUAL: return "LESS_EQUAL";
+    case binary_operator::GREATER_EQUAL: return "GREATER_EQUAL";
+    case binary_operator::NULL_EQUALS: return "NULL_EQUALS";
+    case binary_operator::NULL_NOT_EQUALS: return "NULL_NOT_EQUALS";
+    case binary_operator::NULL_MAX: return "NULL_MAX";
+    case binary_operator::NULL_MIN: return "NULL_MIN";
+    case binary_operator::GENERIC_BINARY: return "GENERIC_BINARY";
+    case binary_operator::NULL_LOGICAL_AND: return "NULL_LOGICAL_AND";
+    case binary_operator::NULL_LOGICAL_OR: return "NULL_LOGICAL_OR";
+    case binary_operator::INVALID_BINARY: return "INVALID_BINARY";
+    default: return "UNKNOWN";
+  }
+}
+}  // namespace
+
 bool is_supported_operation(data_type out, data_type lhs, data_type rhs, binary_operator op)
 {
   return cudf::binops::compiled::is_supported_operation(out, lhs, rhs, op);
@@ -211,8 +258,12 @@ std::unique_ptr<column> binary_operation(LhsType const& lhs,
       (op == binary_operator::NULL_MAX or op == binary_operator::NULL_MIN))
     return cudf::binops::compiled::string_null_min_max(lhs, rhs, op, output_type, stream, mr);
 
-  if (not cudf::binops::compiled::is_supported_operation(output_type, lhs.type(), rhs.type(), op))
-    CUDF_FAIL("Unsupported operator for these types", cudf::data_type_error);
+  if (not cudf::binops::compiled::is_supported_operation(output_type, lhs.type(), rhs.type(), op)) {
+    CUDF_FAIL("Unsupported operator for these types: " + std::string(binary_operator_name(op)) +
+                " with output type " + cudf::type_to_name(output_type) + ", lhs type " +
+                cudf::type_to_name(lhs.type()) + ", rhs type " + cudf::type_to_name(rhs.type()),
+              cudf::data_type_error);
+  }
 
   if (cudf::is_fixed_point(lhs.type()) or cudf::is_fixed_point(rhs.type())) {
     cudf::binops::compiled::fixed_point_binary_operation_validation(

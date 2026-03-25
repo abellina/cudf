@@ -230,7 +230,12 @@ inline void jni_cuda_check(JNIEnv* const env, cudaError_t cuda_status)
 // The JNI_CATCH macro consists of several smaller catch macros to allow inserting more catch
 // blocks if needed. The macro JNI_CATCH_BEGIN must always be called before any catch block,
 // and CATCH_STD_EXCEPTION must always be called last.
-#define JNI_TRY                       try {
+//
+// JNI_TRY includes optional instrumentation (NVTX ranges + sleep) that can be configured
+// in jni_instrumentation.hpp. Set CUDF_JNI_ENABLE_INSTRUMENTATION to 0 to disable.
+#include "jni_instrumentation.hpp"
+
+#define JNI_TRY                       JNI_INSTRUMENTATION_SCOPE; try {
 #define JNI_CATCH_BEGIN(env, ret_val) }  // no-op by default
 #define JNI_CATCH(env, ret_val)         \
   JNI_CATCH_BEGIN(env, ret_val)         \

@@ -1,11 +1,13 @@
 /*
  *
- *  SPDX-FileCopyrightText: Copyright (c) 2019, NVIDIA CORPORATION.
+ *  SPDX-FileCopyrightText: Copyright (c) 2019-2025, NVIDIA CORPORATION.
  *  SPDX-License-Identifier: Apache-2.0
  *
  */
 
 package ai.rapids.cudf;
+
+import ai.rapids.cudf.ast.CompiledExpression;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -20,6 +22,7 @@ public class ParquetOptions extends ColumnFilterOptions {
 
   private final DType unit;
   private final boolean[] readBinaryAsString;
+  private final CompiledExpression filter;
 
   private ParquetOptions(Builder builder) {
     super(builder);
@@ -28,6 +31,7 @@ public class ParquetOptions extends ColumnFilterOptions {
     for (int i = 0 ; i < builder.binaryAsStringColumns.size() ; i++) {
       readBinaryAsString[i] = builder.binaryAsStringColumns.get(i);
     }
+    filter = builder.filter;
   }
 
   DType timeUnit() {
@@ -38,6 +42,22 @@ public class ParquetOptions extends ColumnFilterOptions {
     return readBinaryAsString;
   }
 
+  /**
+   * Returns the filter expression to apply during parquet reading, or null if no filter.
+   * The filter uses AST expressions to enable row group filtering based on statistics,
+   * dictionary filtering, and optionally bloom filter filtering.
+   */
+  CompiledExpression getFilter() {
+    return filter;
+  }
+
+  /**
+   * Returns true if a filter expression has been set.
+   */
+  boolean hasFilter() {
+    return filter != null;
+  }
+
   public static ParquetOptions.Builder builder() {
     return new Builder();
   }
@@ -45,6 +65,7 @@ public class ParquetOptions extends ColumnFilterOptions {
   public static class Builder extends ColumnFilterOptions.Builder<Builder> {
     private DType unit = DType.EMPTY;
     final List<Boolean> binaryAsStringColumns = new ArrayList<>();
+    private CompiledExpression filter = null;
 
     /**
      * Specify the time unit to use when returning timestamps.
@@ -54,6 +75,22 @@ public class ParquetOptions extends ColumnFilterOptions {
     public Builder withTimeUnit(DType unit) {
       assert unit.isTimestampType();
       this.unit = unit;
+      return this;
+    }
+
+    /**
+     * Set a filter expression to apply during parquet reading.
+     * The filter uses AST expressions to enable row group filtering based on statistics,
+     * dictionary filtering, and optionally bloom filter filtering.
+     * 
+     * Note: The caller is responsible for closing the CompiledExpression after the
+     * parquet read operation is complete.
+     * 
+     * @param filter the compiled AST expression to use as a filter
+     * @return builder for chaining
+     */
+    public Builder withFilter(CompiledExpression filter) {
+      this.filter = filter;
       return this;
     }
 

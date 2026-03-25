@@ -304,13 +304,16 @@ public final class Table implements AutoCloseable {
    * @param filePath           the path of the file to read, or null if no path should be read.
    * @param addrsAndSizes      the address and size pairs for every buffer or null for no buffers.
    * @param timeUnit           return type of TimeStamp in units
+   * @param filterHandle       handle to a compiled AST expression for filtering, or 0 for no filter
    */
   private static native long[] readParquet(String[] filterColumnNames, boolean[] binaryToString, String filePath,
-                                           long[] addrsAndSizes, int timeUnit) throws CudfException;
+                                           long[] addrsAndSizes, int timeUnit,
+                                           long filterHandle) throws CudfException;
 
   private static native long[] readParquetFromDataSource(String[] filterColumnNames,
                                                          boolean[] binaryToString, int timeUnit,
-                                                         long dataSourceHandle) throws CudfException;
+                                                         long dataSourceHandle,
+                                                         long filterHandle) throws CudfException;
 
   /**
    * Read in Avro formatted data.
@@ -1349,8 +1352,9 @@ public final class Table implements AutoCloseable {
    * @return the file parsed as a table on the GPU.
    */
   public static Table readParquet(ParquetOptions opts, File path) {
+    long filterHandle = opts.hasFilter() ? opts.getFilter().getNativeHandle() : 0;
     return new Table(readParquet(opts.getIncludeColumnNames(), opts.getReadBinaryAsString(),
-        path.getAbsolutePath(), null, opts.timeUnit().typeId.getNativeId()));
+        path.getAbsolutePath(), null, opts.timeUnit().typeId.getNativeId(), filterHandle));
   }
 
   /**
@@ -1424,8 +1428,9 @@ public final class Table implements AutoCloseable {
     assert len <= buffer.getLength() - offset;
     assert offset >= 0 && offset < buffer.length;
     long[] addrsSizes = new long[]{ buffer.getAddress() + offset, len };
+    long filterHandle = opts.hasFilter() ? opts.getFilter().getNativeHandle() : 0;
     return new Table(readParquet(opts.getIncludeColumnNames(), opts.getReadBinaryAsString(),
-        null, addrsSizes, opts.timeUnit().typeId.getNativeId()));
+        null, addrsSizes, opts.timeUnit().typeId.getNativeId(), filterHandle));
   }
 
   /**
@@ -1442,8 +1447,9 @@ public final class Table implements AutoCloseable {
       addrsSizes[i * 2] = buffers[i].getAddress();
       addrsSizes[(i * 2) + 1] = buffers[i].getLength();
     }
+    long filterHandle = opts.hasFilter() ? opts.getFilter().getNativeHandle() : 0;
     return new Table(readParquet(opts.getIncludeColumnNames(), opts.getReadBinaryAsString(),
-        null, addrsSizes, opts.timeUnit().typeId.getNativeId()));
+        null, addrsSizes, opts.timeUnit().typeId.getNativeId(), filterHandle));
   }
 
   /**
@@ -1455,9 +1461,10 @@ public final class Table implements AutoCloseable {
   public static Table readParquet(ParquetOptions opts, DataSource ds) {
     long dataSourceHandle = DataSourceHelper.createWrapperDataSource(ds);
     try {
+      long filterHandle = opts.hasFilter() ? opts.getFilter().getNativeHandle() : 0;
       return new Table(readParquetFromDataSource(opts.getIncludeColumnNames(),
               opts.getReadBinaryAsString(), opts.timeUnit().typeId.getNativeId(),
-              dataSourceHandle));
+              dataSourceHandle, filterHandle));
     } finally {
       DataSourceHelper.destroyWrapperDataSource(dataSourceHandle);
     }
