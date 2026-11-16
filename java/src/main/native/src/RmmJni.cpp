@@ -906,6 +906,12 @@ static_assert(cuda::mr::resource_with<pinned_fallback_host_memory_resource,
 // we set this to our fallback resource if we have set it.
 std::unique_ptr<pinned_fallback_host_memory_resource> pinned_fallback_mr;
 
+// The CUDA memory pool behind each async memory resource, keyed by the JNI resource handle, so
+// getCudaAsyncPoolHandle can return it after the resource is type-erased. The pool is owned by the
+// resource.
+std::mutex async_pools_mutex;
+std::unordered_map<jlong, cudaMemPool_t> async_pools;
+
 }  // anonymous namespace
 
 extern "C" {
@@ -1094,17 +1100,28 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_releaseArenaMemoryResource(JNIEnv
 }
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newCudaAsyncMemoryResource(
-  JNIEnv* env, jclass clazz, jlong init, jlong release, jboolean fabric)
+  JNIEnv* env, jclass clazz, jlong init, jlong release, jint handle_type)
 {
+  JNI_ARG_CHECK(env, handle_type >= 0 && handle_type <= 2, "unsupported handle type", 0);
   JNI_TRY
   {
     cudf::jni::auto_set_device(env);
 
-    auto handle_type =
-      fabric ? std::optional{rmm::mr::cuda_async_memory_resource::allocation_handle_type::fabric}
-             : std::nullopt;
+    // Matches the HANDLE_TYPE_* constants in RmmCudaAsyncMemoryResource.java.
+    using ht = rmm::mr::cuda_async_memory_resource::allocation_handle_type;
+    std::optional<ht> export_type;
+    if (handle_type == 1) {
+      export_type = ht::fabric;
+    } else if (handle_type == 2) {
+      export_type = ht::posix_file_descriptor;
+    }
 
-    return make_jni_resource(rmm::mr::cuda_async_memory_resource{init, release, handle_type});
+    rmm::mr::cuda_async_memory_resource res{init, release, export_type};
+    cudaMemPool_t pool = res.pool_handle();
+    jlong handle       = make_jni_resource(std::move(res));
+    std::lock_guard<std::mutex> lock(async_pools_mutex);
+    async_pools.emplace(handle, pool);
+    return handle;
   }
   JNI_CATCH(env, 0);
 }
@@ -1116,9 +1133,27 @@ JNIEXPORT void JNICALL Java_ai_rapids_cudf_Rmm_releaseCudaAsyncMemoryResource(JN
   JNI_TRY
   {
     cudf::jni::auto_set_device(env);
+    {
+      std::lock_guard<std::mutex> lock(async_pools_mutex);
+      async_pools.erase(ptr);
+    }
     delete_jni_resource(ptr);
   }
   JNI_CATCH(env, );
+}
+
+JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_getCudaAsyncPoolHandle(JNIEnv* env,
+                                                                       jclass clazz,
+                                                                       jlong ptr)
+{
+  JNI_TRY
+  {
+    std::lock_guard<std::mutex> lock(async_pools_mutex);
+    auto it = async_pools.find(ptr);
+    CUDF_EXPECTS(it != async_pools.end(), "no CUDA memory pool recorded for resource");
+    return reinterpret_cast<jlong>(it->second);
+  }
+  JNI_CATCH(env, 0);
 }
 
 JNIEXPORT jlong JNICALL Java_ai_rapids_cudf_Rmm_newLimitingResourceAdaptor(
